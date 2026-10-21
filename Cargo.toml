@@ -1,0 +1,12 @@
+[package]
+name = "daw"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cpal = "0.15"
+eframe = "0.29"
+
+[profile.release]
+lto = true
+codegen-units = 1
