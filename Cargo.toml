@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 cpal = "0.15"
 eframe = "0.29"
+midir = "0.10"
 
 [profile.release]
 lto = true

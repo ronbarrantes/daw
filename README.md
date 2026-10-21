@@ -1,6 +1,6 @@
 # daw
 
-A tiny, lightweight DAW in Rust. Right now: a 4-track, 16-step drum machine.
+A tiny, lightweight DAW in Rust. Right now: a 4-track, 16-step drum machine that talks MIDI.
 
 ## Setup (once)
 
@@ -37,10 +37,21 @@ The first build takes a few minutes. After that it's fast.
 - Click a drum name to hear it.
 - Drag **BPM** to change the tempo.
 
+### MIDI
+
+Plug gear in over USB (or a USB-MIDI cable), then press **⟳** to rescan.
+
+- **MIDI out:** sends clock, Start/Stop and, with **Send notes** on, the
+  drum hits on channel 10 (Kick 36, Snare 38, Hat 42, Clap 39). Other gear
+  follows the tempo; drum machines like the T-8 can play the pattern.
+- **MIDI in:** notes 36/38/42/39 from any channel play the drums.
+- **Follow MIDI clock:** the incoming clock sets the tempo, and the other
+  device's Start/Stop controls playback.
+
 ## Roadmap
 
 1. ~~Drum step sequencer~~
-2. MIDI clock and notes for the FM-1 and AIRA Compacts
+2. ~~MIDI clock and notes for the FM-1 and AIRA Compacts~~
 3. Built-in synth
 4. Recording
 5. Freesound.org sample browser
