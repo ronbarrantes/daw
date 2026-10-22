@@ -1,6 +1,7 @@
 mod audio;
 mod drums;
 mod midi;
+mod synth;
 
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::mpsc::sync_channel;
@@ -21,7 +22,7 @@ fn main() -> eframe::Result<()> {
     let error = stream.as_ref().err().cloned();
 
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([760.0, 280.0]),
+        viewport: egui::ViewportBuilder::default().with_inner_size([760.0, 600.0]),
         ..Default::default()
     };
     eframe::run_native(
@@ -45,6 +46,11 @@ impl eframe::App for App {
         if ctx.input(|i| i.key_pressed(egui::Key::Space)) {
             s.playing.store(!playing, Relaxed);
         }
+
+        egui::TopBottomPanel::bottom("melody").show(ctx, |ui| {
+            let current = playing.then(|| s.current_step.load(Relaxed));
+            melody_grid(ui, &s, current);
+        });
 
         egui::CentralPanel::default().show(ctx, |ui| {
             if let Some(err) = &self.error {
@@ -74,7 +80,6 @@ impl eframe::App for App {
             });
             self.midi_row(ui);
             ui.add_space(8.0);
-
             let current = playing.then(|| s.current_step.load(Relaxed));
             for track in 0..TRACKS {
                 ui.horizontal(|ui| {
@@ -147,7 +152,8 @@ fn port_picker(
     current: &Option<String>,
 ) -> Option<Option<String>> {
     let mut picked = None;
-    egui::ComboBox::from_label(label)
+    ui.label(label);
+    egui::ComboBox::from_id_salt(label)
         .selected_text(current.as_deref().unwrap_or("Off"))
         .width(140.0)
         .show_ui(ui, |ui| {
@@ -161,4 +167,67 @@ fn port_picker(
             }
         });
     picked
+}
+
+const NOTE_NAMES: [&str; 12] = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+
+fn melody_grid(ui: &mut egui::Ui, s: &Shared, current: Option<usize>) {
+    ui.add_space(6.0);
+    ui.horizontal(|ui| {
+        ui.strong("Melody");
+        let mut octave = s.octave.load(Relaxed);
+        ui.label("Octave");
+        if ui.add(egui::DragValue::new(&mut octave).range(1..=6)).changed() {
+            s.octave.store(octave, Relaxed);
+        }
+        // Shown 1-16 like on hardware, stored 0-15.
+        let mut channel = s.melody_channel.load(Relaxed) + 1;
+        ui.label("MIDI ch");
+        if ui.add(egui::DragValue::new(&mut channel).range(1..=16)).changed() {
+            s.melody_channel.store(channel - 1, Relaxed);
+        }
+        let mut synth = s.synth_on.load(Relaxed);
+        if ui.checkbox(&mut synth, "Built-in synth").changed() {
+            s.synth_on.store(synth, Relaxed);
+        }
+    });
+    ui.add_space(4.0);
+    ui.spacing_mut().item_spacing.y = 2.0;
+    // Highest note on top, like a piano roll.
+    for semitone in (0..12u8).rev() {
+        let name = NOTE_NAMES[semitone as usize];
+        let sharp = name.ends_with('#');
+        ui.horizontal(|ui| {
+            let key = egui::Button::new(name)
+                .fill(if sharp { Color32::from_gray(25) } else { Color32::from_gray(90) })
+                .min_size(Vec2::new(60.0, 18.0));
+            if ui.add(key).clicked() {
+                s.preview_note(semitone);
+            }
+            for step in 0..STEPS {
+                let on = s.melody_note(step) == Some(semitone);
+                let fill = match (on, (step / 4) % 2 == 0) {
+                    (true, _) => Color32::from_rgb(80, 180, 255),
+                    (false, true) => Color32::from_gray(if sharp { 50 } else { 60 }),
+                    (false, false) => Color32::from_gray(if sharp { 37 } else { 45 }),
+                };
+                let stroke = if current == Some(step) {
+                    Stroke::new(2.0_f32, Color32::WHITE)
+                } else {
+                    Stroke::NONE
+                };
+                let cell = egui::Button::new("")
+                    .fill(fill)
+                    .stroke(stroke)
+                    .min_size(Vec2::new(32.0, 18.0));
+                if ui.add(cell).clicked() {
+                    s.toggle_melody(step, semitone);
+                    if !on {
+                        s.preview_note(semitone);
+                    }
+                }
+            }
+        });
+    }
+    ui.add_space(6.0);
 }

@@ -1,10 +1,10 @@
-//! Audio engine: runs the step sequencer and mixes drum voices.
+//! Audio engine: runs the step sequencer and mixes drums and the synth.
 //!
 //! The UI and the audio thread share state through atomics only, so the
 //! audio callback never waits on a lock. Outgoing MIDI is queued on a
 //! bounded channel and written by the MIDI thread.
 
-use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, AtomicUsize, Ordering::Relaxed};
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, AtomicU8, AtomicUsize, Ordering::Relaxed};
 use std::sync::mpsc::SyncSender;
 use std::sync::Arc;
 
@@ -13,11 +13,16 @@ use cpal::{FromSample, SampleFormat, SizedSample};
 
 use crate::drums;
 use crate::midi::{self, Msg};
+use crate::synth::Voice;
 
 pub const TRACKS: usize = 4;
 pub const STEPS: usize = 16;
 /// MIDI clock runs at 24 ticks per beat, so a 16th-note step is 6 ticks.
 const TICKS_PER_STEP: u32 = 6;
+/// Marks a melody step with no note.
+const REST: u8 = u8::MAX;
+/// How long a clicked melody note sounds, in seconds.
+const PREVIEW_SECONDS: f32 = 0.3;
 
 pub struct Shared {
     /// One bit per step, one mask per track.
@@ -35,6 +40,15 @@ pub struct Shared {
     pub ext_ticks: AtomicU32,
     /// Set when MIDI in receives Start, so the engine rewinds to step 1.
     pub ext_start: AtomicBool,
+    /// Melody note per step, in semitones above the octave's C, or `REST`.
+    melody: [AtomicU8; STEPS],
+    pub octave: AtomicU8,
+    /// MIDI channel for the melody, 0-based (0 = channel 1).
+    pub melody_channel: AtomicU8,
+    /// Play the melody on the built-in synth (turn off to hear only MIDI gear).
+    pub synth_on: AtomicBool,
+    /// Melody note the UI wants to hear right now, or `REST`.
+    preview_note: AtomicU8,
 }
 
 impl Shared {
@@ -49,11 +63,20 @@ impl Shared {
             external_sync: AtomicBool::new(false),
             ext_ticks: AtomicU32::new(0),
             ext_start: AtomicBool::new(false),
+            melody: [const { AtomicU8::new(REST) }; STEPS],
+            octave: AtomicU8::new(3),
+            melody_channel: AtomicU8::new(0),
+            synth_on: AtomicBool::new(true),
+            preview_note: AtomicU8::new(REST),
         };
         // A basic beat so there's something to hear on first run.
         s.steps[0].store(0b0001_0001_0001_0001, Relaxed);
         s.steps[1].store(0b0001_0000_0001_0000, Relaxed);
         s.steps[2].store(0b0100_0100_0100_0100, Relaxed);
+        // A little C minor riff.
+        for (step, note) in [(0, 0), (3, 3), (6, 7), (8, 10), (10, 7), (12, 3), (14, 5)] {
+            s.melody[step].store(note, Relaxed);
+        }
         s
     }
 
@@ -69,6 +92,28 @@ impl Shared {
         for t in &self.steps {
             t.store(0, Relaxed);
         }
+        for m in &self.melody {
+            m.store(REST, Relaxed);
+        }
+    }
+
+    pub fn melody_note(&self, step: usize) -> Option<u8> {
+        Some(self.melody[step].load(Relaxed)).filter(|&n| n != REST)
+    }
+
+    /// Sets the step to `semitone`, or clears it if it already has that note.
+    pub fn toggle_melody(&self, step: usize, semitone: u8) {
+        let new = if self.melody_note(step) == Some(semitone) { REST } else { semitone };
+        self.melody[step].store(new, Relaxed);
+    }
+
+    /// MIDI note number of C in the current octave (octave 3 = C3 = 48).
+    pub fn base_note(&self) -> u8 {
+        12 * (self.octave.load(Relaxed) + 1)
+    }
+
+    pub fn preview_note(&self, semitone: u8) {
+        self.preview_note.store(semitone, Relaxed);
     }
 
     pub fn preview(&self, track: usize) {
@@ -95,6 +140,11 @@ struct Engine {
     samples_to_next_tick: f32,
     /// Tracks whose MIDI note is still on.
     held: u16,
+    synth: Voice,
+    /// Melody note (and its channel) that is still on.
+    melody_held: Option<(u8, u8)>,
+    /// Samples left before a clicked melody note is released.
+    preview_left: u32,
     was_playing: bool,
     sr: f32,
 }
@@ -109,6 +159,9 @@ impl Engine {
             tick: 0,
             samples_to_next_tick: 0.0,
             held: 0,
+            synth: Voice::new(sr),
+            melody_held: None,
+            preview_left: 0,
             was_playing: false,
             sr,
         }
@@ -136,6 +189,23 @@ impl Engine {
         self.held = 0;
     }
 
+    fn melody_on(&mut self, note: u8) {
+        self.melody_off();
+        let ch = self.shared.melody_channel.load(Relaxed) & 0x0F;
+        self.send(Msg::three(0x90 | ch, note, 100));
+        self.melody_held = Some((note, ch));
+        if self.shared.synth_on.load(Relaxed) {
+            self.synth.note_on(note);
+        }
+    }
+
+    fn melody_off(&mut self) {
+        if let Some((note, ch)) = self.melody_held.take() {
+            self.send(Msg::three(0x80 | ch, note, 0));
+        }
+        self.synth.note_off();
+    }
+
     fn on_tick(&mut self) {
         // Drum notes last one tick, then get their note-off.
         self.release_notes();
@@ -152,6 +222,12 @@ impl Engine {
                 }
                 self.held = mask;
             }
+            if let Some(semitone) = self.shared.melody_note(step) {
+                self.melody_on(self.shared.base_note() + semitone);
+            }
+        } else if self.tick % TICKS_PER_STEP == TICKS_PER_STEP - 1 && self.preview_left == 0 {
+            // Release just before the next step so repeated notes retrigger.
+            self.melody_off();
         }
         self.tick = (self.tick + 1) % (TICKS_PER_STEP * STEPS as u32);
     }
@@ -166,6 +242,7 @@ impl Engine {
                 self.samples_to_next_tick = 0.0;
             } else {
                 self.release_notes();
+                self.melody_off();
             }
             // When following another device, it owns Start/Stop.
             if !external {
@@ -197,6 +274,17 @@ impl Engine {
         if preview != 0 {
             self.trigger(preview);
         }
+        let note = self.shared.preview_note.swap(REST, Relaxed);
+        if note != REST {
+            self.melody_on(self.shared.base_note() + note);
+            self.preview_left = (PREVIEW_SECONDS * self.sr) as u32;
+        }
+        if self.preview_left > 0 {
+            self.preview_left -= 1;
+            if self.preview_left == 0 {
+                self.melody_off();
+            }
+        }
 
         let mut mix = 0.0;
         for (t, sample) in self.kit.iter().enumerate() {
@@ -205,6 +293,7 @@ impl Engine {
                 self.pos[t] += 1;
             }
         }
+        mix += self.synth.next_sample();
         (mix * 0.7).clamp(-1.0, 1.0)
     }
 }
@@ -296,5 +385,24 @@ mod tests {
         engine.next_sample();
         assert_eq!(shared.current_step.load(Relaxed), 1);
         assert!(rx.try_iter().all(|m| m.bytes() != [midi::CLOCK]), "no clock echo");
+    }
+
+    #[test]
+    fn plays_melody_on_its_channel() {
+        let (mut engine, shared, rx) = engine();
+        shared.melody_channel.store(1, Relaxed); // channel 2
+        shared.playing.store(true, Relaxed);
+        // One step at 120 BPM is 6000 samples.
+        let out: Vec<f32> = (0..6_000).map(|_| engine.next_sample()).collect();
+        let msgs: Vec<Msg> = rx.try_iter().collect();
+        assert!(msgs.contains(&Msg::three(0x91, 48, 100)), "C3 on channel 2");
+        assert!(msgs.contains(&Msg::three(0x81, 48, 0)), "and its note-off");
+        assert!(out.iter().all(|s| s.abs() <= 1.0));
+
+        // With drums cleared, what remains is the synth.
+        shared.clear();
+        shared.preview_note(7);
+        let out: Vec<f32> = (0..4_800).map(|_| engine.next_sample()).collect();
+        assert!(out.iter().any(|s| s.abs() > 0.05), "synth should be audible");
     }
 }
