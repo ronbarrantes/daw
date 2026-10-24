@@ -20,6 +20,25 @@ const SECTIONS: &[(&str, &str)] = &[
          bottom.",
     ),
     (
+        "Groups",
+        "Groups are folders of tracks, like layer groups in Photoshop.\n\n\
+         • Ctrl-click (Cmd on Mac) track names to pick several, then press \
+         Ctrl+G to group them. Or right-click a track name.\n\
+         • ▶/▼ collapses or expands a group. Collapsed, its row shows all its \
+         hits combined.\n\
+         • The group's M and S mute or solo all its tracks; click its name for \
+         a group volume.\n\
+         • Right-click a group's name to ungroup (the tracks stay).",
+    ),
+    (
+        "Showing and hiding",
+        "Hiding a part never deletes it or stops it playing.\n\n\
+         • View menu, or F5 song and patterns, F6 tracks, F7 piano roll, \
+         F8 instrument panel.\n\
+         • View → Focus: Tracks only, or Piano roll and sound.\n\
+         • F9 shows everything again.",
+    ),
+    (
         "Steps and groove",
         "• Click a step to turn it on or off.\n\
          • Shift-click a step for a ghost note (a quiet hit). Quieter steps \
@@ -89,6 +108,9 @@ const SECTIONS: &[(&str, &str)] = &[
     (
         "Shortcuts",
         "Space — play / stop\n\
+         Ctrl+G — group the picked tracks\n\
+         F5 / F6 / F7 / F8 — show or hide song, tracks, piano roll, panel\n\
+         F9 — show everything\n\
          A–P — play notes on the selected track\n\
          Z / X — octave down / up\n\
          F1 — this guide\n\

@@ -15,17 +15,18 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use eframe::egui::{self, Color32, RichText, Vec2};
+use eframe::egui::{self, Color32, RichText, Sense, Vec2};
 
 use audio::{Event, Shared};
 use midi::Midi;
 use project::{
-    Kind, Project, Sample, Step, Steps, Track, ACCENT, GHOST, MAX_RATCHET, MAX_TRACKS, NORMAL,
+    Kind, Project, Row, Sample, Step, Steps, Track, ACCENT, GHOST, MAX_RATCHET, MAX_TRACKS, NORMAL,
     PATTERNS, SONG_SLOTS, STEPS,
 };
 use synth::{Param, Unit, PARAMS};
 use widgets::{
-    empty_fill, knob, lit_fill, playhead, port_picker, DRUM_ON, NOTE_HELD, NOTE_NAMES, NOTE_ON,
+    disclosure_arrow, empty_fill, knob, lit_fill, playhead, port_picker, DRUM_ON, NOTE_HELD,
+    NOTE_NAMES, NOTE_ON,
 };
 
 const RECORDING: Color32 = Color32::from_rgb(220, 60, 60);
@@ -38,6 +39,15 @@ const TRACK_VOLUME: Param = Param {
     min: 0.0,
     max: 1.0,
     default: 0.8,
+    log: false,
+    unit: Unit::Percent,
+};
+
+const GROUP_VOLUME: Param = Param {
+    name: "Volume",
+    min: 0.0,
+    max: 1.0,
+    default: 1.0,
     log: false,
     unit: Unit::Percent,
 };
@@ -87,8 +97,37 @@ fn main() -> eframe::Result<()> {
         show_help: false,
         show_about: false,
         confirm: None,
+        picked: Vec::new(),
+        selected_group: None,
+        view: View::ALL,
     };
     eframe::run_native("daw", options, Box::new(|_cc| Ok(Box::new(app))))
+}
+
+/// Which parts of the window are showing.
+#[derive(Clone, Copy, PartialEq)]
+struct View {
+    song: bool,
+    tracks: bool,
+    piano: bool,
+    panel: bool,
+}
+
+impl View {
+    const ALL: View = View {
+        song: true,
+        tracks: true,
+        piano: true,
+        panel: true,
+    };
+}
+
+/// Something to do to a track, chosen from its right-click menu.
+enum TrackAction {
+    Group,
+    MoveTo(u32),
+    Ungroup,
+    Delete,
 }
 
 /// A "replace the song?" question waiting for an answer.
@@ -124,6 +163,11 @@ struct App {
     show_help: bool,
     show_about: bool,
     confirm: Option<StartOver>,
+    /// Extra tracks picked with Ctrl/Cmd-click, for grouping.
+    picked: Vec<usize>,
+    /// A group shown in the side panel instead of a track.
+    selected_group: Option<u32>,
+    view: View,
 }
 
 /// Computer keys laid out like a piano, as in FL Studio: the home row is
@@ -239,6 +283,10 @@ impl eframe::App for App {
             if ctx.input(|i| i.key_pressed(egui::Key::F1)) {
                 self.show_help = !self.show_help;
             }
+            self.view_keys(ctx);
+            if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::G)) {
+                self.group_picked();
+            }
             self.computer_keyboard(ctx, playing);
         }
 
@@ -275,34 +323,49 @@ impl eframe::App for App {
             ui.add_space(4.0);
         });
 
-        egui::SidePanel::right("instrument")
-            .resizable(false)
-            .exact_width(290.0)
-            .show(ctx, |ui| self.instrument_panel(ui));
+        if self.view.panel {
+            egui::SidePanel::right("instrument")
+                .resizable(false)
+                .exact_width(290.0)
+                .show(ctx, |ui| match self.selected_group {
+                    Some(id) => self.group_panel(ui, id),
+                    None => self.instrument_panel(ui),
+                });
+        }
 
         egui::CentralPanel::default().show(ctx, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
-                self.song_row(ui, playing);
-                ui.add_space(6.0);
-                self.pattern_row(ui);
-                ui.add_space(6.0);
+                if self.view.song {
+                    self.song_row(ui, playing);
+                    ui.add_space(6.0);
+                    self.pattern_row(ui);
+                    ui.add_space(6.0);
+                }
                 let edit = self.shared.edit_pattern.load(Relaxed) as usize;
                 // Only show the playhead on the pattern that's actually playing.
                 let current = (playing && self.shared.play_pattern.load(Relaxed) as usize == edit)
                     .then(|| self.shared.current_step.load(Relaxed));
-                for i in 0..self.project.tracks.len() {
-                    self.track_row(ui, i, edit, current);
+                if self.view.tracks {
+                    self.track_list(ui, edit, current);
+                    ui.add_space(4.0);
+                    self.add_row(ui, ctx);
                 }
-                ui.add_space(4.0);
-                self.add_row(ui, ctx);
-                if self
+                let melodic = self
                     .project
                     .tracks
                     .get(self.selected)
-                    .is_some_and(Track::is_melodic)
-                {
+                    .is_some_and(Track::is_melodic);
+                if self.view.piano && melodic {
                     ui.add_space(8.0);
                     self.piano_roll(ui, edit, current);
+                }
+                if !self.view.song && !self.view.tracks && !(self.view.piano && melodic) {
+                    ui.add_space(40.0);
+                    ui.vertical_centered(|ui| {
+                        ui.weak(
+                            "Nothing to show here. Use the View menu, or F9 to show everything.",
+                        );
+                    });
                 }
             });
             if ctx.input(|i| !i.raw.hovered_files.is_empty()) {
@@ -374,13 +437,58 @@ impl App {
     }
 
     fn delete_selected(&mut self) {
-        if self.selected < self.project.tracks.len() {
-            self.project.tracks.remove(self.selected);
+        self.delete_track(self.selected);
+    }
+
+    fn delete_track(&mut self, i: usize) {
+        if i < self.project.tracks.len() {
+            self.project.tracks.remove(i);
+            self.project.prune_groups();
             self.selected = self
                 .selected
                 .min(self.project.tracks.len().saturating_sub(1));
+            self.picked.clear();
+            self.selected_group = None;
             self.dirty = true;
         }
+    }
+
+    /// Ctrl+G: puts the picked tracks (or just the selected one) in a new group.
+    fn group_picked(&mut self) {
+        let mut tracks = self.picked.clone();
+        if !tracks.contains(&self.selected) {
+            tracks.push(self.selected);
+        }
+        tracks.retain(|&i| i < self.project.tracks.len());
+        if tracks.is_empty() {
+            return;
+        }
+        let name = format!("Group {}", self.project.groups.len() + 1);
+        let id = self.project.new_group(&tracks, &name);
+        self.selected_group = Some(id);
+        self.picked.clear();
+        self.dirty = true;
+    }
+
+    /// F5-F8 show or hide each part of the window; F9 shows everything.
+    fn view_keys(&mut self, ctx: &egui::Context) {
+        use egui::Key::*;
+        let v = &mut self.view;
+        ctx.input(|i| {
+            for (key, shown) in [
+                (F5, &mut v.song),
+                (F6, &mut v.tracks),
+                (F7, &mut v.piano),
+                (F8, &mut v.panel),
+            ] {
+                if i.key_pressed(key) {
+                    *shown = !*shown;
+                }
+            }
+            if i.key_pressed(F9) {
+                *v = View::ALL;
+            }
+        });
     }
 
     /// Opens the file picker and loads the chosen audio files.
@@ -474,9 +582,48 @@ impl App {
                     self.pick_samples(ctx);
                 }
                 let has_track = self.selected < self.project.tracks.len();
+                ui.separator();
+                let group = egui::Button::new("Group selected tracks  (Ctrl+G)");
+                if ui.add_enabled(has_track, group).clicked() {
+                    self.group_picked();
+                    ui.close_menu();
+                }
+                ui.weak("Ctrl/Cmd-click track names to pick several.");
+                ui.separator();
                 let delete = egui::Button::new("Delete selected track");
                 if ui.add_enabled(has_track, delete).clicked() {
                     self.delete_selected();
+                    ui.close_menu();
+                }
+            });
+            ui.menu_button("View", |ui| {
+                let v = &mut self.view;
+                ui.checkbox(&mut v.song, "Song and patterns  (F5)");
+                ui.checkbox(&mut v.tracks, "Tracks  (F6)");
+                ui.checkbox(&mut v.piano, "Piano roll  (F7)");
+                ui.checkbox(&mut v.panel, "Instrument panel  (F8)");
+                ui.separator();
+                ui.label(RichText::new("Focus on one thing").small().weak());
+                if ui.button("Tracks only").clicked() {
+                    *v = View {
+                        song: false,
+                        tracks: true,
+                        piano: false,
+                        panel: false,
+                    };
+                    ui.close_menu();
+                }
+                if ui.button("Piano roll and sound").clicked() {
+                    *v = View {
+                        song: false,
+                        tracks: false,
+                        piano: true,
+                        panel: true,
+                    };
+                    ui.close_menu();
+                }
+                if ui.button("Show everything  (F9)").clicked() {
+                    *v = View::ALL;
                     ui.close_menu();
                 }
             });
@@ -594,12 +741,16 @@ impl App {
             i.events
                 .iter()
                 .filter_map(|e| match e {
+                    // Skip shortcuts like Ctrl+G.
                     egui::Event::Key {
                         key,
                         pressed,
                         repeat: false,
+                        modifiers,
                         ..
-                    } => Some((*key, *pressed)),
+                    } if !(modifiers.command || modifiers.ctrl || modifiers.alt) => {
+                        Some((*key, *pressed))
+                    }
                     _ => None,
                 })
                 .collect()
@@ -734,25 +885,162 @@ impl App {
         });
     }
 
+    /// The track list: group headers, and tracks unless their group is collapsed.
+    fn track_list(&mut self, ui: &mut egui::Ui, pattern: usize, current: Option<usize>) {
+        for row in self.project.rows() {
+            match row {
+                Row::Group(g) => self.group_row(ui, g, pattern),
+                Row::Track(i) => {
+                    let track = &self.project.tracks[i];
+                    let group = track.group.and_then(|id| self.project.group(id));
+                    if !group.is_some_and(|g| g.collapsed) {
+                        self.track_row(ui, i, pattern, current);
+                    }
+                }
+            }
+        }
+    }
+
+    /// A group header: expand arrow, name, mute, solo, and every hit in the
+    /// group combined.
+    fn group_row(&mut self, ui: &mut egui::Ui, g: usize, pattern: usize) {
+        let id = self.project.groups[g].id;
+        let mut lit = [false; STEPS];
+        for t in self.project.tracks.iter().filter(|t| t.group == Some(id)) {
+            for (step, value) in t.patterns[pattern].iter().enumerate() {
+                lit[step] |= value.is_some_and(|s| !s.is_tie());
+            }
+        }
+        let mut ungroup = false;
+        ui.horizontal(|ui| {
+            let group = &mut self.project.groups[g];
+            let hint = if group.collapsed {
+                "Expand"
+            } else {
+                "Collapse"
+            };
+            let resp = disclosure_arrow(ui, group.collapsed).on_hover_text(hint);
+            if resp.clicked() {
+                group.collapsed = !group.collapsed;
+                self.dirty = true;
+            }
+            let name = egui::Button::new(RichText::new(&group.name).small().strong())
+                .selected(self.selected_group == Some(id));
+            let resp = ui
+                .add_sized([54.0, 26.0], name)
+                .on_hover_text("Click for group settings · right-click to ungroup");
+            if resp.clicked() {
+                self.selected_group = Some(id);
+            }
+            resp.context_menu(|ui| {
+                if ui.button("Ungroup (keep the tracks)").clicked() {
+                    ungroup = true;
+                    ui.close_menu();
+                }
+            });
+            let mute = egui::Button::new(RichText::new("M").small())
+                .selected(group.muted)
+                .min_size(Vec2::new(22.0, 26.0));
+            if ui.add(mute).on_hover_text("Mute the whole group").clicked() {
+                group.muted = !group.muted;
+                self.dirty = true;
+            }
+            let solo_color = if group.solo { SOLO } else { Color32::GRAY };
+            let solo = egui::Button::new(RichText::new("S").small().color(solo_color))
+                .selected(group.solo)
+                .min_size(Vec2::new(22.0, 26.0));
+            if ui.add(solo).on_hover_text("Solo the whole group").clicked() {
+                group.solo = !group.solo;
+                self.dirty = true;
+            }
+            // A read-only summary of the group's hits; click to expand.
+            for (step, on) in lit.iter().enumerate() {
+                let (rect, resp) = ui.allocate_exact_size(Vec2::new(28.0, 26.0), Sense::click());
+                let fill = if *on {
+                    DRUM_ON.gamma_multiply(0.55)
+                } else {
+                    empty_fill(step, true)
+                };
+                ui.painter()
+                    .rect_filled(rect.shrink2(Vec2::new(0.0, 6.0)), 2.0, fill);
+                if resp.clicked() && group.collapsed {
+                    group.collapsed = false;
+                    self.dirty = true;
+                }
+            }
+        });
+        if ungroup {
+            self.project.ungroup(id);
+            self.selected_group = None;
+            self.dirty = true;
+        }
+    }
+
     /// One channel-rack row: name, mute, solo, and 16 steps.
     fn track_row(&mut self, ui: &mut egui::Ui, i: usize, pattern: usize, current: Option<usize>) {
+        let mut action = None;
         ui.horizontal(|ui| {
+            let groups: Vec<(u32, String)> = self
+                .project
+                .groups
+                .iter()
+                .map(|g| (g.id, g.name.clone()))
+                .collect();
             let track = &mut self.project.tracks[i];
-            let name = egui::Button::new(RichText::new(&track.name).small())
-                .selected(self.selected == i)
-                .min_size(Vec2::new(80.0, 26.0));
-            let hint = "Click to select and hear it";
-            if ui
-                .add_sized([80.0, 26.0], name)
-                .on_hover_text(hint)
-                .clicked()
-            {
-                self.selected = i;
-                let _ = self.events.try_send(Event::Note {
-                    track: i,
-                    semitone: 0,
-                });
+            // Tracks in a group are indented under its header.
+            let width = if track.group.is_some() {
+                ui.add_space(12.0);
+                68.0
+            } else {
+                80.0
+            };
+            let highlighted =
+                (self.selected == i && self.selected_group.is_none()) || self.picked.contains(&i);
+            let name = egui::Button::new(RichText::new(&track.name).small()).selected(highlighted);
+            let hint = "Click to select and hear it · Ctrl/Cmd-click to pick several · right-click for more";
+            let resp = ui.add_sized([width, 26.0], name).on_hover_text(hint);
+            if resp.clicked() {
+                if ui.input(|i| i.modifiers.command) {
+                    if let Some(at) = self.picked.iter().position(|&p| p == i) {
+                        self.picked.remove(at);
+                    } else {
+                        self.picked.push(i);
+                    }
+                } else {
+                    self.selected = i;
+                    self.selected_group = None;
+                    self.picked.clear();
+                    let _ = self.events.try_send(Event::Note {
+                        track: i,
+                        semitone: 0,
+                    });
+                }
             }
+            resp.context_menu(|ui| {
+                if ui.button("Group with picked tracks  (Ctrl+G)").clicked() {
+                    action = Some(TrackAction::Group);
+                    ui.close_menu();
+                }
+                if !groups.is_empty() {
+                    ui.menu_button("Move to group", |ui| {
+                        for (id, name) in &groups {
+                            if ui.button(name).clicked() {
+                                action = Some(TrackAction::MoveTo(*id));
+                                ui.close_menu();
+                            }
+                        }
+                    });
+                }
+                if track.group.is_some() && ui.button("Remove from group").clicked() {
+                    action = Some(TrackAction::Ungroup);
+                    ui.close_menu();
+                }
+                ui.separator();
+                if ui.button("Delete track").clicked() {
+                    action = Some(TrackAction::Delete);
+                    ui.close_menu();
+                }
+            });
             let mute = egui::Button::new(RichText::new("M").small())
                 .selected(track.muted)
                 .min_size(Vec2::new(22.0, 26.0));
@@ -810,6 +1098,26 @@ impl App {
                 }
             }
         });
+        match action {
+            Some(TrackAction::Group) => {
+                if !self.picked.contains(&i) {
+                    self.picked.push(i);
+                }
+                self.group_picked();
+            }
+            Some(TrackAction::MoveTo(id)) => {
+                self.project.tracks[i].group = Some(id);
+                self.project.prune_groups();
+                self.dirty = true;
+            }
+            Some(TrackAction::Ungroup) => {
+                self.project.tracks[i].group = None;
+                self.project.prune_groups();
+                self.dirty = true;
+            }
+            Some(TrackAction::Delete) => self.delete_track(i),
+            None => {}
+        }
     }
 
     fn add_row(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
@@ -933,6 +1241,55 @@ impl App {
                     }
                 }
             });
+        }
+    }
+
+    /// Settings for the selected group.
+    fn group_panel(&mut self, ui: &mut egui::Ui, id: u32) {
+        ui.add_space(4.0);
+        let members: Vec<(usize, String)> = self
+            .project
+            .tracks
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| t.group == Some(id))
+            .map(|(i, t)| (i, t.name.clone()))
+            .collect();
+        let Some(group) = self.project.group_mut(id) else {
+            self.selected_group = None;
+            return;
+        };
+        let mut changed = false;
+        let name = egui::TextEdit::singleline(&mut group.name)
+            .font(egui::TextStyle::Heading)
+            .desired_width(200.0);
+        changed |= ui.add(name).changed();
+        ui.weak("Group");
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            changed |= knob(ui, &GROUP_VOLUME, &mut group.volume);
+            ui.vertical(|ui| {
+                changed |= ui.checkbox(&mut group.muted, "Mute").changed();
+                changed |= ui.checkbox(&mut group.solo, "Solo").changed();
+                changed |= ui.checkbox(&mut group.collapsed, "Collapsed").changed();
+            });
+        });
+        ui.add_space(8.0);
+        ui.label(RichText::new("Tracks").small().strong());
+        for (i, name) in members {
+            if ui.button(&name).clicked() {
+                self.selected = i;
+                self.selected_group = None;
+            }
+        }
+        ui.add_space(12.0);
+        if ui.button("Ungroup (keep the tracks)").clicked() {
+            self.project.ungroup(id);
+            self.selected_group = None;
+            changed = true;
+        }
+        if changed {
+            self.dirty = true;
         }
     }
 

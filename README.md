@@ -51,6 +51,27 @@ soloed tracks so you can hear a part on its own.
   files as sample tracks, or just drop files onto the window.
 - Rename a track by editing its name at the top of the right panel.
 
+### Groups
+
+Groups are folders of tracks, like layer groups in Photoshop. The demo puts
+the four drums in a **Drums** group.
+
+- **Ctrl-click** (Cmd on Mac) track names to pick several, then **Ctrl+G**.
+  Or right-click a track name for *Group*, *Move to group* and *Remove from group*.
+- **▶/▼** collapses or expands a group; collapsed, it shows all its hits on
+  one line.
+- The group's **M** / **S** mute or solo all its tracks. Click its name for a
+  group volume.
+
+### Showing and hiding
+
+Hiding a part never deletes it or stops it playing.
+
+- **View** menu, or **F5** song and patterns, **F6** tracks, **F7** piano roll,
+  **F8** instrument panel.
+- **View → Focus** shows just the tracks, or just the piano roll and sound.
+- **F9** shows everything again.
+
 ### Groove
 
 - **Shift-click** a step for a ghost note (a quiet hit). Quieter steps look dimmer.
@@ -133,10 +154,12 @@ Plug gear in over USB (or a USB-MIDI cable), then press **⟳** to rescan.
 4. ~~Patterns and song arrangement~~
 5. ~~Add/remove tracks, per-track volume, sample tracks~~
 6. ~~Groove: swing, velocity/ghost notes, humanize, chance, ratchets, nudge; solo~~
-7. Save and load songs
-8. Clip editing: trim, ADSR, fades, reverse
-9. Mixer and effects
-10. Recording
-11. Freesound.org sample browser
+7. ~~Track groups, View menu and focus mode~~
+8. Chords (polyphony) and other tracks' notes shown faintly in the piano roll
+9. Save and load songs
+10. Sample editor: chop, trim, ADSR, fades, reverse
+11. Mixer and effects
+12. Recording
+13. Freesound.org sample browser
 
 See [docs/WORKFLOW.md](docs/WORKFLOW.md) for how changes get pushed, merged and released.

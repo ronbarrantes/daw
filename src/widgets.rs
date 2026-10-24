@@ -40,6 +40,34 @@ pub fn lit_fill(color: Color32, velocity: u8) -> Color32 {
     Color32::from_gray(40).lerp_to_gamma(color, t)
 }
 
+/// A ▶/▼ expand button, drawn rather than typed since not every font has
+/// the down-pointing triangle.
+pub fn disclosure_arrow(ui: &mut egui::Ui, collapsed: bool) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(18.0, 26.0), Sense::click());
+    let color = if resp.hovered() {
+        Color32::WHITE
+    } else {
+        Color32::from_gray(180)
+    };
+    let c = rect.center();
+    let points = if collapsed {
+        vec![
+            c + Vec2::new(-3.0, -5.0),
+            c + Vec2::new(4.0, 0.0),
+            c + Vec2::new(-3.0, 5.0),
+        ]
+    } else {
+        vec![
+            c + Vec2::new(-5.0, -3.0),
+            c + Vec2::new(5.0, -3.0),
+            c + Vec2::new(0.0, 4.0),
+        ]
+    };
+    ui.painter()
+        .add(egui::Shape::convex_polygon(points, color, Stroke::NONE));
+    resp
+}
+
 /// A dropdown of MIDI ports. Returns `Some(choice)` when the user picks one,
 /// where the choice is `None` for "Off".
 pub fn port_picker(

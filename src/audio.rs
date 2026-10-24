@@ -192,6 +192,9 @@ struct Engine {
     /// Tracks with a held live note (one bit per track); the sequencer
     /// leaves these alone.
     live: u16,
+    /// Each track's level after mute, solo and group volume; worked out
+    /// once per project change rather than every sample.
+    gains: [f32; MAX_TRACKS],
     /// Pattern playing in this bar; `None` is a silent song bar.
     pattern: Option<usize>,
     song_pos: usize,
@@ -222,7 +225,7 @@ impl Engine {
                 held: None,
             })
             .collect();
-        Self {
+        let mut engine = Self {
             project: shared.project(),
             shared,
             events,
@@ -236,6 +239,7 @@ impl Engine {
             samples_to_update: 0,
             preview: None,
             live: 0,
+            gains: [0.0; MAX_TRACKS],
             pattern: Some(0),
             song_pos: 0,
             restart_song: true,
@@ -243,6 +247,18 @@ impl Engine {
             was_playing: false,
             rng: 0x2545_f491,
             sr,
+        };
+        engine.update_gains();
+        engine
+    }
+
+    fn update_gains(&mut self) {
+        for i in 0..MAX_TRACKS {
+            self.gains[i] = if i < self.project.tracks.len() {
+                self.project.gain(i)
+            } else {
+                0.0
+            };
         }
     }
 
@@ -317,10 +333,13 @@ impl Engine {
 
     /// Picks up a new project snapshot, synth settings and UI events.
     fn update(&mut self) {
-        if let Ok(p) = self.shared.project.try_lock() {
-            if !Arc::ptr_eq(&p, &self.project) {
-                self.project = p.clone();
-            }
+        let latest = match self.shared.project.try_lock() {
+            Ok(p) if !Arc::ptr_eq(&p, &self.project) => Some(p.clone()),
+            _ => None,
+        };
+        if let Some(p) = latest {
+            self.project = p;
+            self.update_gains();
         }
         let project = self.project.clone();
         for (voice, track) in self.voices.iter_mut().zip(&project.tracks) {
@@ -571,9 +590,7 @@ impl Engine {
                 Kind::Synth(_) => voice.synth.next_sample(),
                 Kind::Sampler { .. } => voice.sample_out(),
             };
-            if self.project.audible(i) {
-                mix += out * voice.gain * track.volume;
-            }
+            mix += out * voice.gain * self.gains[i];
         }
         (mix * 0.8).clamp(-1.0, 1.0)
     }
