@@ -4,30 +4,42 @@ A tiny, lightweight DAW in Rust: synth and sample tracks, 8 patterns you can
 arrange into a song, and MIDI for hardware like the M-VAVE FM-1 and Roland
 AIRA Compacts.
 
-## Download (no building needed)
+## Install on Mac (Apple Silicon)
 
-GitHub builds the app on every merge to `main`. Grab the newest build with
-one command; it unpacks into a `daw` folder:
+1. Download **[daw-macos-arm64.app.zip](https://github.com/ronbarrantes/daw/releases/latest/download/daw-macos-arm64.app.zip)**
+   and open it to unzip (Safari may do this for you). You get **daw.app**.
+2. Drag **daw.app** into **Applications**.
+3. Open it. The first time, macOS says it can't check the developer, because
+   the app isn't signed with a paid Apple developer account. To allow it:
+   - **macOS 15 and later:** click **Done**, then open **System Settings →
+     Privacy & Security**, scroll down to the message about daw and click
+     **Open Anyway**.
+   - **macOS 14 and earlier:** Control-click **daw.app**, choose **Open**,
+     then **Open** again.
+   - **Or, in Terminal:** `xattr -dr com.apple.quarantine /Applications/daw.app`
 
-**Arch Linux** (needs `alsa-lib`, which any desktop already has)
+   You only need to do this once per update.
+
+## Install on Linux (Arch, Hyprland and others)
 
 ```sh
-curl -L https://github.com/ronbarrantes/daw/releases/download/latest/daw-linux-x86_64.tar.gz | tar xz
-./daw/daw
+curl -L https://github.com/ronbarrantes/daw/releases/latest/download/daw-linux-x86_64.tar.gz | tar xz
+./daw/install.sh
 ```
 
-**macOS (Apple Silicon)**
+This puts `daw` in `~/.local/bin` and adds an icon and a menu entry, so it
+shows up in app launchers (wofi, rofi, fuzzel and so on). No sudo needed;
+you only need `alsa-lib`, which any desktop already has.
 
-```sh
-curl -L https://github.com/ronbarrantes/daw/releases/download/latest/daw-macos-arm64.tar.gz | tar xz
-./daw/daw
-```
+- **Update:** run the same two lines again.
+- **Uninstall:** `./daw/install.sh --uninstall`
+- **Hyprland:** the window class is `daw`, e.g.
+  `windowrulev2 = float, class:^(daw)$`
 
-Downloading with `curl` skips macOS's "unidentified developer" block. If you
-download from the browser instead, run `xattr -dr com.apple.quarantine daw`
-once before opening it.
+## Other downloads
 
-Run the same command again to update. All builds are on the
+The links above get the newest numbered version. Every merge to `main` also
+updates a **latest** build with the newest changes; all builds are on the
 [Releases](https://github.com/ronbarrantes/daw/releases) page.
 
 ## Build it yourself
