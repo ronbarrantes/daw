@@ -42,12 +42,52 @@ pub enum Kind {
     },
 }
 
-/// One pattern's steps. For melodic tracks each step is the semitone above
-/// the track's octave C, or `TIE` to keep the previous note held; for
-/// one-shot tracks any `Some` is a hit.
-pub type Steps = [Option<u8>; STEPS];
-/// A step that holds the previous note instead of playing a new one.
+/// A step's note value that holds the previous note instead of playing a
+/// new one.
 pub const TIE: u8 = 0x80;
+pub const GHOST: u8 = 40;
+pub const NORMAL: u8 = 100;
+pub const ACCENT: u8 = 127;
+pub const MAX_RATCHET: u8 = 4;
+
+/// One step that plays.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Step {
+    /// For melodic tracks, the semitone above the track's octave C, or
+    /// `TIE`. One-shot tracks ignore it.
+    pub note: u8,
+    /// Loudness, 1-127 like MIDI. Low values make ghost notes.
+    pub velocity: u8,
+    /// Percent chance the step plays each time around, 1-100.
+    pub chance: u8,
+    /// How many times the step repeats within itself, 1-4 (a roll).
+    pub ratchet: u8,
+    /// Timing shift, -50 to 50 percent of a step (negative = early).
+    pub nudge: i8,
+}
+
+impl Step {
+    pub const fn note(note: u8) -> Self {
+        Self {
+            note,
+            velocity: NORMAL,
+            chance: 100,
+            ratchet: 1,
+            nudge: 0,
+        }
+    }
+
+    pub const fn tie() -> Self {
+        Self::note(TIE)
+    }
+
+    pub fn is_tie(&self) -> bool {
+        self.note == TIE
+    }
+}
+
+/// One pattern's steps; `None` is a rest.
+pub type Steps = [Option<Step>; STEPS];
 
 #[derive(Clone)]
 pub struct Track {
@@ -56,6 +96,10 @@ pub struct Track {
     pub patterns: [Steps; PATTERNS],
     pub volume: f32,
     pub muted: bool,
+    /// When any track is soloed, only soloed tracks are heard.
+    pub solo: bool,
+    /// 0-1: random variation in each hit's timing and loudness.
+    pub humanize: f32,
     pub octave: u8,
     /// MIDI channel (0-based) to send this track's notes on, if any.
     pub midi_channel: Option<u8>,
@@ -81,6 +125,8 @@ impl Track {
             patterns: [[None; STEPS]; PATTERNS],
             volume: 0.8,
             muted: false,
+            solo: false,
+            humanize: 0.0,
             octave,
             midi_channel: None,
             midi_note: SAMPLE_ROOT,
@@ -110,9 +156,26 @@ pub struct Project {
     pub tracks: Vec<Track>,
     /// Pattern index per bar; `None` is a silent bar.
     pub song: [Option<u8>; SONG_SLOTS],
+    /// 0-1: how late every other 16th note plays. 0.66 is a triplet shuffle.
+    pub swing: f32,
 }
 
 impl Project {
+    pub fn empty() -> Self {
+        Self {
+            tracks: Vec::new(),
+            song: [None; SONG_SLOTS],
+            swing: 0.0,
+        }
+    }
+
+    /// Whether a track should be heard, given mute and solo.
+    pub fn audible(&self, i: usize) -> bool {
+        let any_solo = self.tracks.iter().any(|t| t.solo);
+        let t = &self.tracks[i];
+        !t.muted && (t.solo || !any_solo)
+    }
+
     /// Bars up to and including the last filled one.
     pub fn song_len(&self) -> usize {
         self.song
@@ -141,19 +204,33 @@ impl Project {
         let beat: [&[usize]; 3] = [&[0, 4, 8, 12], &[4, 12], &[2, 6, 10, 14]];
         for (track, steps) in tracks.iter_mut().zip(beat) {
             for &s in steps {
-                track.patterns[0][s] = Some(0);
+                track.patterns[0][s] = Some(Step::note(0));
             }
         }
+        // A ghost snare and a hi-hat roll, to show off the groove features.
+        tracks[1].patterns[0][7] = Some(Step {
+            velocity: GHOST,
+            ..Step::note(0)
+        });
+        tracks[2].patterns[0][15] = Some(Step {
+            ratchet: 2,
+            velocity: 70,
+            ..Step::note(0)
+        });
 
         let mut lead = Track::synth("Lead");
         lead.midi_channel = Some(0);
         for (step, note) in [(0, 0), (3, 3), (6, 7), (8, 10), (10, 7), (12, 3), (14, 5)] {
-            lead.patterns[0][step] = Some(note);
+            lead.patterns[0][step] = Some(Step::note(note));
         }
         tracks.push(lead);
 
         let mut song = [None; SONG_SLOTS];
         song[0] = Some(0);
-        Self { tracks, song }
+        Self {
+            tracks,
+            song,
+            swing: 0.0,
+        }
     }
 }

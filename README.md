@@ -34,11 +34,15 @@ The first build takes a few minutes. After that it's fast.
 
 ## Use
 
+Press **F1** (or **Help → How to use**) for the built-in guide.
+
 - **Space** or **▶ Play** starts and stops. Drag **BPM** to change the tempo.
 
 ### Tracks
 
-Each row is a track: its name, **M** (mute), and 16 steps.
+Each row is a track: its name, **M** (mute), **S** (solo) and 16 steps.
+Tracks work like layers: mute turns one off, and solo plays only the
+soloed tracks so you can hear a part on its own.
 
 - Click a step to turn it on or off.
 - Click a track's name to select it and hear it. The right panel shows its
@@ -47,11 +51,24 @@ Each row is a track: its name, **M** (mute), and 16 steps.
   files as sample tracks, or just drop files onto the window.
 - Rename a track by editing its name at the top of the right panel.
 
+### Groove
+
+- **Shift-click** a step for a ghost note (a quiet hit). Quieter steps look dimmer.
+- **Right-click** a step for its settings: **Velocity** (Ghost / Normal /
+  Accent), **Chance** (plays only sometimes), **Ratchet** (repeats 2–4 times
+  in the step, like a roll) and **Nudge** (a little early or late).
+- **Swing** (top bar) delays every other 16th note; 66% is a triplet shuffle.
+- **Humanize** (right panel) adds small random changes to a track's timing
+  and loudness.
+
+All of this goes out over MIDI too, with velocity.
+
 ### Piano roll
 
 - Click a cell to add a note; click it again to remove it.
 - **Right-click** the cell after a note to hold that note longer (shown in a
   darker blue). Longer notes let the synth's **Sustain** and **Release** be heard.
+- **Right-click** a note for its groove settings; **shift-click** for a ghost note.
 
 ### Play from your computer keyboard
 
@@ -115,10 +132,11 @@ Plug gear in over USB (or a USB-MIDI cable), then press **⟳** to rescan.
 3. ~~Built-in synth with knobs~~
 4. ~~Patterns and song arrangement~~
 5. ~~Add/remove tracks, per-track volume, sample tracks~~
-6. Clip editing: trim, ADSR, fades, reverse
+6. ~~Groove: swing, velocity/ghost notes, humanize, chance, ratchets, nudge; solo~~
 7. Save and load songs
-8. Mixer and effects
-9. Recording
-10. Freesound.org sample browser
+8. Clip editing: trim, ADSR, fades, reverse
+9. Mixer and effects
+10. Recording
+11. Freesound.org sample browser
 
 See [docs/WORKFLOW.md](docs/WORKFLOW.md) for how changes get pushed, merged and released.
