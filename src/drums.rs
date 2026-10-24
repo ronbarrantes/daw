@@ -6,15 +6,14 @@ pub const NAMES: [&str; 4] = ["Kick", "Snare", "Hat", "Clap"];
 /// General MIDI drum notes for each track, as used on channel 10.
 pub const NOTES: [u8; 4] = [36, 38, 42, 39];
 
-/// Which track an incoming MIDI note plays. Accepts the common variants
-/// (e.g. 40 for snare, open/pedal hats) so most drum gear just works.
-pub fn track_for_note(note: u8) -> Option<usize> {
+/// Folds common drum-note variants (e.g. 40 for snare, open and pedal hats)
+/// onto the notes in `NOTES`, so most drum gear just works.
+pub fn canonical_note(note: u8) -> u8 {
     match note {
-        35 | 36 => Some(0),
-        38 | 40 => Some(1),
-        42 | 44 | 46 => Some(2),
-        39 => Some(3),
-        _ => None,
+        35 => 36,
+        40 => 38,
+        44 | 46 => 42,
+        n => n,
     }
 }
 
