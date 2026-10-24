@@ -64,11 +64,41 @@ jobs:
         run: |
           mkdir -p "dist/daw"
           cp target/release/daw README.md "dist/daw/"
+          if [ "$RUNNER_OS" = Linux ]; then
+            cp packaging/linux/install.sh packaging/linux/daw.desktop "dist/daw/"
+            cp assets/icon-512.png "dist/daw/daw.png"
+          fi
           tar -czf "daw-${{ matrix.name }}.tar.gz" -C dist daw
+      - name: Build daw.app
+        if: runner.os == 'macOS'
+        run: |
+          version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          app=dist/app/daw.app
+          mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+          cp target/release/daw "$app/Contents/MacOS/daw"
+          sed "s/@VERSION@/$version/g" packaging/macos/Info.plist > "$app/Contents/Info.plist"
+          plutil -lint "$app/Contents/Info.plist"
+          # Every icon size macOS wants, made from the 1024px PNG.
+          iconset=dist/daw.iconset
+          mkdir -p "$iconset"
+          for size in 16 32 128 256 512; do
+            sips -z $size $size assets/icon.png --out "$iconset/icon_${size}x${size}.png" > /dev/null
+            double=$((size * 2))
+            sips -z $double $double assets/icon.png --out "$iconset/icon_${size}x${size}@2x.png" > /dev/null
+          done
+          iconutil -c icns "$iconset" -o "$app/Contents/Resources/daw.icns"
+          # An ad-hoc signature keeps the bundle intact in macOS's eyes; it
+          # still isn't from an identified developer.
+          codesign --force --deep --sign - "$app"
+          codesign --verify --deep --strict "$app"
+          ditto -c -k --keepParent "$app" "daw-${{ matrix.name }}.app.zip"
       - uses: actions/upload-artifact@v6
         with:
           name: daw-${{ matrix.name }}
-          path: daw-${{ matrix.name }}.tar.gz
+          path: |
+            daw-${{ matrix.name }}.tar.gz
+            daw-${{ matrix.name }}.app.zip
+          if-no-files-found: error
 
   publish:
     name: Publish release
@@ -92,7 +122,7 @@ jobs:
         if: github.ref == 'refs/heads/main'
         run: |
           gh release delete latest --cleanup-tag --yes || true
-          gh release create latest dist/*.tar.gz \
+          gh release create latest dist/* \
             --prerelease \
             --target "$GITHUB_SHA" \
             --title "Latest build" \
@@ -104,7 +134,7 @@ jobs:
           if gh release view "$version" > /dev/null 2>&1; then
             echo "$version is already released"
           else
-            gh release create "$version" dist/*.tar.gz \
+            gh release create "$version" dist/* \
               --target "$GITHUB_SHA" \
               --title "$version" \
               --generate-notes
@@ -112,6 +142,6 @@ jobs:
       - name: Create a versioned release
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/*.tar.gz \
+          gh release create "$GITHUB_REF_NAME" dist/* \
             --title "$GITHUB_REF_NAME" \
             --generate-notes

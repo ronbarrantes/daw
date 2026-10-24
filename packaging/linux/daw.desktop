@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=daw
+GenericName=Music Workstation
+Comment=A tiny, lightweight DAW
+Exec=daw
+Icon=daw
+Terminal=false
+Categories=AudioVideo;Audio;Music;
+Keywords=music;synth;drum;midi;sequencer;
+StartupWMClass=daw
