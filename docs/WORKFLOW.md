@@ -45,13 +45,9 @@ cargo test                   # all pass
 2. Push and open a PR into `main` with a short description of what changed
    and how it was tested.
 3. Wait for the **Build** workflow to pass on the PR.
-4. **Squash and merge**, so each PR is one commit on `main`.
-5. Tag the merge commit with the new version and push the tag:
-   ```sh
-   git fetch origin main
-   git tag v0.3.0 origin/main
-   git push origin v0.3.0
-   ```
+4. **Squash and merge**, so each PR is one commit on `main`. The Build
+   workflow then tags and releases the new version by itself; no manual
+   tags needed (Claude's sandbox can't push tags anyway).
 
 ## CI
 
@@ -71,8 +67,11 @@ for `main`, tick *Require status checks to pass* and pick the **Check** jobs.
 - **Every push to `main`** replaces the **`latest`** pre-release with fresh
   builds for Linux x86_64 (the Air running Arch) and macOS Apple Silicon
   (the M3).
-- **Every `v*` tag** gets its own permanent release, with notes written from
-  the merged pull requests.
+- **Every new version** in `Cargo.toml` that reaches `main` gets its own
+  permanent `vX.Y.Z` release, tagged by the workflow, with notes written
+  from the merged pull requests. A PR that doesn't bump the version only
+  updates `latest`.
+- A `v*` tag pushed by hand also gets a release.
 
 ## Versions
 
