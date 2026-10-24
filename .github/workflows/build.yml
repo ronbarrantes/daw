@@ -1,0 +1,100 @@
+# Checks every push and pull request, builds the app for Linux and macOS,
+# and publishes downloads:
+#   - each push to main updates the rolling "latest" release
+#   - each v* tag (e.g. v0.2.0) gets its own release
+name: Build
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: Check (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ALSA headers
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
+
+  package:
+    name: Package (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # An older Ubuntu, so the binary runs on older and newer distros alike.
+          - os: ubuntu-22.04
+            name: linux-x86_64
+          - os: macos-14
+            name: macos-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ALSA headers
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release
+      - name: Pack
+        run: |
+          mkdir -p "dist/daw"
+          cp target/release/daw README.md "dist/daw/"
+          tar -czf "daw-${{ matrix.name }}.tar.gz" -C dist daw
+      - uses: actions/upload-artifact@v4
+        with:
+          name: daw-${{ matrix.name }}
+          path: daw-${{ matrix.name }}.tar.gz
+
+  publish:
+    name: Publish release
+    needs: [check, package]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Update the "latest" release
+        if: github.ref == 'refs/heads/main'
+        run: |
+          gh release delete latest --cleanup-tag --yes || true
+          gh release create latest dist/*.tar.gz \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "Latest build" \
+            --notes "Built automatically from main at ${GITHUB_SHA::7}."
+      - name: Create a versioned release
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/*.tar.gz \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes

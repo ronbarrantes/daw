@@ -4,7 +4,35 @@ A tiny, lightweight DAW in Rust: synth and sample tracks, 8 patterns you can
 arrange into a song, and MIDI for hardware like the M-VAVE FM-1 and Roland
 AIRA Compacts.
 
-## Setup (once)
+## Download (no building needed)
+
+GitHub builds the app on every merge to `main`. Grab the newest build with
+one command; it unpacks into a `daw` folder:
+
+**Arch Linux** (needs `alsa-lib`, which any desktop already has)
+
+```sh
+curl -L https://github.com/ronbarrantes/daw/releases/download/latest/daw-linux-x86_64.tar.gz | tar xz
+./daw/daw
+```
+
+**macOS (Apple Silicon)**
+
+```sh
+curl -L https://github.com/ronbarrantes/daw/releases/download/latest/daw-macos-arm64.tar.gz | tar xz
+./daw/daw
+```
+
+Downloading with `curl` skips macOS's "unidentified developer" block. If you
+download from the browser instead, run `xattr -dr com.apple.quarantine daw`
+once before opening it.
+
+Run the same command again to update. All builds are on the
+[Releases](https://github.com/ronbarrantes/daw/releases) page.
+
+## Build it yourself
+
+### Setup (once)
 
 **Arch Linux**
 
@@ -22,7 +50,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 Then open a new terminal.
 
-## Run
+### Run
 
 ```sh
 git clone https://github.com/ronbarrantes/daw.git

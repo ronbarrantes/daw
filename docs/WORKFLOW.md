@@ -42,32 +42,36 @@ fine there, it's fine everywhere.
 After a merge, a Claude session branch restarts from the new `main` for the
 next change, so the old merged commits don't come along again.
 
-## 4. CI (to set up)
+## 4. CI
 
-A GitHub Actions workflow (`.github/workflows/ci.yml`) runs on every pull
-request and every push to `main`:
+`.github/workflows/build.yml` runs on every push (any branch) and every
+pull request:
 
-- `cargo fmt --check`, `cargo clippy -- -D warnings` and `cargo test`
-- on **ubuntu-latest** (installs `libasound2-dev`) and **macos-latest**
+- `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and
+  `cargo test`, on **ubuntu-latest** and **macos-latest**
+- a release build for **Linux x86_64** and **macOS Apple Silicon**, kept as
+  downloadable artifacts on the run's page
 
-A pull request can only merge when CI is green.
+Only merge a pull request when its checks are green. To have GitHub enforce
+that: repo **Settings → Branches → Add rule** for `main`, tick *Require
+status checks to pass* and pick the **Check** jobs.
 
-## 5. Release (to set up)
+## 5. Release
 
 Releases are prebuilt downloads, so neither laptop has to compile.
 
-1. On `main`, set `version` in `Cargo.toml` (e.g. `0.2.0`) and commit.
-2. Tag it and push the tag:
-   ```sh
-   git tag v0.2.0
-   git push origin v0.2.0
-   ```
-3. A release workflow (`.github/workflows/release.yml`) builds for
-   - **Linux x86_64** (the Air running Arch)
-   - **macOS Apple Silicon** (the M3)
-
-   and attaches both to a GitHub Release with notes made from the merged
-   pull requests.
+- **Every merge to `main`** replaces the **`latest`** pre-release with fresh
+  builds for Linux x86_64 (the Air running Arch) and macOS Apple Silicon
+  (the M3). Nothing to do; just merge.
+- **A version** gets its own permanent release:
+  1. On `main`, set `version` in `Cargo.toml` (e.g. `0.2.0`) and commit.
+  2. Tag it and push the tag:
+     ```sh
+     git tag v0.2.0
+     git push origin v0.2.0
+     ```
+  The same workflow builds it and writes release notes from the merged
+  pull requests.
 
 Version numbers stay `0.x` while the app is young: bump the middle number
 for new features (`0.2.0` → `0.3.0`) and the last one for fixes
