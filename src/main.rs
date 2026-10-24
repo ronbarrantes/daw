@@ -593,7 +593,7 @@ impl App {
 
     fn open_dialog(&mut self, ctx: &egui::Context) {
         let picked = rfd::FileDialog::new()
-            .add_filter("daw song", &[file::EXTENSION])
+            .add_filter("Song", &file::OPEN_EXTENSIONS)
             .pick_file();
         if let Some(path) = picked {
             self.request(ctx, Then::Open(path));
@@ -611,7 +611,7 @@ impl App {
 
     fn save_as(&mut self) -> bool {
         let picked = rfd::FileDialog::new()
-            .add_filter("daw song", &[file::EXTENSION])
+            .add_filter("Song", &[file::EXTENSION])
             .set_file_name(format!("{}.{}", self.song_name(), file::EXTENSION))
             .save_file();
         match picked {

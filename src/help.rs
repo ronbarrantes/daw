@@ -12,7 +12,7 @@ const SECTIONS: &[(&str, &str)] = &[
     ),
     (
         "Saving songs",
-        "• File > Save (Ctrl+S) saves your song as a .daw file. Save as… \
+        "• File > Save (Ctrl+S) saves your song as a .jay file. Save as… \
          (Ctrl+Shift+S) picks a new name; Open… (Ctrl+O) opens one.\n\
          • Samples you loaded are saved inside the file, so it works on any \
          computer.\n\
