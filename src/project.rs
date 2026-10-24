@@ -42,20 +42,19 @@ pub enum Kind {
     },
 }
 
-/// A step's note value that holds the previous note instead of playing a
-/// new one.
-pub const TIE: u8 = 0x80;
+/// Rows in the piano roll: one octave, C to B. Each row is its own lane,
+/// so a melodic step can hold a chord.
+pub const LANES: usize = 12;
 pub const GHOST: u8 = 40;
 pub const NORMAL: u8 = 100;
 pub const ACCENT: u8 = 127;
 pub const MAX_RATCHET: u8 = 4;
 
-/// One step that plays.
+/// One note in one lane at one step.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Step {
-    /// For melodic tracks, the semitone above the track's octave C, or
-    /// `TIE`. One-shot tracks ignore it.
-    pub note: u8,
+    /// Holds the lane's previous note instead of playing a new one.
+    pub tie: bool,
     /// Loudness, 1-127 like MIDI. Low values make ghost notes.
     pub velocity: u8,
     /// Percent chance the step plays each time around, 1-100.
@@ -67,33 +66,36 @@ pub struct Step {
 }
 
 impl Step {
-    pub const fn note(note: u8) -> Self {
-        Self {
-            note,
-            velocity: NORMAL,
-            chance: 100,
-            ratchet: 1,
-            nudge: 0,
-        }
-    }
+    /// A plain note at normal velocity.
+    pub const HIT: Step = Step {
+        tie: false,
+        velocity: NORMAL,
+        chance: 100,
+        ratchet: 1,
+        nudge: 0,
+    };
+    pub const TIE: Step = Step {
+        tie: true,
+        ..Step::HIT
+    };
 
-    pub const fn tie() -> Self {
-        Self::note(TIE)
-    }
-
-    pub fn is_tie(&self) -> bool {
-        self.note == TIE
+    pub fn is_hit(step: &Option<Step>) -> bool {
+        step.is_some_and(|s| !s.tie)
     }
 }
 
-/// One pattern's steps; `None` is a rest.
-pub type Steps = [Option<Step>; STEPS];
+/// One lane's steps in one pattern; `None` is a rest.
+pub type Lane = [Option<Step>; STEPS];
+/// One pattern of a track: a lane per piano-roll row. One-shot tracks only
+/// use lane 0.
+pub type Grid = [Lane; LANES];
+pub const EMPTY_GRID: Grid = [[None; STEPS]; LANES];
 
 #[derive(Clone)]
 pub struct Track {
     pub name: String,
     pub kind: Kind,
-    pub patterns: [Steps; PATTERNS],
+    pub patterns: [Grid; PATTERNS],
     pub volume: f32,
     pub muted: bool,
     /// When any track is soloed, only soloed tracks are heard.
@@ -144,7 +146,7 @@ impl Track {
         Self {
             name: name.to_string(),
             kind,
-            patterns: [[None; STEPS]; PATTERNS],
+            patterns: [EMPTY_GRID; PATTERNS],
             volume: 0.8,
             muted: false,
             solo: false,
@@ -164,13 +166,43 @@ impl Track {
         }
     }
 
-    /// The MIDI note a step value plays.
-    pub fn note(&self, semitone: u8) -> u8 {
+    /// How many lanes the track uses: a piano roll's worth, or one.
+    pub fn lanes(&self) -> usize {
         if self.is_melodic() {
-            12 * (self.octave + 1) + semitone
+            LANES
+        } else {
+            1
+        }
+    }
+
+    /// MIDI note number of C in the track's octave (octave 3 = C3 = 48).
+    pub fn base_note(&self) -> u8 {
+        12 * (self.octave + 1)
+    }
+
+    /// The MIDI note a lane plays.
+    pub fn note(&self, lane: usize) -> u8 {
+        if self.is_melodic() {
+            self.base_note() + lane as u8
         } else {
             self.midi_note
         }
+    }
+
+    /// The lane an incoming MIDI note belongs to (wrapping into the octave).
+    pub fn lane_for(&self, note: u8) -> usize {
+        if self.is_melodic() {
+            (note as i32 - self.base_note() as i32).rem_euclid(LANES as i32) as usize
+        } else {
+            0
+        }
+    }
+
+    /// Whether any lane starts a note at this step.
+    pub fn hit_at(&self, pattern: usize, step: usize) -> bool {
+        self.patterns[pattern]
+            .iter()
+            .any(|lane| Step::is_hit(&lane[step]))
     }
 }
 
@@ -305,26 +337,50 @@ impl Project {
         let beat: [&[usize]; 3] = [&[0, 4, 8, 12], &[4, 12], &[2, 6, 10, 14]];
         for (track, steps) in tracks.iter_mut().zip(beat) {
             for &s in steps {
-                track.patterns[0][s] = Some(Step::note(0));
+                track.patterns[0][0][s] = Some(Step::HIT);
             }
         }
         // A ghost snare and a hi-hat roll, to show off the groove features.
-        tracks[1].patterns[0][7] = Some(Step {
+        tracks[1].patterns[0][0][7] = Some(Step {
             velocity: GHOST,
-            ..Step::note(0)
+            ..Step::HIT
         });
-        tracks[2].patterns[0][15] = Some(Step {
+        tracks[2].patterns[0][0][15] = Some(Step {
             ratchet: 2,
             velocity: 70,
-            ..Step::note(0)
+            ..Step::HIT
         });
 
         let mut lead = Track::synth("Lead");
         lead.midi_channel = Some(0);
-        for (step, note) in [(0, 0), (3, 3), (6, 7), (8, 10), (10, 7), (12, 3), (14, 5)] {
-            lead.patterns[0][step] = Some(Step::note(note));
+        for (step, lane) in [(0, 0), (3, 3), (6, 7), (8, 10), (10, 7), (12, 3), (14, 5)] {
+            lead.patterns[0][lane][step] = Some(Step::HIT);
         }
         tracks.push(lead);
+
+        // Soft held chords, to show off polyphony: C minor, then A♭ major.
+        let mut pad = Track::synth("Pad");
+        pad.midi_channel = Some(1);
+        pad.volume = 0.5;
+        pad.octave = 4;
+        if let Kind::Synth(v) = &mut pad.kind {
+            v[synth::WAVE] = 0.3;
+            v[synth::DETUNE] = 0.6;
+            v[synth::CUTOFF] = 900.0;
+            v[synth::ENV_AMOUNT] = 0.2;
+            v[synth::ATTACK] = 0.25;
+            v[synth::SUSTAIN] = 0.9;
+            v[synth::RELEASE] = 0.6;
+        }
+        for (start, chord) in [(0, [0, 3, 7]), (8, [8, 0, 3])] {
+            for lane in chord {
+                pad.patterns[0][lane][start] = Some(Step::HIT);
+                for step in start + 1..start + 7 {
+                    pad.patterns[0][lane][step] = Some(Step::TIE);
+                }
+            }
+        }
+        tracks.push(pad);
 
         let mut song = [None; SONG_SLOTS];
         song[0] = Some(0);
@@ -368,7 +424,6 @@ mod tests {
     #[test]
     fn rows_put_grouped_tracks_under_their_header() {
         let mut p = Project::demo();
-        p.tracks.push(Track::synth("Pad"));
         // A group whose tracks aren't next to each other.
         p.ungroup(p.groups[0].id);
         p.new_group(&[1, 5], "Mix");

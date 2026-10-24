@@ -18,10 +18,10 @@ use std::time::Duration;
 use eframe::egui::{self, Color32, RichText, Sense, Vec2};
 
 use audio::{Event, Shared};
-use midi::Midi;
+use midi::{Midi, Played, Route};
 use project::{
-    Kind, Project, Row, Sample, Step, Steps, Track, ACCENT, GHOST, MAX_RATCHET, MAX_TRACKS, NORMAL,
-    PATTERNS, SONG_SLOTS, STEPS,
+    Grid, Kind, Project, Row, Sample, Step, Track, ACCENT, EMPTY_GRID, GHOST, LANES, MAX_RATCHET,
+    MAX_TRACKS, NORMAL, PATTERNS, SONG_SLOTS, STEPS,
 };
 use synth::{Param, Unit, PARAMS};
 use widgets::{
@@ -31,6 +31,8 @@ use widgets::{
 
 const RECORDING: Color32 = Color32::from_rgb(220, 60, 60);
 const SOLO: Color32 = Color32::from_rgb(230, 200, 60);
+/// Notes from other tracks, shown faintly in the piano roll.
+const OTHER_NOTE: Color32 = Color32::from_rgb(55, 75, 105);
 /// How many past project snapshots to keep alive for the audio thread.
 const HISTORY: usize = 8;
 
@@ -67,7 +69,8 @@ fn main() -> eframe::Result<()> {
     let shared = Arc::new(Shared::new(snapshot.clone()));
     let (events, events_rx) = sync_channel(256);
     let (midi_tx, midi_rx) = sync_channel(1024);
-    let midi = Midi::new(shared.clone(), events.clone(), midi_rx);
+    let (played_tx, played) = channel();
+    let midi = Midi::new(shared.clone(), events.clone(), played_tx, midi_rx);
     // Held until the window closes; dropping the stream stops audio.
     let stream = audio::start(shared.clone(), events_rx, midi_tx);
     let audio_error = stream.as_ref().err().cloned();
@@ -100,6 +103,8 @@ fn main() -> eframe::Result<()> {
         picked: Vec::new(),
         selected_group: None,
         view: View::ALL,
+        played,
+        show_midi_inputs: false,
     };
     eframe::run_native("daw", options, Box::new(|_cc| Ok(Box::new(app))))
 }
@@ -111,6 +116,8 @@ struct View {
     tracks: bool,
     piano: bool,
     panel: bool,
+    /// Show other tracks' notes faintly in the piano roll.
+    others: bool,
 }
 
 impl View {
@@ -119,6 +126,7 @@ impl View {
         tracks: true,
         piano: true,
         panel: true,
+        others: true,
     };
 }
 
@@ -148,7 +156,7 @@ struct App {
     events: SyncSender<Event>,
     midi: Midi,
     audio_error: Option<String>,
-    clipboard: Option<Vec<Steps>>,
+    clipboard: Option<Vec<Grid>>,
     /// Track shown in the side panel and piano roll.
     selected: usize,
     load_tx: Sender<Result<Sample, String>>,
@@ -158,8 +166,8 @@ struct App {
     load_error: Option<String>,
     /// Keys played while playing are written into the pattern.
     recording: bool,
-    /// The computer-keyboard key holding a note, and the track it plays.
-    held_key: Option<(egui::Key, usize)>,
+    /// The computer-keyboard key holding a note, its track and MIDI note.
+    held_key: Option<(egui::Key, usize, u8)>,
     show_help: bool,
     show_about: bool,
     confirm: Option<StartOver>,
@@ -168,6 +176,9 @@ struct App {
     /// A group shown in the side panel instead of a track.
     selected_group: Option<u32>,
     view: View,
+    /// Notes played on MIDI controllers, for Rec.
+    played: Receiver<Played>,
+    show_midi_inputs: bool,
 }
 
 /// Computer keys laid out like a piano, as in FL Studio: the home row is
@@ -183,7 +194,7 @@ fn pattern_name(p: usize) -> String {
 }
 
 /// Shift-click: a ghost note on an empty or normal step, normal on a ghost.
-fn toggle_ghost(step: &mut Option<Step>, note: u8) {
+fn toggle_ghost(step: &mut Option<Step>) {
     *step = Some(match *step {
         Some(s) if s.velocity == GHOST => Step {
             velocity: NORMAL,
@@ -195,7 +206,7 @@ fn toggle_ghost(step: &mut Option<Step>, note: u8) {
         },
         None => Step {
             velocity: GHOST,
-            ..Step::note(note)
+            ..Step::HIT
         },
     });
 }
@@ -250,7 +261,7 @@ fn step_menu(ui: &mut egui::Ui, step: &mut Step) -> bool {
         ui.end_row();
     });
     if ui.button("Reset").clicked() {
-        *step = Step::note(step.note);
+        *step = Step::HIT;
         changed = true;
     }
     changed
@@ -266,9 +277,9 @@ fn step_marks(s: &Step) -> String {
         marks.push('?');
     }
     if s.nudge < 0 {
-        marks.push('‹');
+        marks.push('<');
     } else if s.nudge > 0 {
-        marks.push('›');
+        marks.push('>');
     }
     marks
 }
@@ -288,6 +299,12 @@ impl eframe::App for App {
                 self.group_picked();
             }
             self.computer_keyboard(ctx, playing);
+        }
+        self.shared.selected_track.store(self.selected, Relaxed);
+        while let Ok(p) = self.played.try_recv() {
+            if self.recording && playing {
+                self.record(p.track, p.note, p.velocity);
+            }
         }
 
         while let Ok(result) = self.load_rx.try_recv() {
@@ -385,6 +402,7 @@ impl eframe::App for App {
         help::guide(ctx, &mut self.show_help);
         help::about(ctx, &mut self.show_about);
         self.confirm_dialog(ctx);
+        self.midi_inputs_window(ctx);
 
         if self.dirty {
             self.publish();
@@ -407,8 +425,22 @@ impl App {
         self.dirty = false;
     }
 
-    fn play_note(&self, track: usize, semitone: u8) {
-        let _ = self.events.try_send(Event::Note { track, semitone });
+    fn preview(&self, track: usize, lane: usize) {
+        let _ = self.events.try_send(Event::Preview { track, lane });
+    }
+
+    /// Rec: writes a played note into the pattern at the step that's playing.
+    fn record(&mut self, track: usize, note: u8, velocity: u8) {
+        let pattern = self.edit_pattern();
+        let step = self.shared.current_step.load(Relaxed);
+        if let Some(t) = self.project.tracks.get_mut(track) {
+            let lane = t.lane_for(note);
+            t.patterns[pattern][lane][step] = Some(Step {
+                velocity,
+                ..Step::HIT
+            });
+            self.dirty = true;
+        }
     }
 
     fn edit_pattern(&self) -> usize {
@@ -444,6 +476,7 @@ impl App {
         if i < self.project.tracks.len() {
             self.project.tracks.remove(i);
             self.project.prune_groups();
+            self.midi.track_deleted(i);
             self.selected = self
                 .selected
                 .min(self.project.tracks.len().saturating_sub(1));
@@ -486,7 +519,10 @@ impl App {
                 }
             }
             if i.key_pressed(F9) {
-                *v = View::ALL;
+                *v = View {
+                    others: v.others,
+                    ..View::ALL
+                };
             }
         });
     }
@@ -536,7 +572,7 @@ impl App {
     fn clear_pattern(&mut self) {
         let edit = self.edit_pattern();
         for track in &mut self.project.tracks {
-            track.patterns[edit] = [None; STEPS];
+            track.patterns[edit] = EMPTY_GRID;
         }
         self.dirty = true;
     }
@@ -602,6 +638,7 @@ impl App {
                 ui.checkbox(&mut v.tracks, "Tracks  (F6)");
                 ui.checkbox(&mut v.piano, "Piano roll  (F7)");
                 ui.checkbox(&mut v.panel, "Instrument panel  (F8)");
+                ui.checkbox(&mut v.others, "Other tracks' notes in piano roll");
                 ui.separator();
                 ui.label(RichText::new("Focus on one thing").small().weak());
                 if ui.button("Tracks only").clicked() {
@@ -610,6 +647,7 @@ impl App {
                         tracks: true,
                         piano: false,
                         panel: false,
+                        ..*v
                     };
                     ui.close_menu();
                 }
@@ -619,6 +657,7 @@ impl App {
                         tracks: false,
                         piano: true,
                         panel: true,
+                        ..*v
                     };
                     ui.close_menu();
                 }
@@ -638,6 +677,76 @@ impl App {
                 }
             });
         });
+    }
+
+    /// Lists MIDI inputs: tick to connect, and pick where each one's notes go.
+    fn midi_inputs_window(&mut self, ctx: &egui::Context) {
+        let mut open = self.show_midi_inputs;
+        let tracks: Vec<String> = self.project.tracks.iter().map(|t| t.name.clone()).collect();
+        let groups: Vec<(u32, String)> = self
+            .project
+            .groups
+            .iter()
+            .map(|g| (g.id, g.name.clone()))
+            .collect();
+        let describe = |route: Route| match route {
+            Route::Selected => "Selected track".to_string(),
+            Route::Track(i) => tracks.get(i).cloned().unwrap_or_default(),
+            Route::Group(id) => groups
+                .iter()
+                .find(|(g, _)| *g == id)
+                .map_or_else(String::new, |(_, name)| format!("{name} (group)")),
+        };
+        egui::Window::new("MIDI inputs")
+            .open(&mut open)
+            .resizable(false)
+            .show(ctx, |ui| {
+                let midi = &mut self.midi;
+                if ui.button("⟳ Rescan").clicked() {
+                    midi.refresh();
+                }
+                if midi.in_ports.is_empty() {
+                    ui.weak("No MIDI inputs found. Plug one in and press Rescan.");
+                }
+                ui.add_space(4.0);
+                egui::Grid::new("inputs").num_columns(2).show(ui, |ui| {
+                    for name in midi.in_ports.clone() {
+                        let route = midi.route(&name);
+                        let mut on = route.is_some();
+                        if ui.checkbox(&mut on, &name).changed() {
+                            midi.set_connected(&name, on);
+                        }
+                        if let Some(route) = route {
+                            let mut picked = route;
+                            egui::ComboBox::from_id_salt(&name)
+                                .selected_text(describe(route))
+                                .width(170.0)
+                                .show_ui(ui, |ui| {
+                                    let mut option = |ui: &mut egui::Ui, r: Route| {
+                                        ui.selectable_value(&mut picked, r, describe(r));
+                                    };
+                                    option(ui, Route::Selected);
+                                    for &(id, _) in &groups {
+                                        option(ui, Route::Group(id));
+                                    }
+                                    for i in 0..tracks.len() {
+                                        option(ui, Route::Track(i));
+                                    }
+                                });
+                            if picked != route {
+                                midi.set_route(&name, picked);
+                            }
+                        }
+                        ui.end_row();
+                    }
+                });
+                ui.add_space(4.0);
+                ui.weak(
+                    "Selected track follows your clicks. A group sends each drum\n\
+                         note to its matching track: the kick pad plays Kick.",
+                );
+            });
+        self.show_midi_inputs = open;
     }
 
     fn confirm_dialog(&mut self, ctx: &egui::Context) {
@@ -755,42 +864,49 @@ impl App {
                 })
                 .collect()
         });
+        let base = track.base_note();
+        let mut octave_changed = false;
+        let mut to_record = Vec::new();
         for (key, pressed) in keys {
             match key {
-                egui::Key::Z if pressed => track.octave = track.octave.saturating_sub(1),
-                egui::Key::X if pressed => track.octave = (track.octave + 1).min(7),
+                egui::Key::Z if pressed => {
+                    track.octave = track.octave.saturating_sub(1);
+                    octave_changed = true;
+                }
+                egui::Key::X if pressed => {
+                    track.octave = (track.octave + 1).min(7);
+                    octave_changed = true;
+                }
                 _ => {
                     let Some(semitone) = key_semitone(key) else {
                         continue;
                     };
                     if pressed {
-                        if let Some((_, t)) = self.held_key {
-                            let _ = self.events.try_send(Event::Release { track: t });
+                        if let Some((_, t, note)) = self.held_key.take() {
+                            let _ = self.events.try_send(Event::Release { track: t, note });
                         }
-                        self.held_key = Some((key, self.selected));
+                        let note = base + semitone;
+                        self.held_key = Some((key, self.selected, note));
                         let _ = self.events.try_send(Event::Hold {
                             track: self.selected,
-                            semitone,
+                            note,
+                            velocity: NORMAL,
                         });
                         if self.recording && playing {
-                            let pattern = self.shared.edit_pattern.load(Relaxed) as usize;
-                            let step = self.shared.current_step.load(Relaxed);
-                            // The piano roll shows one octave, so fold into it.
-                            let value = if track.is_melodic() { semitone % 12 } else { 0 };
-                            track.patterns[pattern][step] = Some(Step::note(value));
+                            to_record.push(note);
                         }
-                    } else if self.held_key.is_some_and(|(k, _)| k == key) {
-                        let (_, t) = self.held_key.take().unwrap();
-                        let _ = self.events.try_send(Event::Release { track: t });
+                    } else if let Some((_, t, note)) = self.held_key.filter(|&(k, _, _)| k == key) {
+                        self.held_key = None;
+                        let _ = self.events.try_send(Event::Release { track: t, note });
                     }
-                    continue;
                 }
             }
-            // Octave changed.
+        }
+        if octave_changed {
             self.dirty = true;
         }
-        if self.recording && playing {
-            self.dirty = true;
+        for note in to_record {
+            self.record(self.selected, note, NORMAL);
         }
     }
 
@@ -801,8 +917,10 @@ impl App {
             if let Some(pick) = port_picker(ui, "MIDI out", &m.out_ports, &m.out_name) {
                 m.select_out(pick);
             }
-            if let Some(pick) = port_picker(ui, "MIDI in", &m.in_ports, &m.in_name) {
-                m.select_in(pick);
+            let inputs = format!("MIDI in: {} connected", m.connected_inputs());
+            let hint = "Connect controllers and choose which track each one plays";
+            if ui.button(inputs).on_hover_text(hint).clicked() {
+                self.show_midi_inputs = !self.show_midi_inputs;
             }
             if ui
                 .button("⟳")
@@ -907,8 +1025,8 @@ impl App {
         let id = self.project.groups[g].id;
         let mut lit = [false; STEPS];
         for t in self.project.tracks.iter().filter(|t| t.group == Some(id)) {
-            for (step, value) in t.patterns[pattern].iter().enumerate() {
-                lit[step] |= value.is_some_and(|s| !s.is_tie());
+            for (step, on) in lit.iter_mut().enumerate() {
+                *on |= t.hit_at(pattern, step);
             }
         }
         let mut ungroup = false;
@@ -1010,10 +1128,7 @@ impl App {
                     self.selected = i;
                     self.selected_group = None;
                     self.picked.clear();
-                    let _ = self.events.try_send(Event::Note {
-                        track: i,
-                        semitone: 0,
-                    });
+                    let _ = self.events.try_send(Event::Preview { track: i, lane: 0 });
                 }
             }
             resp.context_menu(|ui| {
@@ -1058,21 +1173,32 @@ impl App {
                 self.dirty = true;
             }
             let melodic = track.is_melodic();
+            let lanes = track.lanes();
             let on_color = if melodic { NOTE_ON } else { DRUM_ON };
+            let grid = &mut track.patterns[pattern];
+            // A step is a column across every lane, so walk it by index.
+            #[allow(clippy::needless_range_loop)]
             for step in 0..STEPS {
-                let value = track.patterns[pattern][step];
-                // Melodic steps show their note; groove settings show as marks.
-                let text = match value {
-                    Some(s) if s.is_tie() => "–".to_string(),
-                    Some(s) if melodic => {
-                        format!("{}{}", NOTE_NAMES[s.note as usize % 12], step_marks(&s))
+                // Every lane with something at this step, lowest note first.
+                let notes: Vec<usize> = (0..lanes).filter(|&l| grid[l][step].is_some()).collect();
+                let first = notes.iter().copied().find(|&l| Step::is_hit(&grid[l][step]));
+                // Melodic steps show their lowest note and how many more
+                // make the chord; groove settings show as marks.
+                let text = match first.and_then(|l| grid[l][step].map(|s| (l, s))) {
+                    Some((l, s)) => {
+                        let name = if melodic { NOTE_NAMES[l] } else { "" };
+                        let more = match notes.len() {
+                            1 => String::new(),
+                            n => format!("+{}", n - 1),
+                        };
+                        format!("{name}{more}{}", step_marks(&s))
                     }
-                    Some(s) => step_marks(&s),
+                    None if !notes.is_empty() => "–".to_string(),
                     None => String::new(),
                 };
-                let fill = match value {
-                    Some(s) if s.is_tie() => NOTE_HELD,
+                let fill = match first.and_then(|l| grid[l][step]) {
                     Some(s) => lit_fill(on_color, s.velocity),
+                    None if !notes.is_empty() => NOTE_HELD,
                     None => empty_fill(step, false),
                 };
                 let pad = egui::Button::new(RichText::new(text).small().color(Color32::BLACK))
@@ -1080,21 +1206,39 @@ impl App {
                     .stroke(playhead(current == Some(step)))
                     .min_size(Vec2::new(28.0, 26.0));
                 let resp = ui.add(pad);
-                let cell = &mut track.patterns[pattern][step];
                 if resp.clicked() {
                     if ui.input(|i| i.modifiers.shift) {
-                        toggle_ghost(cell, 0);
+                        if first.is_none() {
+                            grid[0][step] = None;
+                            toggle_ghost(&mut grid[0][step]);
+                        }
+                        for &l in &notes {
+                            if Step::is_hit(&grid[l][step]) {
+                                toggle_ghost(&mut grid[l][step]);
+                            }
+                        }
+                    } else if notes.is_empty() {
+                        grid[0][step] = Some(Step::HIT);
                     } else {
-                        *cell = if cell.is_some() {
-                            None
-                        } else {
-                            Some(Step::note(0))
-                        };
+                        for &l in &notes {
+                            grid[l][step] = None;
+                        }
                     }
                     self.dirty = true;
                 }
-                if let Some(s) = cell.as_mut().filter(|s| !s.is_tie()) {
-                    resp.context_menu(|ui| self.dirty |= step_menu(ui, s));
+                if let Some(l) = first {
+                    resp.context_menu(|ui| {
+                        let mut edited = grid[l][step].unwrap_or(Step::HIT);
+                        if step_menu(ui, &mut edited) {
+                            // Apply to every note of a chord at once.
+                            for &n in &notes {
+                                if Step::is_hit(&grid[n][step]) {
+                                    grid[n][step] = Some(edited);
+                                }
+                            }
+                            self.dirty = true;
+                        }
+                    });
                 }
             }
         });
@@ -1145,6 +1289,23 @@ impl App {
 
     fn piano_roll(&mut self, ui: &mut egui::Ui, pattern: usize, current: Option<usize>) {
         let i = self.selected;
+        // Notes other melodic tracks play in this pattern, by pitch (C..B),
+        // shown faintly so parts can be lined up.
+        let mut others = [[false; STEPS]; LANES];
+        if self.view.others {
+            for (j, t) in self.project.tracks.iter().enumerate() {
+                if j == i || !t.is_melodic() {
+                    continue;
+                }
+                for (lane, steps) in t.patterns[pattern].iter().enumerate() {
+                    for (step, value) in steps.iter().enumerate() {
+                        if Step::is_hit(value) {
+                            others[lane][step] = true;
+                        }
+                    }
+                }
+            }
+        }
         let track = &mut self.project.tracks[i];
         ui.horizontal(|ui| {
             ui.strong(format!("Piano roll · {}", track.name));
@@ -1155,25 +1316,14 @@ impl App {
             {
                 self.dirty = true;
             }
-            ui.weak("Click: add/remove · right-click after a note: hold it · right-click a note: groove");
+            ui.weak("Click: add/remove · several per column = chord · right-click after a note: hold · right-click a note: groove");
         });
         ui.add_space(4.0);
         ui.spacing_mut().item_spacing.y = 2.0;
-        let steps = &mut track.patterns[pattern];
-        // The note each step sounds, following ties back to where they start.
-        let mut sounding = [None; STEPS];
-        let mut note = None;
-        for (step, value) in steps.iter().enumerate() {
-            match value {
-                Some(s) if s.is_tie() => {}
-                Some(s) => note = Some(s.note),
-                None => note = None,
-            }
-            sounding[step] = note;
-        }
+        let grid = &mut track.patterns[pattern];
         // Highest note on top, like a piano.
-        for semitone in (0..12u8).rev() {
-            let name = NOTE_NAMES[semitone as usize];
+        for lane in (0..LANES).rev() {
+            let name = NOTE_NAMES[lane];
             let sharp = name.ends_with('#');
             ui.horizontal(|ui| {
                 let key_fill = if sharp {
@@ -1185,21 +1335,19 @@ impl App {
                     .fill(key_fill)
                     .min_size(Vec2::new(80.0, 17.0));
                 if ui.add(key).clicked() {
-                    let _ = self.events.try_send(Event::Note { track: i, semitone });
+                    let _ = self.events.try_send(Event::Preview { track: i, lane });
                 }
                 ui.add_space(52.0); // line up with the steps above
                 for step in 0..STEPS {
-                    let value = steps[step];
-                    let starts = value.is_some_and(|s| !s.is_tie() && s.note == semitone);
-                    let held =
-                        value.is_some_and(|s| s.is_tie()) && sounding[step] == Some(semitone);
+                    let value = grid[lane][step];
                     let fill = match value {
-                        Some(s) if starts => lit_fill(NOTE_ON, s.velocity),
-                        _ if held => NOTE_HELD,
-                        _ => empty_fill(step, sharp),
+                        Some(s) if s.tie => NOTE_HELD,
+                        Some(s) => lit_fill(NOTE_ON, s.velocity),
+                        None if others[lane][step] => OTHER_NOTE,
+                        None => empty_fill(step, sharp),
                     };
                     let text = match value {
-                        Some(s) if starts => step_marks(&s),
+                        Some(s) if !s.tie => step_marks(&s),
                         _ => String::new(),
                     };
                     let cell = egui::Button::new(RichText::new(text).small().color(Color32::BLACK))
@@ -1207,36 +1355,38 @@ impl App {
                         .stroke(playhead(current == Some(step)))
                         .min_size(Vec2::new(28.0, 17.0));
                     let resp = ui.add(cell);
+                    let lane_steps = &mut grid[lane];
                     if resp.clicked() {
                         if ui.input(|i| i.modifiers.shift) {
-                            if !starts {
-                                steps[step] = None;
+                            if !Step::is_hit(&value) {
+                                lane_steps[step] = None;
                             }
-                            toggle_ghost(&mut steps[step], semitone);
-                        } else if starts || held {
-                            steps[step] = None;
+                            toggle_ghost(&mut lane_steps[step]);
+                        } else if value.is_some() {
+                            lane_steps[step] = None;
                             // Drop the ties that held this note on.
-                            for later in steps.iter_mut().skip(step + 1) {
-                                if !later.is_some_and(|s| s.is_tie()) {
+                            for later in lane_steps.iter_mut().skip(step + 1) {
+                                if !later.is_some_and(|s| s.tie) {
                                     break;
                                 }
                                 *later = None;
                             }
                         } else {
-                            steps[step] = Some(Step::note(semitone));
-                            let _ = self.events.try_send(Event::Note { track: i, semitone });
+                            lane_steps[step] = Some(Step::HIT);
+                            let _ = self.events.try_send(Event::Preview { track: i, lane });
                         }
                         self.dirty = true;
-                    } else if starts {
-                        if let Some(s) = steps[step].as_mut() {
+                    } else if Step::is_hit(&value) {
+                        if let Some(s) = lane_steps[step].as_mut() {
                             resp.context_menu(|ui| self.dirty |= step_menu(ui, s));
                         }
                     } else if resp.secondary_clicked()
+                        && value.is_none()
                         && step > 0
-                        && sounding[step - 1] == Some(semitone)
+                        && lane_steps[step - 1].is_some()
                     {
-                        // Extend the note before through this step.
-                        steps[step] = Some(Step::tie());
+                        // Hold the note before through this step.
+                        lane_steps[step] = Some(Step::TIE);
                         self.dirty = true;
                     }
                 }
@@ -1399,7 +1549,7 @@ impl App {
 
         ui.add_space(12.0);
         if ui.button("Play a note").clicked() {
-            self.play_note(self.selected, 0);
+            self.preview(self.selected, 0);
         }
         ui.add_space(12.0);
         if ui

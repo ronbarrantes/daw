@@ -162,6 +162,11 @@ impl Voice {
         self.filter_env = 1.0;
     }
 
+    /// Finished and silent, so it can be skipped to save CPU.
+    pub fn is_idle(&self) -> bool {
+        self.stage == Stage::Release && self.amp < 1e-5
+    }
+
     pub fn note_off(&mut self) {
         self.stage = Stage::Release;
     }

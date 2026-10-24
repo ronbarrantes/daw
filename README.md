@@ -86,10 +86,13 @@ All of this goes out over MIDI too, with velocity.
 
 ### Piano roll
 
-- Click a cell to add a note; click it again to remove it.
+- Click a cell to add a note; click it again to remove it. Several notes in
+  one column make a **chord**.
 - **Right-click** the cell after a note to hold that note longer (shown in a
   darker blue). Longer notes let the synth's **Sustain** and **Release** be heard.
 - **Right-click** a note for its groove settings; **shift-click** for a ghost note.
+- Other tracks' notes show faintly behind, to help line parts up (View menu
+  to turn off).
 
 ### Play from your computer keyboard
 
@@ -142,7 +145,11 @@ Plug gear in over USB (or a USB-MIDI cable), then press **⟳** to rescan.
 - **MIDI out:** sends clock and Start/Stop so gear follows the tempo. Each
   track's **MIDI ch** (right panel) sends its notes on that channel; the
   built-in drums use channel 10 (Kick 36, Snare 38, Hat 42, Clap 39).
-- **MIDI in:** a note plays the one-shot track that sends the same note.
+- **MIDI in:** click it to connect controllers, several at once. Each plays
+  the **selected track** (follows your clicks) or a fixed **track** or
+  **group**. Route a drum kit to the Drums group and each pad plays its
+  matching drum. With **⏺ Rec** on and playing, what you play is written into
+  the pattern, chords included.
 - **Follow MIDI clock:** the incoming clock sets the tempo, and the other
   device's Start/Stop controls playback.
 
@@ -155,7 +162,7 @@ Plug gear in over USB (or a USB-MIDI cable), then press **⟳** to rescan.
 5. ~~Add/remove tracks, per-track volume, sample tracks~~
 6. ~~Groove: swing, velocity/ghost notes, humanize, chance, ratchets, nudge; solo~~
 7. ~~Track groups, View menu and focus mode~~
-8. Chords (polyphony) and other tracks' notes shown faintly in the piano roll
+8. ~~Chords, other tracks' notes in the piano roll, routed MIDI inputs with recording~~
 9. Save and load songs
 10. Sample editor: chop, trim, ADSR, fades, reverse
 11. Mixer and effects
