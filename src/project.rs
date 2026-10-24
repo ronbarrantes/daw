@@ -43,8 +43,11 @@ pub enum Kind {
 }
 
 /// One pattern's steps. For melodic tracks each step is the semitone above
-/// the track's octave C; for one-shot tracks any `Some` is a hit.
+/// the track's octave C, or `TIE` to keep the previous note held; for
+/// one-shot tracks any `Some` is a hit.
 pub type Steps = [Option<u8>; STEPS];
+/// A step that holds the previous note instead of playing a new one.
+pub const TIE: u8 = 0x80;
 
 #[derive(Clone)]
 pub struct Track {

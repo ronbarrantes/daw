@@ -1,5 +1,6 @@
 //! A small mono synth: two oscillators (saw-to-square morph) into a resonant
-//! low-pass filter, with a filter envelope for plucky, analog-ish sounds.
+//! low-pass filter. An ADSR envelope shapes the volume, and a separate decay
+//! envelope sweeps the filter for plucky, analog-ish sounds.
 
 use std::f32::consts::PI;
 
@@ -26,10 +27,12 @@ pub const DETUNE: usize = 1;
 pub const CUTOFF: usize = 2;
 pub const RESONANCE: usize = 3;
 pub const ENV_AMOUNT: usize = 4;
-pub const DECAY: usize = 5;
+pub const FILTER_DECAY: usize = 5;
 pub const ATTACK: usize = 6;
 pub const RELEASE: usize = 7;
 pub const VOLUME: usize = 8;
+pub const DECAY: usize = 9;
+pub const SUSTAIN: usize = 10;
 
 const fn param(
     name: &'static str,
@@ -49,17 +52,30 @@ const fn param(
     }
 }
 
-pub const PARAMS: [Param; 9] = [
+pub const PARAMS: [Param; 11] = [
     param("Wave", 0.0, 1.0, 0.0, false, Unit::Percent),
     param("Detune", 0.0, 1.0, 0.2, false, Unit::Percent),
     param("Cutoff", 60.0, 8000.0, 250.0, true, Unit::Hz),
     param("Reso", 0.0, 1.0, 0.35, false, Unit::Percent),
     param("Env amt", 0.0, 1.0, 0.65, false, Unit::Percent),
-    param("Decay", 0.02, 2.0, 0.25, true, Unit::Seconds),
+    param("F decay", 0.02, 2.0, 0.25, true, Unit::Seconds),
     param("Attack", 0.001, 1.0, 0.003, true, Unit::Seconds),
     param("Release", 0.01, 2.0, 0.15, true, Unit::Seconds),
     param("Volume", 0.0, 1.0, 0.7, false, Unit::Percent),
+    param("Decay", 0.01, 2.0, 0.3, true, Unit::Seconds),
+    param("Sustain", 0.0, 1.0, 0.8, false, Unit::Percent),
 ];
+
+/// The attack aims past full volume so it actually gets there, then hands
+/// over to the decay stage.
+const ATTACK_TARGET: f32 = 1.2;
+
+#[derive(Clone, Copy, PartialEq)]
+enum Stage {
+    Attack,
+    Decay,
+    Release,
+}
 
 pub type Values = [f32; PARAMS.len()];
 
@@ -76,7 +92,7 @@ pub struct Voice {
     sr: f32,
     freq: f32,
     phase: [f32; 2],
-    gate: bool,
+    stage: Stage,
     amp: f32,
     filter_env: f32,
     // State-variable filter memory.
@@ -89,9 +105,11 @@ pub struct Voice {
     damping: f32,
     env_octaves: f32,
     volume: f32,
+    sustain: f32,
     attack_coef: f32,
-    release_coef: f32,
     decay_coef: f32,
+    release_coef: f32,
+    filter_decay_coef: f32,
 }
 
 impl Voice {
@@ -100,7 +118,7 @@ impl Voice {
             sr,
             freq: 220.0,
             phase: [0.0; 2],
-            gate: false,
+            stage: Stage::Release,
             amp: 0.0,
             filter_env: 0.0,
             low: 0.0,
@@ -111,9 +129,11 @@ impl Voice {
             damping: 1.0,
             env_octaves: 0.0,
             volume: 0.0,
+            sustain: 0.0,
             attack_coef: 0.0,
-            release_coef: 0.0,
             decay_coef: 0.0,
+            release_coef: 0.0,
+            filter_decay_coef: 0.0,
         };
         v.set_params(&PARAMS.map(|p| p.default));
         v
@@ -127,29 +147,38 @@ impl Voice {
         self.damping = 1.4 - v[RESONANCE] * 1.3;
         self.env_octaves = v[ENV_AMOUNT] * 6.0;
         self.volume = v[VOLUME];
-        self.attack_coef = coef(v[ATTACK], self.sr);
-        self.release_coef = coef(v[RELEASE], self.sr);
+        self.sustain = v[SUSTAIN];
+        // Reaching full volume takes ~1.8 time constants with ATTACK_TARGET,
+        // so this makes the knob read as the actual attack time.
+        self.attack_coef = coef(v[ATTACK] / 1.8, self.sr);
         self.decay_coef = coef(v[DECAY], self.sr);
+        self.release_coef = coef(v[RELEASE], self.sr);
+        self.filter_decay_coef = coef(v[FILTER_DECAY], self.sr);
     }
 
     pub fn note_on(&mut self, note: u8) {
         self.freq = midi_to_hz(note);
-        self.gate = true;
+        self.stage = Stage::Attack;
         self.filter_env = 1.0;
     }
 
     pub fn note_off(&mut self) {
-        self.gate = false;
+        self.stage = Stage::Release;
     }
 
     pub fn next_sample(&mut self) -> f32 {
-        let (target, rate) = if self.gate {
-            (1.0, self.attack_coef)
-        } else {
-            (0.0, self.release_coef)
-        };
-        self.amp += (target - self.amp) * rate;
-        self.filter_env -= self.filter_env * self.decay_coef;
+        match self.stage {
+            Stage::Attack => {
+                self.amp += (ATTACK_TARGET - self.amp) * self.attack_coef;
+                if self.amp >= 1.0 {
+                    self.amp = 1.0;
+                    self.stage = Stage::Decay;
+                }
+            }
+            Stage::Decay => self.amp += (self.sustain - self.amp) * self.decay_coef,
+            Stage::Release => self.amp -= self.amp * self.release_coef,
+        }
+        self.filter_env -= self.filter_env * self.filter_decay_coef;
 
         let mut osc = 0.0;
         for (i, phase) in self.phase.iter_mut().enumerate() {
@@ -174,5 +203,41 @@ impl Voice {
         self.low += f * self.band;
 
         self.low * self.amp * self.volume * 0.5
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn adsr_shapes_the_volume() {
+        let sr = 48_000.0;
+        let mut values = PARAMS.map(|p| p.default);
+        values[ATTACK] = 0.1;
+        values[DECAY] = 0.05;
+        values[SUSTAIN] = 0.5;
+        values[RELEASE] = 0.05;
+        let mut v = Voice::new(sr);
+        v.set_params(&values);
+        v.note_on(60);
+        let run = |v: &mut Voice, seconds: f32| {
+            for _ in 0..(seconds * sr) as usize {
+                v.next_sample();
+            }
+            v.amp
+        };
+        let rising = run(&mut v, 0.05);
+        assert!(
+            rising > 0.2 && rising < 0.9,
+            "halfway through attack: {rising}"
+        );
+        let peak = run(&mut v, 0.06);
+        assert!(peak > 0.8, "attack done near 0.1 s: {peak}");
+        let held = run(&mut v, 0.5);
+        assert!((held - 0.5).abs() < 0.01, "settles at sustain: {held}");
+        v.note_off();
+        let released = run(&mut v, 0.5);
+        assert!(released < 0.001, "fades after release: {released}");
     }
 }

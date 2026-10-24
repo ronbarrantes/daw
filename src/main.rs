@@ -18,11 +18,13 @@ use eframe::egui::{self, Align, Color32, Layout, Pos2, RichText, Sense, Stroke, 
 
 use audio::{Event, Shared};
 use midi::Midi;
-use project::{Kind, Project, Sample, Steps, Track, MAX_TRACKS, PATTERNS, SONG_SLOTS, STEPS};
+use project::{Kind, Project, Sample, Steps, Track, MAX_TRACKS, PATTERNS, SONG_SLOTS, STEPS, TIE};
 use synth::{Param, Unit, PARAMS};
 
 const DRUM_ON: Color32 = Color32::from_rgb(255, 140, 40);
 const NOTE_ON: Color32 = Color32::from_rgb(80, 180, 255);
+const NOTE_HELD: Color32 = Color32::from_rgb(45, 110, 160);
+const RECORDING: Color32 = Color32::from_rgb(220, 60, 60);
 /// How many past project snapshots to keep alive for the audio thread.
 const HISTORY: usize = 8;
 
@@ -49,7 +51,7 @@ fn main() -> eframe::Result<()> {
 
     // Sized to fit the 1366x768 screen of an 11" MacBook Air.
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([1000.0, 680.0]),
+        viewport: egui::ViewportBuilder::default().with_inner_size([1060.0, 690.0]),
         ..Default::default()
     };
     let app = App {
@@ -66,6 +68,8 @@ fn main() -> eframe::Result<()> {
         load_rx,
         loading: 0,
         load_error: None,
+        recording: false,
+        held_key: None,
     };
     eframe::run_native("daw", options, Box::new(|_cc| Ok(Box::new(app))))
 }
@@ -89,6 +93,18 @@ struct App {
     /// Files still being decoded.
     loading: usize,
     load_error: Option<String>,
+    /// Keys played while playing are written into the pattern.
+    recording: bool,
+    /// The computer-keyboard key holding a note, and the track it plays.
+    held_key: Option<(egui::Key, usize)>,
+}
+
+/// Computer keys laid out like a piano, as in FL Studio: the home row is
+/// the white keys and the row above has the black keys.
+fn key_semitone(key: egui::Key) -> Option<u8> {
+    use egui::Key::*;
+    let keys = [A, W, S, E, D, F, T, G, Y, H, U, J, K, O, L, P];
+    keys.iter().position(|&k| k == key).map(|i| i as u8)
 }
 
 fn pattern_name(p: usize) -> String {
@@ -98,8 +114,11 @@ fn pattern_name(p: usize) -> String {
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let playing = self.shared.playing.load(Relaxed);
-        if ctx.input(|i| i.key_pressed(egui::Key::Space)) && !ctx.wants_keyboard_input() {
-            self.shared.playing.store(!playing, Relaxed);
+        if !ctx.wants_keyboard_input() {
+            if ctx.input(|i| i.key_pressed(egui::Key::Space)) {
+                self.shared.playing.store(!playing, Relaxed);
+            }
+            self.computer_keyboard(ctx, playing);
         }
 
         while let Ok(result) = self.load_rx.try_recv() {
@@ -135,7 +154,7 @@ impl eframe::App for App {
 
         egui::SidePanel::right("instrument")
             .resizable(false)
-            .exact_width(230.0)
+            .exact_width(290.0)
             .show(ctx, |ui| self.instrument_panel(ui));
 
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -258,8 +277,79 @@ impl App {
                 s.song_mode.store(true, Relaxed);
             }
             ui.separator();
-            ui.weak("Space = play/stop");
+            let rec = egui::Button::new(RichText::new("⏺ Rec").color(if self.recording {
+                RECORDING
+            } else {
+                Color32::GRAY
+            }))
+            .selected(self.recording);
+            let rec_hint = "While playing, notes you play on the keyboard\n\
+                            are written into the selected track";
+            if ui.add(rec).on_hover_text(rec_hint).clicked() {
+                self.recording = !self.recording;
+            }
+            ui.separator();
+            ui.weak("Space = play/stop · keys A–K play the selected track · Z/X = octave");
         });
+    }
+
+    /// Plays the selected track from the computer keyboard, like a MIDI
+    /// keyboard, and records into the pattern when Rec is on.
+    fn computer_keyboard(&mut self, ctx: &egui::Context, playing: bool) {
+        let Some(track) = self.project.tracks.get_mut(self.selected) else {
+            return;
+        };
+        let keys: Vec<(egui::Key, bool)> = ctx.input(|i| {
+            i.events
+                .iter()
+                .filter_map(|e| match e {
+                    egui::Event::Key {
+                        key,
+                        pressed,
+                        repeat: false,
+                        ..
+                    } => Some((*key, *pressed)),
+                    _ => None,
+                })
+                .collect()
+        });
+        for (key, pressed) in keys {
+            match key {
+                egui::Key::Z if pressed => track.octave = track.octave.saturating_sub(1),
+                egui::Key::X if pressed => track.octave = (track.octave + 1).min(7),
+                _ => {
+                    let Some(semitone) = key_semitone(key) else {
+                        continue;
+                    };
+                    if pressed {
+                        if let Some((_, t)) = self.held_key {
+                            let _ = self.events.try_send(Event::Release { track: t });
+                        }
+                        self.held_key = Some((key, self.selected));
+                        let _ = self.events.try_send(Event::Hold {
+                            track: self.selected,
+                            semitone,
+                        });
+                        if self.recording && playing {
+                            let pattern = self.shared.edit_pattern.load(Relaxed) as usize;
+                            let step = self.shared.current_step.load(Relaxed);
+                            // The piano roll shows one octave, so fold into it.
+                            let value = if track.is_melodic() { semitone % 12 } else { 0 };
+                            track.patterns[pattern][step] = Some(value);
+                        }
+                    } else if self.held_key.is_some_and(|(k, _)| k == key) {
+                        let (_, t) = self.held_key.take().unwrap();
+                        let _ = self.events.try_send(Event::Release { track: t });
+                    }
+                    continue;
+                }
+            }
+            // Octave changed.
+            self.dirty = true;
+        }
+        if self.recording && playing {
+            self.dirty = true;
+        }
     }
 
     fn midi_row(&mut self, ui: &mut egui::Ui) {
@@ -394,7 +484,8 @@ impl App {
                 let value = track.patterns[pattern][step];
                 // Melodic pads show their note; click the track for the piano roll.
                 let text = match value {
-                    Some(semi) if melodic => RichText::new(NOTE_NAMES[semi as usize]).small(),
+                    Some(TIE) if melodic => RichText::new("–").small(),
+                    Some(semi) if melodic => RichText::new(NOTE_NAMES[semi as usize % 12]).small(),
                     _ => RichText::new(""),
                 };
                 let pad = egui::Button::new(text.color(Color32::BLACK))
@@ -455,9 +546,20 @@ impl App {
             {
                 self.dirty = true;
             }
+            ui.weak("Click: add/remove a note · right-click after a note: hold it longer");
         });
         ui.add_space(4.0);
         ui.spacing_mut().item_spacing.y = 2.0;
+        let steps = &mut track.patterns[pattern];
+        // The note each step sounds, following ties back to where they start.
+        let mut sounding = [None; STEPS];
+        let mut note = None;
+        for (step, value) in steps.iter().enumerate() {
+            if *value != Some(TIE) {
+                note = *value;
+            }
+            sounding[step] = note;
+        }
         // Highest note on top, like a piano.
         for semitone in (0..12u8).rev() {
             let name = NOTE_NAMES[semitone as usize];
@@ -475,17 +577,40 @@ impl App {
                 }
                 ui.add_space(26.0); // line up with the pads above
                 for step in 0..STEPS {
-                    let on = track.patterns[pattern][step] == Some(semitone);
+                    let starts = steps[step] == Some(semitone);
+                    let held = steps[step] == Some(TIE) && sounding[step] == Some(semitone);
+                    let fill = match (starts, held) {
+                        (true, _) => NOTE_ON,
+                        (_, true) => NOTE_HELD,
+                        _ => step_fill(false, NOTE_ON, step, sharp),
+                    };
                     let cell = egui::Button::new("")
-                        .fill(step_fill(on, NOTE_ON, step, sharp))
+                        .fill(fill)
                         .stroke(playhead(current == Some(step)))
                         .min_size(Vec2::new(28.0, 17.0));
-                    if ui.add(cell).clicked() {
-                        track.patterns[pattern][step] = if on { None } else { Some(semitone) };
-                        self.dirty = true;
-                        if !on {
+                    let resp = ui.add(cell);
+                    if resp.clicked() {
+                        if starts || held {
+                            steps[step] = None;
+                            // Drop the ties that held this note on.
+                            for later in steps.iter_mut().skip(step + 1) {
+                                if *later != Some(TIE) {
+                                    break;
+                                }
+                                *later = None;
+                            }
+                        } else {
+                            steps[step] = Some(semitone);
                             let _ = self.events.try_send(Event::Note { track: i, semitone });
                         }
+                        self.dirty = true;
+                    } else if resp.secondary_clicked()
+                        && step > 0
+                        && sounding[step - 1] == Some(semitone)
+                    {
+                        // Extend the note before through this step.
+                        steps[step] = Some(TIE);
+                        self.dirty = true;
                     }
                 }
             });
@@ -540,25 +665,34 @@ impl App {
 
         match &mut track.kind {
             Kind::Synth(values) => {
-                ui.weak("Drag knobs up/down.\nDouble-click to reset.");
-                ui.add_space(6.0);
-                // Rows: sound, filter, envelope.
-                let rows = [
-                    [Some(synth::WAVE), Some(synth::DETUNE), None],
-                    [
-                        Some(synth::CUTOFF),
-                        Some(synth::RESONANCE),
-                        Some(synth::ENV_AMOUNT),
-                    ],
-                    [
-                        Some(synth::ATTACK),
-                        Some(synth::DECAY),
-                        Some(synth::RELEASE),
-                    ],
+                ui.weak("Drag knobs up/down. Double-click to reset.");
+                ui.add_space(4.0);
+                // `None` is the track volume, which every track has.
+                let sections: [(&str, &[Option<usize>]); 3] = [
+                    ("Sound", &[Some(synth::WAVE), Some(synth::DETUNE), None]),
+                    (
+                        "Filter",
+                        &[
+                            Some(synth::CUTOFF),
+                            Some(synth::RESONANCE),
+                            Some(synth::ENV_AMOUNT),
+                            Some(synth::FILTER_DECAY),
+                        ],
+                    ),
+                    (
+                        "Envelope (ADSR)",
+                        &[
+                            Some(synth::ATTACK),
+                            Some(synth::DECAY),
+                            Some(synth::SUSTAIN),
+                            Some(synth::RELEASE),
+                        ],
+                    ),
                 ];
-                for row in rows {
+                for (title, row) in sections {
+                    ui.label(RichText::new(title).small().strong());
                     ui.horizontal(|ui| {
-                        for slot in row {
+                        for &slot in row {
                             changed |= match slot {
                                 Some(i) => knob(ui, &PARAMS[i], &mut values[i]),
                                 None => knob(ui, &TRACK_VOLUME, &mut track.volume),
@@ -690,8 +824,10 @@ fn hint(p: &Param) -> &'static str {
         "Cutoff" => "Filter brightness when the envelope is closed",
         "Reso" => "Filter peak; higher = squelchier",
         "Env amt" => "How far each note opens the filter",
-        "Decay" => "How fast the filter closes after a note starts",
+        "F decay" => "How fast the filter closes after a note starts",
         "Attack" => "Fade-in time of each note",
+        "Decay" => "Time to fall from full volume to the sustain level",
+        "Sustain" => "Volume while a note is held",
         "Release" => "Fade-out time after a note ends",
         "Volume" => "Track level",
         _ => "",
@@ -702,7 +838,7 @@ fn hint(p: &Param) -> &'static str {
 /// Returns true when the value changed.
 fn knob(ui: &mut egui::Ui, p: &Param, value: &mut f32) -> bool {
     let mut changed = false;
-    let size = Vec2::new(64.0, 74.0);
+    let size = Vec2::new(60.0, 74.0);
     ui.allocate_ui_with_layout(size, Layout::top_down(Align::Center), |ui| {
         let (rect, resp) = ui.allocate_exact_size(Vec2::splat(40.0), Sense::click_and_drag());
         let resp = resp.on_hover_text(hint(p));

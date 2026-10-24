@@ -14,7 +14,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SampleFormat, SizedSample};
 
 use crate::midi::{self, Msg};
-use crate::project::{Kind, Project, Sample, MAX_TRACKS, SAMPLE_ROOT, STEPS};
+use crate::project::{Kind, Project, Sample, MAX_TRACKS, SAMPLE_ROOT, STEPS, TIE};
 use crate::synth::Voice;
 
 /// MIDI clock runs at 24 ticks per beat, so a 16th-note step is 6 ticks.
@@ -28,8 +28,19 @@ const UPDATE_INTERVAL: u32 = 64;
 
 /// Requests from the UI or MIDI in.
 pub enum Event {
-    /// Play a step value on a track right now.
-    Note { track: usize, semitone: u8 },
+    /// Play a step value on a track briefly, e.g. when clicking a cell.
+    Note {
+        track: usize,
+        semitone: u8,
+    },
+    /// Start a note that lasts until `Release`, e.g. from the computer keyboard.
+    Hold {
+        track: usize,
+        semitone: u8,
+    },
+    Release {
+        track: usize,
+    },
 }
 
 pub struct Shared {
@@ -130,6 +141,9 @@ struct Engine {
     samples_to_update: u32,
     /// Track whose clicked note is sounding, and samples until it stops.
     preview: Option<(usize, u32)>,
+    /// Tracks with a held live note (one bit per track); the sequencer
+    /// leaves these alone.
+    live: u16,
     /// Pattern playing in this bar; `None` is a silent song bar.
     pattern: Option<usize>,
     song_pos: usize,
@@ -166,6 +180,7 @@ impl Engine {
             samples_to_next_tick: 0.0,
             samples_to_update: 0,
             preview: None,
+            live: 0,
             pattern: Some(0),
             song_pos: 0,
             restart_song: true,
@@ -236,10 +251,21 @@ impl Engine {
                 voice.synth.set_params(values);
             }
         }
-        while let Ok(Event::Note { track, semitone }) = self.events.try_recv() {
-            if track < self.track_count() {
-                self.note_on(track, semitone);
-                self.preview = Some((track, (PREVIEW_SECONDS * self.sr) as u32));
+        while let Ok(event) = self.events.try_recv() {
+            match event {
+                Event::Note { track, semitone } if track < self.track_count() => {
+                    self.note_on(track, semitone);
+                    self.preview = Some((track, (PREVIEW_SECONDS * self.sr) as u32));
+                }
+                Event::Hold { track, semitone } if track < self.track_count() => {
+                    self.note_on(track, semitone);
+                    self.live |= 1 << track;
+                }
+                Event::Release { track } if track < MAX_TRACKS => {
+                    self.live &= !(1 << track);
+                    self.note_off(track);
+                }
+                _ => {}
             }
         }
     }
@@ -277,16 +303,27 @@ impl Engine {
             self.shared.current_step.store(step, Relaxed);
             if let Some(pattern) = self.pattern {
                 for i in 0..self.track_count() {
-                    if let Some(semitone) = self.project.tracks[i].patterns[pattern][step] {
-                        self.note_on(i, semitone);
+                    match self.project.tracks[i].patterns[pattern][step] {
+                        Some(TIE) | None => {}
+                        Some(semitone) => self.note_on(i, semitone),
                     }
                 }
             }
         } else if sub == TICKS_PER_STEP - 1 {
-            // Release just before the next step so repeated notes retrigger.
+            // Release just before the next step so repeated notes retrigger,
+            // unless the next step ties the note on.
+            let next = (step + 1) % STEPS;
             let previewing = self.preview.map(|(t, _)| t);
-            for i in (0..MAX_TRACKS).filter(|&i| Some(i) != previewing) {
-                self.note_off(i);
+            for i in 0..MAX_TRACKS {
+                let tied = self.pattern.is_some_and(|p| {
+                    self.project
+                        .tracks
+                        .get(i)
+                        .is_some_and(|t| t.patterns[p][next] == Some(TIE))
+                });
+                if !tied && Some(i) != previewing && self.live & (1 << i) == 0 {
+                    self.note_off(i);
+                }
             }
         }
         self.tick = (self.tick + 1) % (TICKS_PER_STEP * STEPS as u32);
@@ -621,5 +658,44 @@ mod tests {
         rig.shared.publish(Arc::new(empty));
         let out = rig.run(10_000);
         assert!(out.iter().all(|s| s.is_finite()));
+    }
+
+    #[test]
+    fn tied_steps_hold_the_note() {
+        let mut project = quiet_demo();
+        project.tracks[LEAD].patterns[0][0] = Some(0);
+        project.tracks[LEAD].patterns[0][1] = Some(TIE);
+        project.tracks[LEAD].patterns[0][2] = Some(TIE);
+        let mut rig = Rig::new(project);
+        rig.shared.playing.store(true, Relaxed);
+        rig.run(6_000 * 2); // two steps: still held
+        assert!(
+            !rig.midi().contains(&Msg::three(0x80, 48, 0)),
+            "held across the tie"
+        );
+        rig.run(6_000); // end of the third step
+        assert!(
+            rig.midi().contains(&Msg::three(0x80, 48, 0)),
+            "released after the ties"
+        );
+    }
+
+    #[test]
+    fn live_notes_last_until_released() {
+        let mut rig = Rig::new(quiet_demo());
+        rig.shared.playing.store(true, Relaxed);
+        rig.events
+            .send(Event::Hold {
+                track: LEAD,
+                semitone: 4,
+            })
+            .unwrap();
+        rig.run(48_000); // a second, through many sequencer steps
+        let msgs = rig.midi();
+        assert!(msgs.contains(&Msg::three(0x90, 52, 100)), "E3 on");
+        assert!(!msgs.contains(&Msg::three(0x80, 52, 0)), "still held");
+        rig.events.send(Event::Release { track: LEAD }).unwrap();
+        rig.run(UPDATE_INTERVAL as usize);
+        assert!(rig.midi().contains(&Msg::three(0x80, 52, 0)), "released");
     }
 }

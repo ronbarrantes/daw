@@ -47,6 +47,25 @@ Each row is a track: its name, **M** (mute), and 16 steps.
   files as sample tracks, or just drop files onto the window.
 - Rename a track by editing its name at the top of the right panel.
 
+### Piano roll
+
+- Click a cell to add a note; click it again to remove it.
+- **Right-click** the cell after a note to hold that note longer (shown in a
+  darker blue). Longer notes let the synth's **Sustain** and **Release** be heard.
+
+### Play from your computer keyboard
+
+No MIDI keyboard needed: your laptop keys play the selected track.
+
+```
+ W E   T Y U   O P        ← black keys
+A S D F G H J K L         ← white keys (A = C)
+```
+
+- **Z** / **X** move down or up an octave.
+- Turn on **⏺ Rec** and press Play: notes you play are written into the
+  pattern at the step that's playing.
+
 ### Sample tracks
 
 - **Pitched off:** plays as recorded, like a drum hit.
@@ -70,10 +89,11 @@ On Arch, the **+ Sample…** file picker needs `xdg-desktop-portal` and
 Select a synth track to see its knobs. Drag a knob up or down; double-click
 to reset it. Hover for what each one does.
 
-- **Wave** saw → square. **Detune** thickens.
-- **Cutoff** and **Reso** set the filter; **Env amt** and **Decay** make each
-  note "pluck" by opening the filter and closing it again.
-- **Attack** / **Release** fade notes in and out.
+- **Sound:** **Wave** saw → square. **Detune** thickens. **Volume**.
+- **Filter:** **Cutoff** and **Reso** set the tone; **Env amt** and
+  **F decay** make each note "pluck" by opening the filter and closing it.
+- **Envelope (ADSR):** **Attack** fades in, **Decay** falls to the
+  **Sustain** level while the note is held, **Release** fades out after.
 
 Try: Cutoff down, Reso up, Env amt up, Decay short → squelchy acid bass.
 
