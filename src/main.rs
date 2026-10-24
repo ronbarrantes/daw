@@ -1,5 +1,6 @@
 mod audio;
 mod drums;
+mod export;
 mod file;
 mod help;
 mod midi;
@@ -81,6 +82,7 @@ fn main() -> eframe::Result<()> {
     let stream = audio::start(shared.clone(), events_rx, midi_tx);
     let audio_error = stream.as_ref().err().cloned();
     let (load_tx, load_rx) = channel();
+    let (export_tx, export_rx) = channel();
     shared.set_bpm(bpm);
 
     // Sized to fit the 1366x768 screen of an 11" MacBook Air.
@@ -126,6 +128,10 @@ fn main() -> eframe::Result<()> {
         saved_bpm: bpm,
         may_close: false,
         title: String::new(),
+        export_tx,
+        export_rx,
+        exporting: false,
+        notice: None,
     };
     eframe::run_native("daw", options, Box::new(|_cc| Ok(Box::new(app))))
 }
@@ -223,6 +229,19 @@ struct App {
     may_close: bool,
     /// The window title last set.
     title: String,
+    /// Finished exports: a message to show, or an error.
+    export_tx: Sender<Result<String, String>>,
+    export_rx: Receiver<Result<String, String>>,
+    exporting: bool,
+    /// A short success message, e.g. "Exported song.wav".
+    notice: Option<String>,
+}
+
+/// What File > Export writes.
+#[derive(Clone, Copy)]
+enum ExportKind {
+    Wav,
+    Midi,
 }
 
 /// Computer keys laid out like a piano, as in FL Studio: the home row is
@@ -350,6 +369,13 @@ impl eframe::App for App {
             self.computer_keyboard(ctx, playing);
         }
         self.shared.selected_track.store(self.selected, Relaxed);
+        while let Ok(result) = self.export_rx.try_recv() {
+            self.exporting = false;
+            match result {
+                Ok(message) => self.notice = Some(message),
+                Err(e) => self.load_error = Some(e),
+            }
+        }
         while let Ok(p) = self.played.try_recv() {
             if self.recording && playing {
                 self.record(p.track, p.note, p.velocity);
@@ -383,6 +409,14 @@ impl eframe::App for App {
                 .flatten()
             {
                 ui.colored_label(Color32::RED, err);
+            }
+            if self.exporting {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label("Exporting…");
+                });
+            } else if let Some(notice) = &self.notice {
+                ui.colored_label(Color32::LIGHT_GREEN, notice);
             }
             self.transport_row(ui, playing);
             self.midi_row(ui);
@@ -586,6 +620,37 @@ impl App {
         }
     }
 
+    /// Asks where to export, then renders on a background thread so the
+    /// app stays responsive.
+    fn export(&mut self, ctx: &egui::Context, kind: ExportKind) {
+        let (label, ext) = match kind {
+            ExportKind::Wav => ("WAV audio", "wav"),
+            ExportKind::Midi => ("MIDI file", "mid"),
+        };
+        let picked = rfd::FileDialog::new()
+            .add_filter(label, &[ext])
+            .set_file_name(format!("{}.{ext}", self.song_name()))
+            .save_file();
+        let Some(path) = picked else { return };
+        let path = path.with_extension(ext);
+        let project = self.project.clone();
+        let bpm = self.shared.bpm();
+        let pattern = self.edit_pattern();
+        let tx = self.export_tx.clone();
+        let ctx = ctx.clone();
+        self.exporting = true;
+        self.notice = None;
+        thread::spawn(move || {
+            let result = match kind {
+                ExportKind::Wav => export::wav(&path, &project, bpm, pattern),
+                ExportKind::Midi => export::midi(&path, &project, bpm, pattern),
+            };
+            let name = path.file_name().unwrap_or_default().to_string_lossy();
+            let _ = tx.send(result.map(|()| format!("Exported {name}")));
+            ctx.request_repaint();
+        });
+    }
+
     fn write_song(&mut self, path: PathBuf) -> bool {
         let bpm = self.shared.bpm();
         match file::save(&path, &self.project, bpm) {
@@ -779,6 +844,14 @@ impl App {
                 }
                 if item(ui, "Save as…", "Ctrl+Shift+S") {
                     self.save_as();
+                }
+                ui.separator();
+                // Exports the Song row, or the current pattern four times if it's empty.
+                if item(ui, "Export WAV…", "") {
+                    self.export(ctx, ExportKind::Wav);
+                }
+                if item(ui, "Export MIDI…", "") {
+                    self.export(ctx, ExportKind::Midi);
                 }
                 ui.separator();
                 if item(ui, "Load demo song", "") {
