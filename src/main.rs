@@ -1,55 +1,94 @@
 mod audio;
 mod drums;
 mod midi;
+mod project;
+mod sample;
 mod synth;
 
+use std::collections::VecDeque;
 use std::f32::consts::PI;
+use std::path::PathBuf;
 use std::sync::atomic::Ordering::Relaxed;
-use std::sync::mpsc::sync_channel;
+use std::sync::mpsc::{channel, sync_channel, Receiver, Sender, SyncSender};
 use std::sync::Arc;
+use std::thread;
 use std::time::Duration;
 
-use eframe::egui::{self, Align, Color32, Layout, Pos2, Sense, Stroke, Vec2};
+use eframe::egui::{self, Align, Color32, Layout, Pos2, RichText, Sense, Stroke, Vec2};
 
-use audio::{PatternData, Shared, PATTERNS, SONG_SLOTS, STEPS, TRACKS};
+use audio::{Event, Shared};
 use midi::Midi;
+use project::{Kind, Project, Sample, Steps, Track, MAX_TRACKS, PATTERNS, SONG_SLOTS, STEPS};
 use synth::{Param, Unit, PARAMS};
 
 const DRUM_ON: Color32 = Color32::from_rgb(255, 140, 40);
 const NOTE_ON: Color32 = Color32::from_rgb(80, 180, 255);
+/// How many past project snapshots to keep alive for the audio thread.
+const HISTORY: usize = 8;
+
+const TRACK_VOLUME: Param = Param {
+    name: "Volume",
+    min: 0.0,
+    max: 1.0,
+    default: 0.8,
+    log: false,
+    unit: Unit::Percent,
+};
 
 fn main() -> eframe::Result<()> {
-    let shared = Arc::new(Shared::new());
+    let project = Project::demo();
+    let snapshot = Arc::new(project.clone());
+    let shared = Arc::new(Shared::new(snapshot.clone()));
+    let (events, events_rx) = sync_channel(256);
     let (midi_tx, midi_rx) = sync_channel(1024);
-    let midi = Midi::new(shared.clone(), midi_rx);
+    let midi = Midi::new(shared.clone(), events.clone(), midi_rx);
     // Held until the window closes; dropping the stream stops audio.
-    let stream = audio::start(shared.clone(), midi_tx);
-    let error = stream.as_ref().err().cloned();
+    let stream = audio::start(shared.clone(), events_rx, midi_tx);
+    let audio_error = stream.as_ref().err().cloned();
+    let (load_tx, load_rx) = channel();
 
     // Sized to fit the 1366x768 screen of an 11" MacBook Air.
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([1000.0, 660.0]),
+        viewport: egui::ViewportBuilder::default().with_inner_size([1000.0, 680.0]),
         ..Default::default()
     };
-    eframe::run_native(
-        "daw",
-        options,
-        Box::new(|_cc| {
-            Ok(Box::new(App {
-                shared,
-                midi,
-                error,
-                clipboard: None,
-            }))
-        }),
-    )
+    let app = App {
+        shared,
+        project,
+        history: VecDeque::from([snapshot]),
+        dirty: false,
+        events,
+        midi,
+        audio_error,
+        clipboard: None,
+        selected: 4,
+        load_tx,
+        load_rx,
+        loading: 0,
+        load_error: None,
+    };
+    eframe::run_native("daw", options, Box::new(|_cc| Ok(Box::new(app))))
 }
 
 struct App {
     shared: Arc<Shared>,
+    /// The editable project; changes are published to the engine as snapshots.
+    project: Project,
+    /// Recent snapshots, kept so the audio thread is never the one to free one.
+    history: VecDeque<Arc<Project>>,
+    /// The project changed this frame and needs publishing.
+    dirty: bool,
+    events: SyncSender<Event>,
     midi: Midi,
-    error: Option<String>,
-    clipboard: Option<PatternData>,
+    audio_error: Option<String>,
+    clipboard: Option<Vec<Steps>>,
+    /// Track shown in the side panel and piano roll.
+    selected: usize,
+    load_tx: Sender<Result<Sample, String>>,
+    load_rx: Receiver<Result<Sample, String>>,
+    /// Files still being decoded.
+    loading: usize,
+    load_error: Option<String>,
 }
 
 fn pattern_name(p: usize) -> String {
@@ -58,19 +97,35 @@ fn pattern_name(p: usize) -> String {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let s = self.shared.clone();
-        let playing = s.playing.load(Relaxed);
+        let playing = self.shared.playing.load(Relaxed);
+        if ctx.input(|i| i.key_pressed(egui::Key::Space)) && !ctx.wants_keyboard_input() {
+            self.shared.playing.store(!playing, Relaxed);
+        }
 
-        if ctx.input(|i| i.key_pressed(egui::Key::Space)) {
-            s.playing.store(!playing, Relaxed);
+        while let Ok(result) = self.load_rx.try_recv() {
+            self.loading -= 1;
+            match result {
+                Ok(sample) => self.add_track(Track::sampler(Arc::new(sample), false)),
+                Err(e) => self.load_error = Some(e),
+            }
+        }
+        let dropped: Vec<PathBuf> = ctx.input(|i| {
+            i.raw
+                .dropped_files
+                .iter()
+                .filter_map(|f| f.path.clone())
+                .collect()
+        });
+        for path in dropped {
+            self.load_file(ctx, path);
         }
 
         egui::TopBottomPanel::top("transport").show(ctx, |ui| {
             ui.add_space(4.0);
-            if let Some(err) = &self.error {
-                ui.colored_label(Color32::RED, format!("Audio failed: {err}"));
-            }
-            if let Some(err) = &self.midi.error {
+            for err in [&self.audio_error, &self.midi.error, &self.load_error]
+                .into_iter()
+                .flatten()
+            {
                 ui.colored_label(Color32::RED, err);
             }
             self.transport_row(ui, playing);
@@ -78,26 +133,53 @@ impl eframe::App for App {
             ui.add_space(4.0);
         });
 
-        egui::SidePanel::right("synth")
+        egui::SidePanel::right("instrument")
             .resizable(false)
-            .show(ctx, |ui| synth_panel(ui, &s));
+            .exact_width(230.0)
+            .show(ctx, |ui| self.instrument_panel(ui));
 
         egui::CentralPanel::default().show(ctx, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
-                song_row(ui, &s, playing);
+                self.song_row(ui, playing);
                 ui.add_space(6.0);
                 self.pattern_row(ui);
                 ui.add_space(6.0);
-                let edit = s.edit_pattern.load(Relaxed) as usize;
+                let edit = self.shared.edit_pattern.load(Relaxed) as usize;
                 // Only show the playhead on the pattern that's actually playing.
-                let current = (playing && s.play_pattern.load(Relaxed) as usize == edit)
-                    .then(|| s.current_step.load(Relaxed));
-                drum_grid(ui, &s, edit, current);
-                ui.add_space(6.0);
-                melody_grid(ui, &s, edit, current);
+                let current = (playing && self.shared.play_pattern.load(Relaxed) as usize == edit)
+                    .then(|| self.shared.current_step.load(Relaxed));
+                for i in 0..self.project.tracks.len() {
+                    self.track_row(ui, i, edit, current);
+                }
+                ui.add_space(4.0);
+                self.add_row(ui, ctx);
+                if self
+                    .project
+                    .tracks
+                    .get(self.selected)
+                    .is_some_and(Track::is_melodic)
+                {
+                    ui.add_space(8.0);
+                    self.piano_roll(ui, edit, current);
+                }
             });
+            if ctx.input(|i| !i.raw.hovered_files.is_empty()) {
+                let painter = ui.painter();
+                let rect = ui.max_rect();
+                painter.rect_filled(rect, 0.0, Color32::from_black_alpha(180));
+                painter.text(
+                    rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    "Drop to add as sample tracks",
+                    egui::FontId::proportional(24.0),
+                    Color32::WHITE,
+                );
+            }
         });
 
+        if self.dirty {
+            self.publish();
+        }
         // Only redraw continuously while playing, to keep CPU low when idle.
         if playing {
             ctx.request_repaint_after(Duration::from_millis(30));
@@ -106,6 +188,42 @@ impl eframe::App for App {
 }
 
 impl App {
+    fn publish(&mut self) {
+        let snapshot = Arc::new(self.project.clone());
+        self.shared.publish(snapshot.clone());
+        self.history.push_back(snapshot);
+        if self.history.len() > HISTORY {
+            self.history.pop_front();
+        }
+        self.dirty = false;
+    }
+
+    fn play_note(&self, track: usize, semitone: u8) {
+        let _ = self.events.try_send(Event::Note { track, semitone });
+    }
+
+    fn add_track(&mut self, track: Track) {
+        if self.project.tracks.len() >= MAX_TRACKS {
+            self.load_error = Some(format!("Can't add {}: {MAX_TRACKS} tracks max", track.name));
+            return;
+        }
+        self.project.tracks.push(track);
+        self.selected = self.project.tracks.len() - 1;
+        self.load_error = None;
+        self.dirty = true;
+    }
+
+    /// Decodes a file on a background thread so the UI doesn't freeze.
+    fn load_file(&mut self, ctx: &egui::Context, path: PathBuf) {
+        self.loading += 1;
+        let tx = self.load_tx.clone();
+        let ctx = ctx.clone();
+        thread::spawn(move || {
+            let _ = tx.send(sample::load(&path));
+            ctx.request_repaint();
+        });
+    }
+
     fn transport_row(&mut self, ui: &mut egui::Ui, playing: bool) {
         let s = &self.shared;
         ui.horizontal(|ui| {
@@ -115,28 +233,26 @@ impl App {
             }
             let mut bpm = s.bpm();
             ui.label("BPM");
-            if ui
-                .add(
-                    egui::DragValue::new(&mut bpm)
-                        .range(40.0..=240.0)
-                        .speed(0.5),
-                )
-                .changed()
-            {
+            let drag = egui::DragValue::new(&mut bpm)
+                .range(40.0..=240.0)
+                .speed(0.5);
+            if ui.add(drag).changed() {
                 s.set_bpm(bpm);
             }
             ui.separator();
             let song = s.song_mode.load(Relaxed);
+            let pattern_hint = "Loop the pattern you're editing";
             if ui
                 .selectable_label(!song, "Pattern")
-                .on_hover_text("Loop the pattern you're editing")
+                .on_hover_text(pattern_hint)
                 .clicked()
             {
                 s.song_mode.store(false, Relaxed);
             }
+            let song_hint = "Play the song row, bar by bar";
             if ui
                 .selectable_label(song, "Song")
-                .on_hover_text("Play the song row, bar by bar")
+                .on_hover_text(song_hint)
                 .clicked()
             {
                 s.song_mode.store(true, Relaxed);
@@ -149,25 +265,19 @@ impl App {
     fn midi_row(&mut self, ui: &mut egui::Ui) {
         let s = self.shared.clone();
         ui.horizontal(|ui| {
-            if let Some(pick) =
-                port_picker(ui, "MIDI out", &self.midi.out_ports, &self.midi.out_name)
-            {
-                self.midi.select_out(pick);
+            let m = &mut self.midi;
+            if let Some(pick) = port_picker(ui, "MIDI out", &m.out_ports, &m.out_name) {
+                m.select_out(pick);
             }
-            if let Some(pick) = port_picker(ui, "MIDI in", &self.midi.in_ports, &self.midi.in_name)
-            {
-                self.midi.select_in(pick);
+            if let Some(pick) = port_picker(ui, "MIDI in", &m.in_ports, &m.in_name) {
+                m.select_in(pick);
             }
             if ui
                 .button("⟳")
                 .on_hover_text("Rescan MIDI devices")
                 .clicked()
             {
-                self.midi.refresh();
-            }
-            let mut notes = s.send_notes.load(Relaxed);
-            if ui.checkbox(&mut notes, "Send notes (ch 10)").changed() {
-                s.send_notes.store(notes, Relaxed);
+                m.refresh();
             }
             let mut ext = s.external_sync.load(Relaxed);
             if ui.checkbox(&mut ext, "Follow MIDI clock").changed() {
@@ -176,73 +286,330 @@ impl App {
         });
     }
 
+    /// The song arrangement: one pattern per bar.
+    fn song_row(&mut self, ui: &mut egui::Ui, playing: bool) {
+        let edit = self.shared.edit_pattern.load(Relaxed) as usize;
+        let song_mode = self.shared.song_mode.load(Relaxed);
+        let pos = self.shared.song_pos.load(Relaxed);
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 2.0;
+            ui.add_sized(
+                [62.0, 20.0],
+                egui::Label::new(RichText::new("Song").strong()),
+            )
+            .on_hover_text(
+                "Click a bar to place the selected pattern.\n\
+                     Click it again or right-click to empty it.",
+            );
+            for bar in 0..SONG_SLOTS {
+                let slot = self.project.song[bar].map(usize::from);
+                let fill = match (slot.is_some(), bar % 4 == 0) {
+                    (true, _) => Color32::from_rgb(70, 120, 70),
+                    (false, true) => Color32::from_gray(60),
+                    (false, false) => Color32::from_gray(45),
+                };
+                let cell = egui::Button::new(slot.map(pattern_name).unwrap_or_default())
+                    .fill(fill)
+                    .stroke(playhead(playing && song_mode && bar == pos))
+                    .min_size(Vec2::new(20.0, 22.0));
+                let resp = ui.add(cell);
+                if resp.secondary_clicked() || (resp.clicked() && slot == Some(edit)) {
+                    self.project.song[bar] = None;
+                    self.dirty = true;
+                } else if resp.clicked() {
+                    self.project.song[bar] = Some(edit as u8);
+                    self.dirty = true;
+                }
+            }
+        });
+    }
+
     fn pattern_row(&mut self, ui: &mut egui::Ui) {
-        let s = &self.shared;
-        let edit = s.edit_pattern.load(Relaxed) as usize;
+        let edit = self.shared.edit_pattern.load(Relaxed) as usize;
         ui.horizontal(|ui| {
             ui.add_sized(
                 [60.0, 20.0],
-                egui::Label::new(egui::RichText::new("Pattern").strong()),
+                egui::Label::new(RichText::new("Pattern").strong()),
             );
             for p in 0..PATTERNS {
                 let button = egui::Button::new(pattern_name(p))
                     .selected(p == edit)
                     .min_size(Vec2::new(28.0, 22.0));
                 if ui.add(button).on_hover_text("Edit this pattern").clicked() {
-                    s.edit_pattern.store(p as u8, Relaxed);
+                    self.shared.edit_pattern.store(p as u8, Relaxed);
                 }
             }
             ui.separator();
+            let tracks = &mut self.project.tracks;
             if ui.button("Copy").clicked() {
-                self.clipboard = Some(s.get_pattern(edit));
+                self.clipboard = Some(tracks.iter().map(|t| t.patterns[edit]).collect());
             }
             let paste = ui.add_enabled(self.clipboard.is_some(), egui::Button::new("Paste"));
             if paste.clicked() {
-                if let Some(data) = &self.clipboard {
-                    s.set_pattern(edit, data);
+                if let Some(copied) = &self.clipboard {
+                    for (track, steps) in tracks.iter_mut().zip(copied) {
+                        track.patterns[edit] = *steps;
+                    }
+                    self.dirty = true;
                 }
             }
             if ui.button("Clear").clicked() {
-                s.clear_pattern(edit);
+                for track in tracks.iter_mut() {
+                    track.patterns[edit] = [None; STEPS];
+                }
+                self.dirty = true;
             }
         });
     }
-}
 
-/// The song arrangement: one pattern per bar.
-fn song_row(ui: &mut egui::Ui, s: &Shared, playing: bool) {
-    let edit = s.edit_pattern.load(Relaxed) as usize;
-    let song_mode = s.song_mode.load(Relaxed);
-    let pos = s.song_pos.load(Relaxed);
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 2.0;
-        ui.add_sized([62.0, 20.0], egui::Label::new(egui::RichText::new("Song").strong()))
-            .on_hover_text("Click a bar to place the selected pattern.\nClick it again or right-click to empty it.");
-        for bar in 0..SONG_SLOTS {
-            let slot = s.song_slot(bar);
-            let text = slot.map(pattern_name).unwrap_or_default();
-            let fill = match (slot.is_some(), bar % 4 == 0) {
-                (true, _) => Color32::from_rgb(70, 120, 70),
-                (false, true) => Color32::from_gray(60),
-                (false, false) => Color32::from_gray(45),
-            };
-            let stroke = if playing && song_mode && bar == pos {
-                Stroke::new(2.0_f32, Color32::WHITE)
+    /// One channel-rack row: name, mute, and 16 pads.
+    fn track_row(&mut self, ui: &mut egui::Ui, i: usize, pattern: usize, current: Option<usize>) {
+        ui.horizontal(|ui| {
+            let track = &mut self.project.tracks[i];
+            let name = egui::Button::new(RichText::new(&track.name).small())
+                .selected(self.selected == i)
+                .min_size(Vec2::new(80.0, 26.0));
+            let hint = "Click to select and hear it";
+            if ui
+                .add_sized([80.0, 26.0], name)
+                .on_hover_text(hint)
+                .clicked()
+            {
+                self.selected = i;
+                let _ = self.events.try_send(Event::Note {
+                    track: i,
+                    semitone: 0,
+                });
+            }
+            let mute = egui::Button::new(RichText::new("M").small())
+                .selected(track.muted)
+                .min_size(Vec2::new(22.0, 26.0));
+            if ui.add(mute).on_hover_text("Mute").clicked() {
+                track.muted = !track.muted;
+                self.dirty = true;
+            }
+            let melodic = track.is_melodic();
+            let on_color = if melodic { NOTE_ON } else { DRUM_ON };
+            for step in 0..STEPS {
+                let value = track.patterns[pattern][step];
+                // Melodic pads show their note; click the track for the piano roll.
+                let text = match value {
+                    Some(semi) if melodic => RichText::new(NOTE_NAMES[semi as usize]).small(),
+                    _ => RichText::new(""),
+                };
+                let pad = egui::Button::new(text.color(Color32::BLACK))
+                    .fill(step_fill(value.is_some(), on_color, step, false))
+                    .stroke(playhead(current == Some(step)))
+                    .min_size(Vec2::new(28.0, 26.0));
+                if ui.add(pad).clicked() {
+                    track.patterns[pattern][step] = if value.is_some() { None } else { Some(0) };
+                    self.dirty = true;
+                }
+            }
+        });
+    }
+
+    fn add_row(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        ui.horizontal(|ui| {
+            ui.add_space(84.0);
+            let full = self.project.tracks.len() >= MAX_TRACKS;
+            if ui
+                .add_enabled(!full, egui::Button::new("+ Synth"))
+                .clicked()
+            {
+                let n = 1 + self
+                    .project
+                    .tracks
+                    .iter()
+                    .filter(|t| matches!(t.kind, Kind::Synth(_)))
+                    .count();
+                self.add_track(Track::synth(&format!("Synth {n}")));
+            }
+            let load = ui.add_enabled(!full, egui::Button::new("+ Sample…"));
+            if load.on_hover_text("WAV, MP3, FLAC or OGG").clicked() {
+                let picked = rfd::FileDialog::new()
+                    .add_filter("Audio", &sample::EXTENSIONS)
+                    .pick_files();
+                for path in picked.into_iter().flatten() {
+                    self.load_file(ctx, path);
+                }
+            }
+            if self.loading > 0 {
+                ui.spinner();
+                ui.weak(format!("Loading {}…", self.loading));
             } else {
-                Stroke::NONE
-            };
-            let cell = egui::Button::new(text)
-                .fill(fill)
-                .stroke(stroke)
-                .min_size(Vec2::new(20.0, 22.0));
-            let resp = ui.add(cell);
-            if resp.secondary_clicked() || (resp.clicked() && slot == Some(edit)) {
-                s.set_song_slot(bar, None);
-            } else if resp.clicked() {
-                s.set_song_slot(bar, Some(edit));
+                ui.weak("or drop audio files onto the window");
+            }
+        });
+    }
+
+    fn piano_roll(&mut self, ui: &mut egui::Ui, pattern: usize, current: Option<usize>) {
+        let i = self.selected;
+        let track = &mut self.project.tracks[i];
+        ui.horizontal(|ui| {
+            ui.strong(format!("Piano roll · {}", track.name));
+            ui.label("Octave");
+            if ui
+                .add(egui::DragValue::new(&mut track.octave).range(0..=7))
+                .changed()
+            {
+                self.dirty = true;
+            }
+        });
+        ui.add_space(4.0);
+        ui.spacing_mut().item_spacing.y = 2.0;
+        // Highest note on top, like a piano.
+        for semitone in (0..12u8).rev() {
+            let name = NOTE_NAMES[semitone as usize];
+            let sharp = name.ends_with('#');
+            ui.horizontal(|ui| {
+                let key = egui::Button::new(name)
+                    .fill(if sharp {
+                        Color32::from_gray(25)
+                    } else {
+                        Color32::from_gray(90)
+                    })
+                    .min_size(Vec2::new(80.0, 17.0));
+                if ui.add(key).clicked() {
+                    let _ = self.events.try_send(Event::Note { track: i, semitone });
+                }
+                ui.add_space(26.0); // line up with the pads above
+                for step in 0..STEPS {
+                    let on = track.patterns[pattern][step] == Some(semitone);
+                    let cell = egui::Button::new("")
+                        .fill(step_fill(on, NOTE_ON, step, sharp))
+                        .stroke(playhead(current == Some(step)))
+                        .min_size(Vec2::new(28.0, 17.0));
+                    if ui.add(cell).clicked() {
+                        track.patterns[pattern][step] = if on { None } else { Some(semitone) };
+                        self.dirty = true;
+                        if !on {
+                            let _ = self.events.try_send(Event::Note { track: i, semitone });
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    /// Settings for the selected track.
+    fn instrument_panel(&mut self, ui: &mut egui::Ui) {
+        ui.add_space(4.0);
+        let Some(track) = self.project.tracks.get_mut(self.selected) else {
+            ui.weak("Add a track to get started.");
+            return;
+        };
+        let mut changed = false;
+        let name = egui::TextEdit::singleline(&mut track.name)
+            .font(egui::TextStyle::Heading)
+            .desired_width(200.0);
+        changed |= ui.add(name).changed();
+        ui.add_space(4.0);
+
+        ui.horizontal(|ui| {
+            // Shown 1-16 like on hardware, stored 0-15; 0 means off.
+            let mut ch = track.midi_channel.map_or(0, |c| c + 1);
+            ui.label("MIDI ch");
+            let drag = egui::DragValue::new(&mut ch)
+                .range(0..=16)
+                .custom_formatter(|v, _| {
+                    if v == 0.0 {
+                        "Off".into()
+                    } else {
+                        format!("{v}")
+                    }
+                });
+            if ui
+                .add(drag)
+                .on_hover_text("Send this track's notes to MIDI gear")
+                .changed()
+            {
+                track.midi_channel = (ch > 0).then(|| ch - 1);
+                changed = true;
+            }
+            if !track.is_melodic() {
+                ui.label("note");
+                let drag = egui::DragValue::new(&mut track.midi_note).range(0..=127);
+                changed |= ui
+                    .add(drag)
+                    .on_hover_text("MIDI note this track sends")
+                    .changed();
+            }
+        });
+        ui.add_space(8.0);
+
+        match &mut track.kind {
+            Kind::Synth(values) => {
+                ui.weak("Drag knobs up/down.\nDouble-click to reset.");
+                ui.add_space(6.0);
+                // Rows: sound, filter, envelope.
+                let rows = [
+                    [Some(synth::WAVE), Some(synth::DETUNE), None],
+                    [
+                        Some(synth::CUTOFF),
+                        Some(synth::RESONANCE),
+                        Some(synth::ENV_AMOUNT),
+                    ],
+                    [
+                        Some(synth::ATTACK),
+                        Some(synth::DECAY),
+                        Some(synth::RELEASE),
+                    ],
+                ];
+                for row in rows {
+                    ui.horizontal(|ui| {
+                        for slot in row {
+                            changed |= match slot {
+                                Some(i) => knob(ui, &PARAMS[i], &mut values[i]),
+                                None => knob(ui, &TRACK_VOLUME, &mut track.volume),
+                            };
+                        }
+                    });
+                    ui.add_space(6.0);
+                }
+            }
+            Kind::Sampler { sample, pitched } => {
+                ui.label(format!("Sample: {}", sample.name));
+                ui.weak(format!("{:.2} s, {} Hz", sample.seconds(), sample.rate));
+                ui.add_space(6.0);
+                let hint = "Off: plays as recorded, like a drum.\n\
+                            On: plays at the pitch of each note, like an instrument (C4 = as recorded).";
+                changed |= ui
+                    .checkbox(pitched, "Pitched")
+                    .on_hover_text(hint)
+                    .changed();
+                ui.add_space(6.0);
+                changed |= knob(ui, &TRACK_VOLUME, &mut track.volume);
             }
         }
-    });
+        if changed {
+            self.dirty = true;
+        }
+
+        ui.add_space(12.0);
+        if ui.button("Play a note").clicked() {
+            self.play_note(self.selected, 0);
+        }
+        ui.add_space(12.0);
+        if ui
+            .button(RichText::new("Delete track").color(Color32::LIGHT_RED))
+            .clicked()
+        {
+            self.project.tracks.remove(self.selected);
+            self.selected = self
+                .selected
+                .min(self.project.tracks.len().saturating_sub(1));
+            self.dirty = true;
+        }
+    }
+}
+
+fn playhead(on: bool) -> Stroke {
+    if on {
+        Stroke::new(2.0_f32, Color32::WHITE)
+    } else {
+        Stroke::NONE
+    }
 }
 
 fn step_fill(on: bool, on_color: Color32, step: usize, dark: bool) -> Color32 {
@@ -254,39 +621,6 @@ fn step_fill(on: bool, on_color: Color32, step: usize, dark: bool) -> Color32 {
         (false, false, false) => Color32::from_gray(45),
         (false, true, true) => Color32::from_gray(50),
         (false, false, true) => Color32::from_gray(37),
-    }
-}
-
-fn playhead(current: Option<usize>, step: usize) -> Stroke {
-    if current == Some(step) {
-        Stroke::new(2.0_f32, Color32::WHITE)
-    } else {
-        Stroke::NONE
-    }
-}
-
-fn drum_grid(ui: &mut egui::Ui, s: &Shared, pattern: usize, current: Option<usize>) {
-    for track in 0..TRACKS {
-        ui.horizontal(|ui| {
-            let name = egui::Button::new(drums::NAMES[track]).min_size(Vec2::new(60.0, 30.0));
-            if ui.add(name).on_hover_text("Click to hear it").clicked() {
-                s.preview(track);
-            }
-            for step in 0..STEPS {
-                let pad = egui::Button::new("")
-                    .fill(step_fill(
-                        s.is_on(pattern, track, step),
-                        DRUM_ON,
-                        step,
-                        false,
-                    ))
-                    .stroke(playhead(current, step))
-                    .min_size(Vec2::new(30.0, 30.0));
-                if ui.add(pad).clicked() {
-                    s.toggle(pattern, track, step);
-                }
-            }
-        });
     }
 }
 
@@ -322,99 +656,6 @@ fn port_picker(
 const NOTE_NAMES: [&str; 12] = [
     "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
 ];
-
-fn melody_grid(ui: &mut egui::Ui, s: &Shared, pattern: usize, current: Option<usize>) {
-    ui.horizontal(|ui| {
-        ui.strong("Melody");
-        let mut octave = s.octave.load(Relaxed);
-        ui.label("Octave");
-        if ui
-            .add(egui::DragValue::new(&mut octave).range(1..=6))
-            .changed()
-        {
-            s.octave.store(octave, Relaxed);
-        }
-        // Shown 1-16 like on hardware, stored 0-15.
-        let mut channel = s.melody_channel.load(Relaxed) + 1;
-        ui.label("MIDI ch");
-        if ui
-            .add(egui::DragValue::new(&mut channel).range(1..=16))
-            .changed()
-        {
-            s.melody_channel.store(channel - 1, Relaxed);
-        }
-    });
-    ui.add_space(4.0);
-    ui.spacing_mut().item_spacing.y = 2.0;
-    // Highest note on top, like a piano roll.
-    for semitone in (0..12u8).rev() {
-        let name = NOTE_NAMES[semitone as usize];
-        let sharp = name.ends_with('#');
-        ui.horizontal(|ui| {
-            let key = egui::Button::new(name)
-                .fill(if sharp {
-                    Color32::from_gray(25)
-                } else {
-                    Color32::from_gray(90)
-                })
-                .min_size(Vec2::new(60.0, 17.0));
-            if ui.add(key).clicked() {
-                s.preview_note(semitone);
-            }
-            for step in 0..STEPS {
-                let on = s.melody_note(pattern, step) == Some(semitone);
-                let cell = egui::Button::new("")
-                    .fill(step_fill(on, NOTE_ON, step, sharp))
-                    .stroke(playhead(current, step))
-                    .min_size(Vec2::new(30.0, 17.0));
-                if ui.add(cell).clicked() {
-                    s.toggle_melody(pattern, step, semitone);
-                    if !on {
-                        s.preview_note(semitone);
-                    }
-                }
-            }
-        });
-    }
-}
-
-fn synth_panel(ui: &mut egui::Ui, s: &Shared) {
-    ui.add_space(4.0);
-    ui.horizontal(|ui| {
-        ui.heading("Synth");
-        let mut on = s.synth_on.load(Relaxed);
-        if ui
-            .checkbox(&mut on, "On")
-            .on_hover_text("Turn off to hear only your MIDI gear")
-            .changed()
-        {
-            s.synth_on.store(on, Relaxed);
-        }
-    });
-    ui.weak("Drag knobs up/down.\nDouble-click to reset.");
-    ui.add_space(8.0);
-    // Three knobs per row: sound, filter, envelope.
-    let rows = [
-        [synth::WAVE, synth::DETUNE, synth::VOLUME],
-        [synth::CUTOFF, synth::RESONANCE, synth::ENV_AMOUNT],
-        [synth::ATTACK, synth::DECAY, synth::RELEASE],
-    ];
-    for row in rows {
-        ui.horizontal(|ui| {
-            for i in row {
-                let mut value = s.synth_param(i);
-                if knob(ui, &PARAMS[i], &mut value) {
-                    s.set_synth_param(i, value);
-                }
-            }
-        });
-        ui.add_space(6.0);
-    }
-    ui.add_space(4.0);
-    if ui.button("Play a note").clicked() {
-        s.preview_note(0);
-    }
-}
 
 fn to_unit(p: &Param, v: f32) -> f32 {
     if p.log {
@@ -452,7 +693,7 @@ fn hint(p: &Param) -> &'static str {
         "Decay" => "How fast the filter closes after a note starts",
         "Attack" => "Fade-in time of each note",
         "Release" => "Fade-out time after a note ends",
-        "Volume" => "Synth level",
+        "Volume" => "Track level",
         _ => "",
     }
 }
@@ -461,48 +702,40 @@ fn hint(p: &Param) -> &'static str {
 /// Returns true when the value changed.
 fn knob(ui: &mut egui::Ui, p: &Param, value: &mut f32) -> bool {
     let mut changed = false;
-    ui.allocate_ui_with_layout(
-        Vec2::new(64.0, 74.0),
-        Layout::top_down(Align::Center),
-        |ui| {
-            let (rect, resp) = ui.allocate_exact_size(Vec2::splat(40.0), Sense::click_and_drag());
-            let resp = resp.on_hover_text(hint(p));
-            let mut t = to_unit(p, *value).clamp(0.0, 1.0);
-            if resp.dragged() {
-                t = (t - resp.drag_delta().y * 0.006).clamp(0.0, 1.0);
-                *value = from_unit(p, t);
-                changed = true;
-            }
-            if resp.double_clicked() {
-                *value = p.default;
-                t = to_unit(p, *value);
-                changed = true;
-            }
+    let size = Vec2::new(64.0, 74.0);
+    ui.allocate_ui_with_layout(size, Layout::top_down(Align::Center), |ui| {
+        let (rect, resp) = ui.allocate_exact_size(Vec2::splat(40.0), Sense::click_and_drag());
+        let resp = resp.on_hover_text(hint(p));
+        let mut t = to_unit(p, *value).clamp(0.0, 1.0);
+        if resp.dragged() {
+            t = (t - resp.drag_delta().y * 0.006).clamp(0.0, 1.0);
+            *value = from_unit(p, t);
+            changed = true;
+        }
+        if resp.double_clicked() {
+            *value = p.default;
+            t = to_unit(p, *value);
+            changed = true;
+        }
 
-            // The arc sweeps 270°, from bottom-left clockwise to bottom-right.
-            let painter = ui.painter();
-            let center = rect.center();
-            let radius = rect.width() / 2.0 - 3.0;
-            let start = 0.75 * PI;
-            let point = |a: f32, r: f32| Pos2::new(center.x + r * a.cos(), center.y + r * a.sin());
-            painter.circle_filled(
-                center,
-                radius,
-                Color32::from_gray(if resp.hovered() { 70 } else { 55 }),
-            );
-            let arc: Vec<Pos2> = (0..=24)
-                .map(|i| point(start + 1.5 * PI * t * i as f32 / 24.0, radius + 1.5))
-                .collect();
-            painter.add(egui::Shape::line(arc, Stroke::new(3.0_f32, DRUM_ON)));
-            let angle = start + 1.5 * PI * t;
-            painter.line_segment(
-                [center, point(angle, radius - 2.0)],
-                Stroke::new(2.0_f32, Color32::WHITE),
-            );
+        // The arc sweeps 270°, from bottom-left clockwise to bottom-right.
+        let painter = ui.painter();
+        let center = rect.center();
+        let radius = rect.width() / 2.0 - 3.0;
+        let start = 0.75 * PI;
+        let point = |a: f32, r: f32| Pos2::new(center.x + r * a.cos(), center.y + r * a.sin());
+        let body = Color32::from_gray(if resp.hovered() { 70 } else { 55 });
+        painter.circle_filled(center, radius, body);
+        let arc: Vec<Pos2> = (0..=24)
+            .map(|i| point(start + 1.5 * PI * t * i as f32 / 24.0, radius + 1.5))
+            .collect();
+        painter.add(egui::Shape::line(arc, Stroke::new(3.0_f32, DRUM_ON)));
+        let angle = start + 1.5 * PI * t;
+        let tip = point(angle, radius - 2.0);
+        painter.line_segment([center, tip], Stroke::new(2.0_f32, Color32::WHITE));
 
-            ui.label(egui::RichText::new(p.name).small());
-            ui.label(egui::RichText::new(format_value(p, *value)).small().weak());
-        },
-    );
+        ui.label(RichText::new(p.name).small());
+        ui.label(RichText::new(format_value(p, *value)).small().weak());
+    });
     changed
 }

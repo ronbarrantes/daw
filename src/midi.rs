@@ -5,21 +5,19 @@
 //! messages update `Shared` from midir's own callback thread.
 
 use std::sync::atomic::Ordering::Relaxed;
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{Receiver, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
 use midir::{Ignore, MidiInput, MidiInputConnection, MidiOutput, MidiOutputConnection};
 
-use crate::audio::Shared;
+use crate::audio::{Event, Shared};
 use crate::drums;
 
 pub const CLOCK: u8 = 0xF8;
 pub const START: u8 = 0xFA;
 pub const CONTINUE: u8 = 0xFB;
 pub const STOP: u8 = 0xFC;
-pub const NOTE_ON_CH10: u8 = 0x99;
-pub const NOTE_OFF_CH10: u8 = 0x89;
 
 /// A short MIDI message, stored inline so queuing it never allocates.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -52,6 +50,7 @@ type OutSlot = Arc<Mutex<Option<MidiOutputConnection>>>;
 
 pub struct Midi {
     shared: Arc<Shared>,
+    events: SyncSender<Event>,
     out: OutSlot,
     input: Option<MidiInputConnection<()>>,
     pub out_ports: Vec<String>,
@@ -62,7 +61,7 @@ pub struct Midi {
 }
 
 impl Midi {
-    pub fn new(shared: Arc<Shared>, queue: Receiver<Msg>) -> Self {
+    pub fn new(shared: Arc<Shared>, events: SyncSender<Event>, queue: Receiver<Msg>) -> Self {
         let out: OutSlot = Arc::default();
         let slot = out.clone();
         thread::spawn(move || {
@@ -74,6 +73,7 @@ impl Midi {
         });
         let mut midi = Self {
             shared,
+            events,
             out,
             input: None,
             out_ports: Vec::new(),
@@ -129,7 +129,7 @@ impl Midi {
         }
         self.in_name = None;
         let Some(name) = name else { return };
-        match connect_in(&name, self.shared.clone()) {
+        match connect_in(&name, self.shared.clone(), self.events.clone()) {
             Ok(conn) => {
                 self.input = Some(conn);
                 self.in_name = Some(name);
@@ -150,7 +150,11 @@ fn connect_out(name: &str) -> Result<MidiOutputConnection, String> {
     out.connect(&port, "daw-out").map_err(|e| e.to_string())
 }
 
-fn connect_in(name: &str, shared: Arc<Shared>) -> Result<MidiInputConnection<()>, String> {
+fn connect_in(
+    name: &str,
+    shared: Arc<Shared>,
+    events: SyncSender<Event>,
+) -> Result<MidiInputConnection<()>, String> {
     let mut input = MidiInput::new("daw").map_err(|e| e.to_string())?;
     // Keep clock messages; drop SysEx and active sensing.
     input.ignore(Ignore::SysexAndActiveSense);
@@ -163,13 +167,13 @@ fn connect_in(name: &str, shared: Arc<Shared>) -> Result<MidiInputConnection<()>
         .connect(
             &port,
             "daw-in",
-            move |_, msg, _| handle_input(&shared, msg),
+            move |_, msg, _| handle_input(&shared, &events, msg),
             (),
         )
         .map_err(|e| e.to_string())
 }
 
-fn handle_input(shared: &Shared, msg: &[u8]) {
+fn handle_input(shared: &Shared, events: &SyncSender<Event>, msg: &[u8]) {
     let external = shared.external_sync.load(Relaxed);
     match *msg {
         [CLOCK] if external => {
@@ -181,10 +185,17 @@ fn handle_input(shared: &Shared, msg: &[u8]) {
         }
         [CONTINUE] if external => shared.playing.store(true, Relaxed),
         [STOP] if external => shared.playing.store(false, Relaxed),
-        // Note-on from any channel plays the matching drum.
+        // Note-on from any channel plays the one-shot track (e.g. a drum)
+        // that sends the same note.
         [status, note, velocity] if status & 0xF0 == 0x90 && velocity > 0 => {
-            if let Some(track) = drums::track_for_note(note) {
-                shared.preview(track);
+            let note = drums::canonical_note(note);
+            let project = shared.project();
+            let hit = project
+                .tracks
+                .iter()
+                .position(|t| !t.is_melodic() && t.midi_note == note);
+            if let Some(track) = hit {
+                let _ = events.try_send(Event::Note { track, semitone: 0 });
             }
         }
         _ => {}

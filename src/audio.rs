@@ -1,50 +1,43 @@
-//! Audio engine: runs the step sequencer and mixes drums and the synth.
+//! Audio engine: runs the sequencer and mixes every track.
 //!
-//! The UI and the audio thread share state through atomics only, so the
-//! audio callback never waits on a lock. Outgoing MIDI is queued on a
-//! bounded channel and written by the MIDI thread.
+//! The audio callback never waits on a lock. Transport state lives in
+//! atomics; the project (tracks and patterns) arrives as an immutable
+//! snapshot that the engine picks up with `try_lock`; one-off requests
+//! like "play this note now" arrive on a channel. Outgoing MIDI is queued
+//! on a bounded channel and written by the MIDI thread.
 
-use std::sync::atomic::{
-    AtomicBool, AtomicU16, AtomicU32, AtomicU8, AtomicUsize, Ordering::Relaxed,
-};
-use std::sync::mpsc::SyncSender;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, AtomicUsize, Ordering::Relaxed};
+use std::sync::mpsc::{Receiver, SyncSender};
+use std::sync::{Arc, Mutex};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SampleFormat, SizedSample};
 
-use crate::drums;
 use crate::midi::{self, Msg};
-use crate::synth::{self, Voice};
+use crate::project::{Kind, Project, Sample, MAX_TRACKS, SAMPLE_ROOT, STEPS};
+use crate::synth::Voice;
 
-pub const TRACKS: usize = 4;
-pub const STEPS: usize = 16;
-pub const PATTERNS: usize = 8;
-/// Song length limit, in bars (one pattern per bar).
-pub const SONG_SLOTS: usize = 32;
 /// MIDI clock runs at 24 ticks per beat, so a 16th-note step is 6 ticks.
 const TICKS_PER_STEP: u32 = 6;
-/// Marks a melody step with no note, or an empty song slot.
+/// Marks "no pattern" (a silent song bar).
 const NONE: u8 = u8::MAX;
-/// How long a clicked melody note sounds, in seconds.
+/// How long a clicked note sounds, in seconds.
 const PREVIEW_SECONDS: f32 = 0.3;
-/// How often the engine re-reads the synth knobs, in samples.
-const PARAM_INTERVAL: u32 = 64;
+/// How often the engine checks for a new project and events, in samples.
+const UPDATE_INTERVAL: u32 = 64;
 
-/// A copy of one pattern, for copy and paste.
-#[derive(Clone, Copy)]
-pub struct PatternData {
-    drums: [u16; TRACKS],
-    melody: [u8; STEPS],
+/// Requests from the UI or MIDI in.
+pub enum Event {
+    /// Play a step value on a track right now.
+    Note { track: usize, semitone: u8 },
 }
 
 pub struct Shared {
-    /// One bit per step, one mask per track, `TRACKS` masks per pattern.
-    drums: [AtomicU16; PATTERNS * TRACKS],
-    /// Melody note per step, in semitones above the octave's C, or `NONE`.
-    melody: [AtomicU8; PATTERNS * STEPS],
-    /// Pattern index per bar, or `NONE` for a silent bar.
-    song: [AtomicU8; SONG_SLOTS],
+    /// The latest project snapshot from the UI.
+    project: Mutex<Arc<Project>>,
+    bpm_bits: AtomicU32,
+    pub playing: AtomicBool,
+    pub current_step: AtomicUsize,
     /// Play the song arrangement instead of looping the edited pattern.
     pub song_mode: AtomicBool,
     /// The pattern shown in the editor.
@@ -53,146 +46,40 @@ pub struct Shared {
     pub play_pattern: AtomicU8,
     /// The song bar being heard.
     pub song_pos: AtomicUsize,
-    /// Tracks the UI wants to hear right now (one bit per track).
-    preview: AtomicU16,
-    bpm_bits: AtomicU32,
-    pub playing: AtomicBool,
-    pub current_step: AtomicUsize,
-    /// Send drum hits as MIDI notes on channel 10.
-    pub send_notes: AtomicBool,
     /// Follow incoming MIDI clock instead of the BPM setting.
     pub external_sync: AtomicBool,
     /// Clock ticks received from MIDI in, not yet handled by the engine.
     pub ext_ticks: AtomicU32,
     /// Set when MIDI in receives Start, so the engine rewinds to step 1.
     pub ext_start: AtomicBool,
-    pub octave: AtomicU8,
-    /// MIDI channel for the melody, 0-based (0 = channel 1).
-    pub melody_channel: AtomicU8,
-    /// Play the melody on the built-in synth (turn off to hear only MIDI gear).
-    pub synth_on: AtomicBool,
-    /// Synth knob values (f32 bits), indexed like `synth::PARAMS`.
-    synth_params: [AtomicU32; synth::PARAMS.len()],
-    /// Melody note the UI wants to hear right now, or `NONE`.
-    preview_note: AtomicU8,
 }
 
 impl Shared {
-    pub fn new() -> Self {
-        let s = Self {
-            drums: [const { AtomicU16::new(0) }; PATTERNS * TRACKS],
-            melody: [const { AtomicU8::new(NONE) }; PATTERNS * STEPS],
-            song: [const { AtomicU8::new(NONE) }; SONG_SLOTS],
+    pub fn new(project: Arc<Project>) -> Self {
+        Self {
+            project: Mutex::new(project),
+            bpm_bits: AtomicU32::new(120f32.to_bits()),
+            playing: AtomicBool::new(false),
+            current_step: AtomicUsize::new(0),
             song_mode: AtomicBool::new(false),
             edit_pattern: AtomicU8::new(0),
             play_pattern: AtomicU8::new(0),
             song_pos: AtomicUsize::new(0),
-            preview: AtomicU16::new(0),
-            bpm_bits: AtomicU32::new(120f32.to_bits()),
-            playing: AtomicBool::new(false),
-            current_step: AtomicUsize::new(0),
-            send_notes: AtomicBool::new(true),
             external_sync: AtomicBool::new(false),
             ext_ticks: AtomicU32::new(0),
             ext_start: AtomicBool::new(false),
-            octave: AtomicU8::new(3),
-            melody_channel: AtomicU8::new(0),
-            synth_on: AtomicBool::new(true),
-            synth_params: [const { AtomicU32::new(0) }; synth::PARAMS.len()],
-            preview_note: AtomicU8::new(NONE),
-        };
-        for (i, p) in synth::PARAMS.iter().enumerate() {
-            s.set_synth_param(i, p.default);
-        }
-        // A basic beat and a little C minor riff in pattern A, so there's
-        // something to hear on first run.
-        s.drums[0].store(0b0001_0001_0001_0001, Relaxed);
-        s.drums[1].store(0b0001_0000_0001_0000, Relaxed);
-        s.drums[2].store(0b0100_0100_0100_0100, Relaxed);
-        for (step, note) in [(0, 0), (3, 3), (6, 7), (8, 10), (10, 7), (12, 3), (14, 5)] {
-            s.melody[step].store(note, Relaxed);
-        }
-        s.song[0].store(0, Relaxed);
-        s
-    }
-
-    pub fn is_on(&self, pattern: usize, track: usize, step: usize) -> bool {
-        self.drums[pattern * TRACKS + track].load(Relaxed) & (1 << step) != 0
-    }
-
-    pub fn toggle(&self, pattern: usize, track: usize, step: usize) {
-        self.drums[pattern * TRACKS + track].fetch_xor(1 << step, Relaxed);
-    }
-
-    pub fn melody_note(&self, pattern: usize, step: usize) -> Option<u8> {
-        Some(self.melody[pattern * STEPS + step].load(Relaxed)).filter(|&n| n != NONE)
-    }
-
-    /// Sets the step to `semitone`, or clears it if it already has that note.
-    pub fn toggle_melody(&self, pattern: usize, step: usize, semitone: u8) {
-        let new = if self.melody_note(pattern, step) == Some(semitone) {
-            NONE
-        } else {
-            semitone
-        };
-        self.melody[pattern * STEPS + step].store(new, Relaxed);
-    }
-
-    pub fn get_pattern(&self, pattern: usize) -> PatternData {
-        PatternData {
-            drums: std::array::from_fn(|t| self.drums[pattern * TRACKS + t].load(Relaxed)),
-            melody: std::array::from_fn(|s| self.melody[pattern * STEPS + s].load(Relaxed)),
         }
     }
 
-    pub fn set_pattern(&self, pattern: usize, data: &PatternData) {
-        for (t, mask) in data.drums.iter().enumerate() {
-            self.drums[pattern * TRACKS + t].store(*mask, Relaxed);
-        }
-        for (s, note) in data.melody.iter().enumerate() {
-            self.melody[pattern * STEPS + s].store(*note, Relaxed);
-        }
+    pub fn project(&self) -> Arc<Project> {
+        self.project.lock().unwrap().clone()
     }
 
-    pub fn clear_pattern(&self, pattern: usize) {
-        self.set_pattern(
-            pattern,
-            &PatternData {
-                drums: [0; TRACKS],
-                melody: [NONE; STEPS],
-            },
-        );
-    }
-
-    pub fn song_slot(&self, bar: usize) -> Option<usize> {
-        Some(self.song[bar].load(Relaxed))
-            .filter(|&p| p != NONE)
-            .map(usize::from)
-    }
-
-    pub fn set_song_slot(&self, bar: usize, pattern: Option<usize>) {
-        self.song[bar].store(pattern.map_or(NONE, |p| p as u8), Relaxed);
-    }
-
-    /// Bars up to and including the last filled one.
-    pub fn song_len(&self) -> usize {
-        (0..SONG_SLOTS)
-            .rev()
-            .find(|&b| self.song_slot(b).is_some())
-            .map_or(0, |b| b + 1)
-    }
-
-    /// MIDI note number of C in the current octave (octave 3 = C3 = 48).
-    pub fn base_note(&self) -> u8 {
-        12 * (self.octave.load(Relaxed) + 1)
-    }
-
-    pub fn preview(&self, track: usize) {
-        self.preview.fetch_or(1 << track, Relaxed);
-    }
-
-    pub fn preview_note(&self, semitone: u8) {
-        self.preview_note.store(semitone, Relaxed);
+    /// Hands a new snapshot to the engine. The caller should keep recent
+    /// snapshots alive for a moment, so the audio thread is never the one
+    /// that frees them.
+    pub fn publish(&self, project: Arc<Project>) {
+        *self.project.lock().unwrap() = project;
     }
 
     pub fn bpm(&self) -> f32 {
@@ -202,64 +89,94 @@ impl Shared {
     pub fn set_bpm(&self, bpm: f32) {
         self.bpm_bits.store(bpm.to_bits(), Relaxed);
     }
+}
 
-    pub fn synth_param(&self, i: usize) -> f32 {
-        f32::from_bits(self.synth_params[i].load(Relaxed))
-    }
+/// Playback state for one track.
+struct TrackVoice {
+    synth: Voice,
+    /// The sample being played, if any. Holding the `Arc` keeps it alive
+    /// even if the track is deleted mid-note.
+    sample: Option<Arc<Sample>>,
+    pos: f64,
+    rate: f64,
+    /// MIDI note (and channel) still on.
+    held: Option<(u8, u8)>,
+}
 
-    pub fn set_synth_param(&self, i: usize, value: f32) {
-        self.synth_params[i].store(value.to_bits(), Relaxed);
+impl TrackVoice {
+    fn sample_out(&mut self) -> f32 {
+        let Some(s) = &self.sample else { return 0.0 };
+        let i = self.pos as usize;
+        if i + 1 >= s.data.len() {
+            self.sample = None;
+            return 0.0;
+        }
+        // Linear interpolation, so pitched-up or -down samples stay smooth.
+        let frac = (self.pos - i as f64) as f32;
+        self.pos += self.rate;
+        s.data[i] + (s.data[i + 1] - s.data[i]) * frac
     }
 }
 
 struct Engine {
     shared: Arc<Shared>,
+    project: Arc<Project>,
+    events: Receiver<Event>,
     midi_out: SyncSender<Msg>,
-    kit: Vec<Vec<f32>>,
-    /// Playback position per track; past the end means silent.
-    pos: [usize; TRACKS],
-    /// Clock tick within the pattern, 0..TICKS_PER_STEP * STEPS.
+    voices: Vec<TrackVoice>,
+    /// Clock tick within the bar, 0..TICKS_PER_STEP * STEPS.
     tick: u32,
     samples_to_next_tick: f32,
-    /// Tracks whose MIDI note is still on.
-    held: u16,
-    synth: Voice,
-    /// Melody note (and its channel) that is still on.
-    melody_held: Option<(u8, u8)>,
-    /// Samples left before a clicked melody note is released.
-    preview_left: u32,
+    samples_to_update: u32,
+    /// Track whose clicked note is sounding, and samples until it stops.
+    preview: Option<(usize, u32)>,
     /// Pattern playing in this bar; `None` is a silent song bar.
     pattern: Option<usize>,
     song_pos: usize,
     /// The next bar starts the song from the top instead of advancing.
     restart_song: bool,
     was_song_mode: bool,
-    samples_to_params: u32,
     was_playing: bool,
     sr: f32,
 }
 
 impl Engine {
-    fn new(shared: Arc<Shared>, midi_out: SyncSender<Msg>, sr: f32) -> Self {
+    fn new(
+        shared: Arc<Shared>,
+        events: Receiver<Event>,
+        midi_out: SyncSender<Msg>,
+        sr: f32,
+    ) -> Self {
+        let voices = (0..MAX_TRACKS)
+            .map(|_| TrackVoice {
+                synth: Voice::new(sr),
+                sample: None,
+                pos: 0.0,
+                rate: 1.0,
+                held: None,
+            })
+            .collect();
         Self {
+            project: shared.project(),
             shared,
+            events,
             midi_out,
-            kit: drums::make_kit(sr),
-            pos: [usize::MAX; TRACKS],
+            voices,
             tick: 0,
             samples_to_next_tick: 0.0,
-            held: 0,
-            synth: Voice::new(sr),
-            melody_held: None,
-            preview_left: 0,
+            samples_to_update: 0,
+            preview: None,
             pattern: Some(0),
             song_pos: 0,
             restart_song: true,
             was_song_mode: false,
-            samples_to_params: 0,
             was_playing: false,
             sr,
         }
+    }
+
+    fn track_count(&self) -> usize {
+        self.project.tracks.len().min(MAX_TRACKS)
     }
 
     /// Never blocks: if the MIDI thread falls behind, the message is dropped.
@@ -267,38 +184,64 @@ impl Engine {
         let _ = self.midi_out.try_send(msg);
     }
 
-    fn trigger(&mut self, mask: u16) {
-        for t in 0..TRACKS {
-            if mask & (1 << t) != 0 {
-                self.pos[t] = 0;
+    fn note_on(&mut self, i: usize, semitone: u8) {
+        self.note_off(i);
+        let project = self.project.clone();
+        let track = &project.tracks[i];
+        let note = track.note(semitone);
+        if let Some(ch) = track.midi_channel {
+            self.send(Msg::three(0x90 | ch, note, 100));
+            self.voices[i].held = Some((note, ch));
+        }
+        let voice = &mut self.voices[i];
+        match &track.kind {
+            Kind::Synth(_) => voice.synth.note_on(note),
+            Kind::Sampler { sample, pitched } => {
+                let semis = if *pitched {
+                    note as f32 - SAMPLE_ROOT as f32
+                } else {
+                    0.0
+                };
+                voice.rate = (sample.rate / self.sr * 2f32.powf(semis / 12.0)) as f64;
+                voice.pos = 0.0;
+                voice.sample = Some(sample.clone());
             }
         }
     }
 
-    fn release_notes(&mut self) {
-        for t in 0..TRACKS {
-            if self.held & (1 << t) != 0 {
-                self.send(Msg::three(midi::NOTE_OFF_CH10, drums::NOTES[t], 0));
-            }
-        }
-        self.held = 0;
-    }
-
-    fn melody_on(&mut self, note: u8) {
-        self.melody_off();
-        let ch = self.shared.melody_channel.load(Relaxed) & 0x0F;
-        self.send(Msg::three(0x90 | ch, note, 100));
-        self.melody_held = Some((note, ch));
-        if self.shared.synth_on.load(Relaxed) {
-            self.synth.note_on(note);
-        }
-    }
-
-    fn melody_off(&mut self) {
-        if let Some((note, ch)) = self.melody_held.take() {
+    /// Ends a note. Samples keep ringing to their end; synths release.
+    fn note_off(&mut self, i: usize) {
+        if let Some((note, ch)) = self.voices[i].held.take() {
             self.send(Msg::three(0x80 | ch, note, 0));
         }
-        self.synth.note_off();
+        self.voices[i].synth.note_off();
+    }
+
+    fn all_notes_off(&mut self) {
+        for i in 0..MAX_TRACKS {
+            self.note_off(i);
+        }
+    }
+
+    /// Picks up a new project snapshot, synth settings and UI events.
+    fn update(&mut self) {
+        if let Ok(p) = self.shared.project.try_lock() {
+            if !Arc::ptr_eq(&p, &self.project) {
+                self.project = p.clone();
+            }
+        }
+        let project = self.project.clone();
+        for (voice, track) in self.voices.iter_mut().zip(&project.tracks) {
+            if let Kind::Synth(values) = &track.kind {
+                voice.synth.set_params(values);
+            }
+        }
+        while let Ok(Event::Note { track, semitone }) = self.events.try_recv() {
+            if track < self.track_count() {
+                self.note_on(track, semitone);
+                self.preview = Some((track, (PREVIEW_SECONDS * self.sr) as u32));
+            }
+        }
     }
 
     /// Picks which pattern plays for the current step.
@@ -308,7 +251,7 @@ impl Engine {
             self.restart_song = true;
             self.was_song_mode = song_mode;
         }
-        let song_len = self.shared.song_len();
+        let song_len = self.project.song_len();
         if !song_mode || song_len == 0 {
             // Pattern mode follows the editor right away, like FL Studio.
             self.pattern = Some(self.shared.edit_pattern.load(Relaxed) as usize);
@@ -319,48 +262,43 @@ impl Engine {
                 (self.song_pos + 1) % song_len
             };
             self.restart_song = false;
-            self.pattern = self.shared.song_slot(self.song_pos);
+            self.pattern = self.project.song[self.song_pos].map(usize::from);
             self.shared.song_pos.store(self.song_pos, Relaxed);
         }
-        self.shared
-            .play_pattern
-            .store(self.pattern.map_or(NONE, |p| p as u8), Relaxed);
+        let shown = self.pattern.map_or(NONE, |p| p as u8);
+        self.shared.play_pattern.store(shown, Relaxed);
     }
 
     fn on_tick(&mut self) {
-        // Drum notes last one tick, then get their note-off.
-        self.release_notes();
-        if self.tick.is_multiple_of(TICKS_PER_STEP) {
-            let step = (self.tick / TICKS_PER_STEP) as usize;
+        let step = (self.tick / TICKS_PER_STEP) as usize;
+        let sub = self.tick % TICKS_PER_STEP;
+        if sub == 0 {
             self.choose_pattern(step);
-            let Some(pattern) = self.pattern else {
-                self.shared.current_step.store(step, Relaxed);
-                self.melody_off();
-                self.tick = (self.tick + 1) % (TICKS_PER_STEP * STEPS as u32);
-                return;
-            };
-            let mask = (0..TRACKS)
-                .filter(|&t| self.shared.is_on(pattern, t, step))
-                .fold(0u16, |m, t| m | 1 << t);
-            self.trigger(mask);
             self.shared.current_step.store(step, Relaxed);
-            if self.shared.send_notes.load(Relaxed) {
-                for t in (0..TRACKS).filter(|t| mask & (1 << t) != 0) {
-                    self.send(Msg::three(midi::NOTE_ON_CH10, drums::NOTES[t], 100));
+            if let Some(pattern) = self.pattern {
+                for i in 0..self.track_count() {
+                    if let Some(semitone) = self.project.tracks[i].patterns[pattern][step] {
+                        self.note_on(i, semitone);
+                    }
                 }
-                self.held = mask;
             }
-            if let Some(semitone) = self.shared.melody_note(pattern, step) {
-                self.melody_on(self.shared.base_note() + semitone);
-            }
-        } else if self.tick % TICKS_PER_STEP == TICKS_PER_STEP - 1 && self.preview_left == 0 {
+        } else if sub == TICKS_PER_STEP - 1 {
             // Release just before the next step so repeated notes retrigger.
-            self.melody_off();
+            let previewing = self.preview.map(|(t, _)| t);
+            for i in (0..MAX_TRACKS).filter(|&i| Some(i) != previewing) {
+                self.note_off(i);
+            }
         }
         self.tick = (self.tick + 1) % (TICKS_PER_STEP * STEPS as u32);
     }
 
     fn next_sample(&mut self) -> f32 {
+        if self.samples_to_update == 0 {
+            self.update();
+            self.samples_to_update = UPDATE_INTERVAL;
+        }
+        self.samples_to_update -= 1;
+
         let playing = self.shared.playing.load(Relaxed);
         let external = self.shared.external_sync.load(Relaxed);
 
@@ -370,8 +308,7 @@ impl Engine {
                 self.samples_to_next_tick = 0.0;
                 self.restart_song = true;
             } else {
-                self.release_notes();
-                self.melody_off();
+                self.all_notes_off();
             }
             // When following another device, it owns Start/Stop.
             if !external {
@@ -400,49 +337,44 @@ impl Engine {
             self.samples_to_next_tick -= 1.0;
         }
 
-        let preview = self.shared.preview.swap(0, Relaxed);
-        if preview != 0 {
-            self.trigger(preview);
-        }
-        let note = self.shared.preview_note.swap(NONE, Relaxed);
-        if note != NONE {
-            self.melody_on(self.shared.base_note() + note);
-            self.preview_left = (PREVIEW_SECONDS * self.sr) as u32;
-        }
-        if self.preview_left > 0 {
-            self.preview_left -= 1;
-            if self.preview_left == 0 {
-                self.melody_off();
+        if let Some((track, left)) = self.preview {
+            if left <= 1 {
+                self.preview = None;
+                self.note_off(track);
+            } else {
+                self.preview = Some((track, left - 1));
             }
         }
-
-        if self.samples_to_params == 0 {
-            let values = std::array::from_fn(|i| self.shared.synth_param(i));
-            self.synth.set_params(&values);
-            self.samples_to_params = PARAM_INTERVAL;
-        }
-        self.samples_to_params -= 1;
 
         let mut mix = 0.0;
-        for (t, sample) in self.kit.iter().enumerate() {
-            if let Some(s) = sample.get(self.pos[t]) {
-                mix += s;
-                self.pos[t] += 1;
+        for i in 0..self.track_count() {
+            let track = &self.project.tracks[i];
+            let voice = &mut self.voices[i];
+            let out = match track.kind {
+                Kind::Synth(_) => voice.synth.next_sample(),
+                Kind::Sampler { .. } => voice.sample_out(),
+            };
+            if !track.muted {
+                mix += out * track.volume;
             }
         }
-        mix += self.synth.next_sample();
-        (mix * 0.7).clamp(-1.0, 1.0)
+        (mix * 0.8).clamp(-1.0, 1.0)
     }
 }
 
 /// Opens the default output device and starts the engine.
 /// Keep the returned stream alive; dropping it stops the sound.
-pub fn start(shared: Arc<Shared>, midi_out: SyncSender<Msg>) -> Result<cpal::Stream, String> {
+pub fn start(
+    shared: Arc<Shared>,
+    events: Receiver<Event>,
+    midi_out: SyncSender<Msg>,
+) -> Result<cpal::Stream, String> {
     let device = cpal::default_host()
         .default_output_device()
         .ok_or("no audio output device found")?;
     let supported = device.default_output_config().map_err(|e| e.to_string())?;
-    let engine = Engine::new(shared, midi_out, supported.sample_rate().0 as f32);
+    let sr = supported.sample_rate().0 as f32;
+    let engine = Engine::new(shared, events, midi_out, sr);
     let config = supported.config();
     let stream = match supported.sample_format() {
         SampleFormat::F32 => build::<f32>(&device, &config, engine),
@@ -478,92 +410,117 @@ fn build<T: SizedSample + FromSample<f32>>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::mpsc::{sync_channel, Receiver};
+    use crate::project::{Track, PATTERNS, SONG_SLOTS};
+    use crate::{drums, synth};
+    use std::sync::mpsc::sync_channel;
 
-    fn engine() -> (Engine, Arc<Shared>, Receiver<Msg>) {
-        let shared = Arc::new(Shared::new());
-        let (tx, rx) = sync_channel(1024);
-        (Engine::new(shared.clone(), tx, 48_000.0), shared, rx)
+    const KICK: usize = 0;
+    const LEAD: usize = 4;
+
+    struct Rig {
+        engine: Engine,
+        shared: Arc<Shared>,
+        events: SyncSender<Event>,
+        midi: Receiver<Msg>,
+    }
+
+    impl Rig {
+        fn new(project: Project) -> Self {
+            let shared = Arc::new(Shared::new(Arc::new(project)));
+            let (events, events_rx) = sync_channel(64);
+            let (midi_tx, midi) = sync_channel(4096);
+            let engine = Engine::new(shared.clone(), events_rx, midi_tx, 48_000.0);
+            Rig {
+                engine,
+                shared,
+                events,
+                midi,
+            }
+        }
+
+        fn run(&mut self, samples: usize) -> Vec<f32> {
+            (0..samples).map(|_| self.engine.next_sample()).collect()
+        }
+
+        fn midi(&self) -> Vec<Msg> {
+            self.midi.try_iter().collect()
+        }
+    }
+
+    fn quiet_demo() -> Project {
+        let mut p = Project::demo();
+        for t in &mut p.tracks {
+            t.patterns = [[None; STEPS]; PATTERNS];
+        }
+        p
     }
 
     #[test]
     fn plays_steps_at_tempo() {
-        let (mut engine, shared, _rx) = engine();
-        shared.playing.store(true, Relaxed);
+        let mut rig = Rig::new(Project::demo());
+        rig.shared.playing.store(true, Relaxed);
         // One beat at 120 BPM is half a second = 4 steps.
-        let out: Vec<f32> = (0..24_000).map(|_| engine.next_sample()).collect();
+        let out = rig.run(24_000);
         assert!(out.iter().any(|s| s.abs() > 0.1), "should be audible");
         assert!(out.iter().all(|s| s.abs() <= 1.0), "should not clip");
-        assert_eq!(shared.current_step.load(Relaxed), 3);
+        assert_eq!(rig.shared.current_step.load(Relaxed), 3);
     }
 
     #[test]
-    fn sends_start_clock_and_notes() {
-        let (mut engine, shared, rx) = engine();
-        shared.playing.store(true, Relaxed);
-        for _ in 0..24_000 {
-            engine.next_sample();
-        }
-        let msgs: Vec<Msg> = rx.try_iter().collect();
+    fn sends_start_clock_and_drum_notes() {
+        let mut rig = Rig::new(Project::demo());
+        rig.shared.playing.store(true, Relaxed);
+        rig.run(24_000);
+        let msgs = rig.midi();
         assert_eq!(msgs[0].bytes(), [midi::START]);
         let clocks = msgs.iter().filter(|m| m.bytes() == [midi::CLOCK]).count();
         assert_eq!(clocks, 24, "one beat of clock");
-        // The default pattern has a kick on step 1.
-        assert!(msgs.contains(&Msg::three(midi::NOTE_ON_CH10, drums::NOTES[0], 100)));
-        assert!(msgs.contains(&Msg::three(midi::NOTE_OFF_CH10, drums::NOTES[0], 0)));
+        // The demo has a kick on step 1, sent on channel 10.
+        assert!(msgs.contains(&Msg::three(0x99, drums::NOTES[0], 100)));
+        assert!(msgs.contains(&Msg::three(0x89, drums::NOTES[0], 0)));
     }
 
     #[test]
     fn follows_external_clock() {
-        let (mut engine, shared, rx) = engine();
-        shared.external_sync.store(true, Relaxed);
-        shared.playing.store(true, Relaxed);
-        shared.ext_ticks.store(7, Relaxed); // step 1 at tick 0, step 2 at tick 6
-        engine.next_sample();
-        assert_eq!(shared.current_step.load(Relaxed), 1);
+        let mut rig = Rig::new(Project::demo());
+        rig.shared.external_sync.store(true, Relaxed);
+        rig.shared.playing.store(true, Relaxed);
+        rig.shared.ext_ticks.store(7, Relaxed); // step 1 at tick 0, step 2 at tick 6
+        rig.run(1);
+        assert_eq!(rig.shared.current_step.load(Relaxed), 1);
+        let msgs = rig.midi();
         assert!(
-            rx.try_iter().all(|m| m.bytes() != [midi::CLOCK]),
+            msgs.iter().all(|m| m.bytes() != [midi::CLOCK]),
             "no clock echo"
         );
     }
 
     #[test]
     fn plays_melody_on_its_channel() {
-        let (mut engine, shared, rx) = engine();
-        shared.melody_channel.store(1, Relaxed); // channel 2
-        shared.playing.store(true, Relaxed);
+        let mut project = Project::demo();
+        project.tracks[LEAD].midi_channel = Some(1); // channel 2
+        let mut rig = Rig::new(project);
+        rig.shared.playing.store(true, Relaxed);
         // One step at 120 BPM is 6000 samples.
-        let out: Vec<f32> = (0..6_000).map(|_| engine.next_sample()).collect();
-        let msgs: Vec<Msg> = rx.try_iter().collect();
+        rig.run(6_000);
+        let msgs = rig.midi();
         assert!(msgs.contains(&Msg::three(0x91, 48, 100)), "C3 on channel 2");
         assert!(msgs.contains(&Msg::three(0x81, 48, 0)), "and its note-off");
-        assert!(out.iter().all(|s| s.abs() <= 1.0));
-
-        // With drums cleared, what remains is the synth.
-        shared.clear_pattern(0);
-        shared.preview_note(7);
-        let out: Vec<f32> = (0..4_800).map(|_| engine.next_sample()).collect();
-        assert!(
-            out.iter().any(|s| s.abs() > 0.05),
-            "synth should be audible"
-        );
     }
 
     #[test]
     fn song_mode_plays_bars_in_order() {
-        let (mut engine, shared, rx) = engine();
-        // Pattern B: one melody note, D, on step 1.
-        shared.toggle_melody(1, 0, 2);
-        shared.set_song_slot(1, Some(1));
-        shared.song_mode.store(true, Relaxed);
-        shared.playing.store(true, Relaxed);
+        let mut project = Project::demo();
+        project.tracks[LEAD].patterns[1][0] = Some(2); // pattern B: D on step 1
+        project.song[1] = Some(1);
+        let mut rig = Rig::new(project);
+        rig.shared.song_mode.store(true, Relaxed);
+        rig.shared.playing.store(true, Relaxed);
         // One bar at 120 BPM is 2 seconds = 96_000 samples; play into bar 2.
-        for _ in 0..100_000 {
-            engine.next_sample();
-        }
-        assert_eq!(shared.song_pos.load(Relaxed), 1);
-        assert_eq!(shared.play_pattern.load(Relaxed), 1);
-        let msgs: Vec<Msg> = rx.try_iter().collect();
+        rig.run(100_000);
+        assert_eq!(rig.shared.song_pos.load(Relaxed), 1);
+        assert_eq!(rig.shared.play_pattern.load(Relaxed), 1);
+        let msgs = rig.midi();
         assert!(
             msgs.contains(&Msg::three(0x90, 48, 100)),
             "bar 1 plays A (C3)"
@@ -576,21 +533,93 @@ mod tests {
 
     #[test]
     fn synth_knobs_change_the_sound() {
-        let (mut engine, shared, _rx) = engine();
-        shared.clear_pattern(0);
-        let render = |engine: &mut Engine| {
-            shared.preview_note(0);
-            (0..4_800).map(|_| engine.next_sample().abs()).sum::<f32>()
+        let mut rig = Rig::new(quiet_demo());
+        let play = |rig: &mut Rig| {
+            rig.events
+                .send(Event::Note {
+                    track: LEAD,
+                    semitone: 0,
+                })
+                .unwrap();
+            rig.run(4_800).iter().map(|s| s.abs()).sum::<f32>()
         };
-        let before = render(&mut engine);
-        shared.set_synth_param(synth::VOLUME, 0.0);
-        for _ in 0..48_000 {
-            engine.next_sample(); // let the old note fade
+        let before = play(&mut rig);
+        let mut project = quiet_demo();
+        if let Kind::Synth(values) = &mut project.tracks[LEAD].kind {
+            values[synth::VOLUME] = 0.0;
         }
-        let after = render(&mut engine);
+        rig.shared.publish(Arc::new(project));
+        rig.run(48_000); // let the old note fade
+        let after = play(&mut rig);
         assert!(
             before > 1.0 && after < 0.01,
             "volume knob: {before} -> {after}"
         );
+    }
+
+    #[test]
+    fn mute_silences_a_track() {
+        let mut project = quiet_demo();
+        project.tracks[KICK].muted = true;
+        let mut rig = Rig::new(project);
+        rig.events
+            .send(Event::Note {
+                track: KICK,
+                semitone: 0,
+            })
+            .unwrap();
+        let out = rig.run(4_800);
+        assert!(out.iter().all(|s| *s == 0.0));
+    }
+
+    #[test]
+    fn pitched_samples_follow_the_note() {
+        let data = vec![0.5; 48_000];
+        let sample = Arc::new(Sample {
+            name: "tone".into(),
+            data,
+            rate: 48_000.0,
+        });
+        let mut project = quiet_demo();
+        project.tracks.push(Track::sampler(sample, true));
+        let i = project.tracks.len() - 1;
+        let mut rig = Rig::new(project);
+        rig.events
+            .send(Event::Note {
+                track: i,
+                semitone: 0,
+            })
+            .unwrap();
+        rig.run(1);
+        assert!(
+            (rig.engine.voices[i].rate - 1.0).abs() < 1e-6,
+            "C4 plays as recorded"
+        );
+        rig.events
+            .send(Event::Note {
+                track: i,
+                semitone: 7,
+            })
+            .unwrap();
+        rig.run(UPDATE_INTERVAL as usize);
+        let fifth = 2f64.powf(7.0 / 12.0);
+        assert!(
+            (rig.engine.voices[i].rate - fifth).abs() < 1e-4,
+            "G4 a fifth up"
+        );
+    }
+
+    #[test]
+    fn deleting_tracks_mid_note_is_safe() {
+        let mut rig = Rig::new(Project::demo());
+        rig.shared.playing.store(true, Relaxed);
+        rig.run(1_000);
+        let empty = Project {
+            tracks: vec![],
+            song: [None; SONG_SLOTS],
+        };
+        rig.shared.publish(Arc::new(empty));
+        let out = rig.run(10_000);
+        assert!(out.iter().all(|s| s.is_finite()));
     }
 }

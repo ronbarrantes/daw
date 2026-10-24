@@ -1,8 +1,8 @@
 # daw
 
-A tiny, lightweight DAW in Rust: drums, a melody track and a built-in synth,
-8 patterns you can arrange into a song, and MIDI for hardware like the M-VAVE
-FM-1 and Roland AIRA Compacts.
+A tiny, lightweight DAW in Rust: synth and sample tracks, 8 patterns you can
+arrange into a song, and MIDI for hardware like the M-VAVE FM-1 and Roland
+AIRA Compacts.
 
 ## Setup (once)
 
@@ -34,14 +34,31 @@ The first build takes a few minutes. After that it's fast.
 
 ## Use
 
-- **Space** or **▶ Play** starts and stops.
-- Click a pad to turn a step on or off.
-- Click a drum name to hear it.
-- Drag **BPM** to change the tempo.
+- **Space** or **▶ Play** starts and stops. Drag **BPM** to change the tempo.
+
+### Tracks
+
+Each row is a track: its name, **M** (mute), and 16 steps.
+
+- Click a step to turn it on or off.
+- Click a track's name to select it and hear it. The right panel shows its
+  settings; melodic tracks also get a **piano roll** below the rows.
+- **+ Synth** adds a synth track. **+ Sample…** loads WAV, MP3, FLAC or OGG
+  files as sample tracks, or just drop files onto the window.
+- Rename a track by editing its name at the top of the right panel.
+
+### Sample tracks
+
+- **Pitched off:** plays as recorded, like a drum hit.
+- **Pitched on:** each note plays the sample higher or lower, like an
+  instrument. C at octave 4 is the original pitch.
+
+On Arch, the **+ Sample…** file picker needs `xdg-desktop-portal` and
+`xdg-desktop-portal-gtk`. Drag and drop always works.
 
 ### Patterns and song
 
-- **A–H** pick which pattern you're editing. Each has its own drums and melody.
+- **A–H** pick which pattern you're editing. Each holds every track's steps.
 - **Copy** / **Paste** / **Clear** work on the pattern you're editing.
 - **Pattern** mode loops the pattern you're editing.
 - **Song** mode plays the **Song** row left to right, one bar per box.
@@ -50,33 +67,24 @@ The first build takes a few minutes. After that it's fast.
 
 ### Synth
 
-The knobs on the right shape the built-in synth. Drag a knob up or down;
-double-click to reset it. Hover for what each one does.
+Select a synth track to see its knobs. Drag a knob up or down; double-click
+to reset it. Hover for what each one does.
 
-- **Wave** saw → square. **Detune** thickens. **Volume**.
+- **Wave** saw → square. **Detune** thickens.
 - **Cutoff** and **Reso** set the filter; **Env amt** and **Decay** make each
   note "pluck" by opening the filter and closing it again.
 - **Attack** / **Release** fade notes in and out.
 
 Try: Cutoff down, Reso up, Env amt up, Decay short → squelchy acid bass.
 
-### Melody
-
-- Click a cell to put a note on that step; click it again to remove it.
-  One note per step.
-- Click a note name to hear it.
-- **Octave** shifts the whole melody.
-- Synth **On** (right panel) plays it here. Turn it off to hear only your MIDI gear.
-- **MIDI ch** is the channel the melody is sent on (match it on the FM-1).
-
 ### MIDI
 
 Plug gear in over USB (or a USB-MIDI cable), then press **⟳** to rescan.
 
-- **MIDI out:** sends clock, Start/Stop and, with **Send notes** on, the
-  drum hits on channel 10 (Kick 36, Snare 38, Hat 42, Clap 39). Other gear
-  follows the tempo; drum machines like the T-8 can play the pattern.
-- **MIDI in:** notes 36/38/42/39 from any channel play the drums.
+- **MIDI out:** sends clock and Start/Stop so gear follows the tempo. Each
+  track's **MIDI ch** (right panel) sends its notes on that channel; the
+  built-in drums use channel 10 (Kick 36, Snare 38, Hat 42, Clap 39).
+- **MIDI in:** a note plays the one-shot track that sends the same note.
 - **Follow MIDI clock:** the incoming clock sets the tempo, and the other
   device's Start/Stop controls playback.
 
@@ -86,9 +94,11 @@ Plug gear in over USB (or a USB-MIDI cable), then press **⟳** to rescan.
 2. ~~MIDI clock and notes for the FM-1 and AIRA Compacts~~
 3. ~~Built-in synth with knobs~~
 4. ~~Patterns and song arrangement~~
-5. Add/remove tracks, per-track volume
-6. Save and load songs
-7. Recording
-8. Freesound.org sample browser
+5. ~~Add/remove tracks, per-track volume, sample tracks~~
+6. Clip editing: trim, ADSR, fades, reverse
+7. Save and load songs
+8. Mixer and effects
+9. Recording
+10. Freesound.org sample browser
 
 See [docs/WORKFLOW.md](docs/WORKFLOW.md) for how changes get pushed, merged and released.

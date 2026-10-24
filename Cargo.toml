@@ -7,3 +7,5 @@ edition = "2021"
 cpal = "0.15"
 eframe = "0.29"
 midir = "0.10"
+rfd = "0.15"
+symphonia = { version = "0.5", features = ["mp3"] }
