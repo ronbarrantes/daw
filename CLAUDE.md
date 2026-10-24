@@ -7,9 +7,9 @@ an Apple Silicon Mac.
 ## How to work here
 
 Follow [docs/WORKFLOW.md](docs/WORKFLOW.md). In short: turn each request
-into one or more PRs, bump the version in each, merge to `main` yourself
-once CI is green, and tag the release. Only ask Ron first for big breaking
-changes.
+into one or more PRs, bump the version in each, and merge to `main` yourself
+once CI is green; the Build workflow then tags and publishes the release.
+Only ask Ron first for big breaking changes.
 
 Ron reads in short bursts: keep replies short and plain.
 

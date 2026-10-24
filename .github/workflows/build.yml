@@ -1,7 +1,9 @@
 # Checks every push and pull request, builds the app for Linux and macOS,
 # and publishes downloads:
-#   - each push to main updates the rolling "latest" release
-#   - each v* tag (e.g. v0.2.0) gets its own release
+#   - each push to main updates the rolling "latest" release, and creates a
+#     versioned release (e.g. v0.2.0) for the version in Cargo.toml if there
+#     isn't one yet, so bumping the version is all a release needs
+#   - a v* tag pushed by hand also gets its own release
 name: Build
 
 on:
@@ -79,6 +81,9 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
+      - uses: actions/checkout@v6
+        with:
+          sparse-checkout: Cargo.toml
       - uses: actions/download-artifact@v7
         with:
           path: dist
@@ -92,6 +97,18 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "Latest build" \
             --notes "Built automatically from main at ${GITHUB_SHA::7}."
+      - name: Create a release for a new version
+        if: github.ref == 'refs/heads/main'
+        run: |
+          version="v$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)"
+          if gh release view "$version" > /dev/null 2>&1; then
+            echo "$version is already released"
+          else
+            gh release create "$version" dist/*.tar.gz \
+              --target "$GITHUB_SHA" \
+              --title "$version" \
+              --generate-notes
+          fi
       - name: Create a versioned release
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
