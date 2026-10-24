@@ -23,12 +23,31 @@ pub struct Sample {
     pub name: String,
     pub data: Vec<f32>,
     pub rate: f32,
+    /// Which built-in drum this is (index into `drums::NAMES`), if any.
+    /// Built-ins are regenerated rather than stored in song files.
+    pub builtin: Option<usize>,
 }
 
 impl Sample {
     pub fn seconds(&self) -> f32 {
         self.data.len() as f32 / self.rate
     }
+}
+
+/// The built-in drum sounds, in the order of `drums::NAMES`.
+pub fn builtin_drums() -> Vec<Arc<Sample>> {
+    drums::make_kit(DRUM_RATE)
+        .into_iter()
+        .enumerate()
+        .map(|(i, data)| {
+            Arc::new(Sample {
+                name: drums::NAMES[i].to_string(),
+                data,
+                rate: DRUM_RATE,
+                builtin: Some(i),
+            })
+        })
+        .collect()
 }
 
 #[derive(Clone)]
@@ -319,16 +338,11 @@ impl Project {
 
     /// Built-in drums and a synth lead, with a beat and a riff in pattern A.
     pub fn demo() -> Self {
-        let mut tracks: Vec<Track> = drums::make_kit(DRUM_RATE)
+        let mut tracks: Vec<Track> = builtin_drums()
             .into_iter()
             .enumerate()
-            .map(|(i, data)| {
-                let sample = Sample {
-                    name: drums::NAMES[i].to_string(),
-                    data,
-                    rate: DRUM_RATE,
-                };
-                let mut t = Track::sampler(Arc::new(sample), false);
+            .map(|(i, sample)| {
+                let mut t = Track::sampler(sample, false);
                 t.midi_channel = Some(9); // channel 10, the drum channel
                 t.midi_note = drums::NOTES[i];
                 t

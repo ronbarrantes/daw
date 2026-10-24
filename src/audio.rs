@@ -917,6 +917,7 @@ mod tests {
             name: "tone".into(),
             data,
             rate: 48_000.0,
+            builtin: None,
         });
         let mut project = quiet_demo();
         project.tracks.push(Track::sampler(sample, true));

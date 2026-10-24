@@ -78,6 +78,18 @@ Press **F1** (or **Help → How to use**) for the built-in guide.
 
 - **Space** or **▶ Play** starts and stops. Drag **BPM** to change the tempo.
 
+### Saving songs
+
+- **File → Save** (Ctrl+S, Cmd+S on Mac) saves a `.daw` file. **Save as…**
+  (Ctrl+Shift+S) picks a new name; **Open…** (Ctrl+O) opens one.
+- Samples you loaded are saved inside the file, so songs work on any computer.
+- The song you had open reopens next time you start the app.
+- A dot in the window title means unsaved changes; daw asks before anything
+  would lose them.
+
+A `.daw` file is a zip (like `.docx`) holding `song.json`, which is readable
+and editable by hand, plus `samples/*.wav` for any loaded samples.
+
 ### Tracks
 
 Each row is a track: its name, **M** (mute), **S** (solo) and 16 steps.
@@ -203,10 +215,11 @@ Plug gear in over USB (or a USB-MIDI cable), then press **⟳** to rescan.
 6. ~~Groove: swing, velocity/ghost notes, humanize, chance, ratchets, nudge; solo~~
 7. ~~Track groups, View menu and focus mode~~
 8. ~~Chords, other tracks' notes in the piano roll, routed MIDI inputs with recording~~
-9. Save and load songs
-10. Sample editor: chop, trim, ADSR, fades, reverse
-11. Mixer and effects
-12. Recording
-13. Freesound.org sample browser
+9. ~~Save and load songs~~
+10. Export to WAV and MIDI
+11. Sample editor: chop, trim, ADSR, fades, reverse
+12. Mixer and effects
+13. Recording
+14. Freesound.org sample browser
 
 See [docs/WORKFLOW.md](docs/WORKFLOW.md) for how changes get pushed, merged and released.
