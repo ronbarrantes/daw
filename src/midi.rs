@@ -30,11 +30,17 @@ pub struct Msg {
 
 impl Msg {
     pub fn one(a: u8) -> Self {
-        Self { data: [a, 0, 0], len: 1 }
+        Self {
+            data: [a, 0, 0],
+            len: 1,
+        }
     }
 
     pub fn three(a: u8, b: u8, c: u8) -> Self {
-        Self { data: [a, b, c], len: 3 }
+        Self {
+            data: [a, b, c],
+            len: 3,
+        }
     }
 
     pub fn bytes(&self) -> &[u8] {
@@ -83,10 +89,20 @@ impl Midi {
     /// Re-scans for devices, e.g. after plugging something in.
     pub fn refresh(&mut self) {
         self.out_ports = MidiOutput::new("daw")
-            .map(|o| o.ports().iter().filter_map(|p| o.port_name(p).ok()).collect())
+            .map(|o| {
+                o.ports()
+                    .iter()
+                    .filter_map(|p| o.port_name(p).ok())
+                    .collect()
+            })
             .unwrap_or_default();
         self.in_ports = MidiInput::new("daw")
-            .map(|i| i.ports().iter().filter_map(|p| i.port_name(p).ok()).collect())
+            .map(|i| {
+                i.ports()
+                    .iter()
+                    .filter_map(|p| i.port_name(p).ok())
+                    .collect()
+            })
             .unwrap_or_default();
     }
 
@@ -144,7 +160,12 @@ fn connect_in(name: &str, shared: Arc<Shared>) -> Result<MidiInputConnection<()>
         .find(|p| input.port_name(p).as_deref() == Ok(name))
         .ok_or("device not found")?;
     input
-        .connect(&port, "daw-in", move |_, msg, _| handle_input(&shared, msg), ())
+        .connect(
+            &port,
+            "daw-in",
+            move |_, msg, _| handle_input(&shared, msg),
+            (),
+        )
         .map_err(|e| e.to_string())
 }
 

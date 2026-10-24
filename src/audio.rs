@@ -4,7 +4,9 @@
 //! audio callback never waits on a lock. Outgoing MIDI is queued on a
 //! bounded channel and written by the MIDI thread.
 
-use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, AtomicU8, AtomicUsize, Ordering::Relaxed};
+use std::sync::atomic::{
+    AtomicBool, AtomicU16, AtomicU32, AtomicU8, AtomicUsize, Ordering::Relaxed,
+};
 use std::sync::mpsc::SyncSender;
 use std::sync::Arc;
 
@@ -13,20 +15,44 @@ use cpal::{FromSample, SampleFormat, SizedSample};
 
 use crate::drums;
 use crate::midi::{self, Msg};
-use crate::synth::Voice;
+use crate::synth::{self, Voice};
 
 pub const TRACKS: usize = 4;
 pub const STEPS: usize = 16;
+pub const PATTERNS: usize = 8;
+/// Song length limit, in bars (one pattern per bar).
+pub const SONG_SLOTS: usize = 32;
 /// MIDI clock runs at 24 ticks per beat, so a 16th-note step is 6 ticks.
 const TICKS_PER_STEP: u32 = 6;
-/// Marks a melody step with no note.
-const REST: u8 = u8::MAX;
+/// Marks a melody step with no note, or an empty song slot.
+const NONE: u8 = u8::MAX;
 /// How long a clicked melody note sounds, in seconds.
 const PREVIEW_SECONDS: f32 = 0.3;
+/// How often the engine re-reads the synth knobs, in samples.
+const PARAM_INTERVAL: u32 = 64;
+
+/// A copy of one pattern, for copy and paste.
+#[derive(Clone, Copy)]
+pub struct PatternData {
+    drums: [u16; TRACKS],
+    melody: [u8; STEPS],
+}
 
 pub struct Shared {
-    /// One bit per step, one mask per track.
-    steps: [AtomicU16; TRACKS],
+    /// One bit per step, one mask per track, `TRACKS` masks per pattern.
+    drums: [AtomicU16; PATTERNS * TRACKS],
+    /// Melody note per step, in semitones above the octave's C, or `NONE`.
+    melody: [AtomicU8; PATTERNS * STEPS],
+    /// Pattern index per bar, or `NONE` for a silent bar.
+    song: [AtomicU8; SONG_SLOTS],
+    /// Play the song arrangement instead of looping the edited pattern.
+    pub song_mode: AtomicBool,
+    /// The pattern shown in the editor.
+    pub edit_pattern: AtomicU8,
+    /// The pattern being heard, or `NONE` during a silent bar.
+    pub play_pattern: AtomicU8,
+    /// The song bar being heard.
+    pub song_pos: AtomicUsize,
     /// Tracks the UI wants to hear right now (one bit per track).
     preview: AtomicU16,
     bpm_bits: AtomicU32,
@@ -40,21 +66,27 @@ pub struct Shared {
     pub ext_ticks: AtomicU32,
     /// Set when MIDI in receives Start, so the engine rewinds to step 1.
     pub ext_start: AtomicBool,
-    /// Melody note per step, in semitones above the octave's C, or `REST`.
-    melody: [AtomicU8; STEPS],
     pub octave: AtomicU8,
     /// MIDI channel for the melody, 0-based (0 = channel 1).
     pub melody_channel: AtomicU8,
     /// Play the melody on the built-in synth (turn off to hear only MIDI gear).
     pub synth_on: AtomicBool,
-    /// Melody note the UI wants to hear right now, or `REST`.
+    /// Synth knob values (f32 bits), indexed like `synth::PARAMS`.
+    synth_params: [AtomicU32; synth::PARAMS.len()],
+    /// Melody note the UI wants to hear right now, or `NONE`.
     preview_note: AtomicU8,
 }
 
 impl Shared {
     pub fn new() -> Self {
         let s = Self {
-            steps: [const { AtomicU16::new(0) }; TRACKS],
+            drums: [const { AtomicU16::new(0) }; PATTERNS * TRACKS],
+            melody: [const { AtomicU8::new(NONE) }; PATTERNS * STEPS],
+            song: [const { AtomicU8::new(NONE) }; SONG_SLOTS],
+            song_mode: AtomicBool::new(false),
+            edit_pattern: AtomicU8::new(0),
+            play_pattern: AtomicU8::new(0),
+            song_pos: AtomicUsize::new(0),
             preview: AtomicU16::new(0),
             bpm_bits: AtomicU32::new(120f32.to_bits()),
             playing: AtomicBool::new(false),
@@ -63,48 +95,91 @@ impl Shared {
             external_sync: AtomicBool::new(false),
             ext_ticks: AtomicU32::new(0),
             ext_start: AtomicBool::new(false),
-            melody: [const { AtomicU8::new(REST) }; STEPS],
             octave: AtomicU8::new(3),
             melody_channel: AtomicU8::new(0),
             synth_on: AtomicBool::new(true),
-            preview_note: AtomicU8::new(REST),
+            synth_params: [const { AtomicU32::new(0) }; synth::PARAMS.len()],
+            preview_note: AtomicU8::new(NONE),
         };
-        // A basic beat so there's something to hear on first run.
-        s.steps[0].store(0b0001_0001_0001_0001, Relaxed);
-        s.steps[1].store(0b0001_0000_0001_0000, Relaxed);
-        s.steps[2].store(0b0100_0100_0100_0100, Relaxed);
-        // A little C minor riff.
+        for (i, p) in synth::PARAMS.iter().enumerate() {
+            s.set_synth_param(i, p.default);
+        }
+        // A basic beat and a little C minor riff in pattern A, so there's
+        // something to hear on first run.
+        s.drums[0].store(0b0001_0001_0001_0001, Relaxed);
+        s.drums[1].store(0b0001_0000_0001_0000, Relaxed);
+        s.drums[2].store(0b0100_0100_0100_0100, Relaxed);
         for (step, note) in [(0, 0), (3, 3), (6, 7), (8, 10), (10, 7), (12, 3), (14, 5)] {
             s.melody[step].store(note, Relaxed);
         }
+        s.song[0].store(0, Relaxed);
         s
     }
 
-    pub fn is_on(&self, track: usize, step: usize) -> bool {
-        self.steps[track].load(Relaxed) & (1 << step) != 0
+    pub fn is_on(&self, pattern: usize, track: usize, step: usize) -> bool {
+        self.drums[pattern * TRACKS + track].load(Relaxed) & (1 << step) != 0
     }
 
-    pub fn toggle(&self, track: usize, step: usize) {
-        self.steps[track].fetch_xor(1 << step, Relaxed);
+    pub fn toggle(&self, pattern: usize, track: usize, step: usize) {
+        self.drums[pattern * TRACKS + track].fetch_xor(1 << step, Relaxed);
     }
 
-    pub fn clear(&self) {
-        for t in &self.steps {
-            t.store(0, Relaxed);
-        }
-        for m in &self.melody {
-            m.store(REST, Relaxed);
-        }
-    }
-
-    pub fn melody_note(&self, step: usize) -> Option<u8> {
-        Some(self.melody[step].load(Relaxed)).filter(|&n| n != REST)
+    pub fn melody_note(&self, pattern: usize, step: usize) -> Option<u8> {
+        Some(self.melody[pattern * STEPS + step].load(Relaxed)).filter(|&n| n != NONE)
     }
 
     /// Sets the step to `semitone`, or clears it if it already has that note.
-    pub fn toggle_melody(&self, step: usize, semitone: u8) {
-        let new = if self.melody_note(step) == Some(semitone) { REST } else { semitone };
-        self.melody[step].store(new, Relaxed);
+    pub fn toggle_melody(&self, pattern: usize, step: usize, semitone: u8) {
+        let new = if self.melody_note(pattern, step) == Some(semitone) {
+            NONE
+        } else {
+            semitone
+        };
+        self.melody[pattern * STEPS + step].store(new, Relaxed);
+    }
+
+    pub fn get_pattern(&self, pattern: usize) -> PatternData {
+        PatternData {
+            drums: std::array::from_fn(|t| self.drums[pattern * TRACKS + t].load(Relaxed)),
+            melody: std::array::from_fn(|s| self.melody[pattern * STEPS + s].load(Relaxed)),
+        }
+    }
+
+    pub fn set_pattern(&self, pattern: usize, data: &PatternData) {
+        for (t, mask) in data.drums.iter().enumerate() {
+            self.drums[pattern * TRACKS + t].store(*mask, Relaxed);
+        }
+        for (s, note) in data.melody.iter().enumerate() {
+            self.melody[pattern * STEPS + s].store(*note, Relaxed);
+        }
+    }
+
+    pub fn clear_pattern(&self, pattern: usize) {
+        self.set_pattern(
+            pattern,
+            &PatternData {
+                drums: [0; TRACKS],
+                melody: [NONE; STEPS],
+            },
+        );
+    }
+
+    pub fn song_slot(&self, bar: usize) -> Option<usize> {
+        Some(self.song[bar].load(Relaxed))
+            .filter(|&p| p != NONE)
+            .map(usize::from)
+    }
+
+    pub fn set_song_slot(&self, bar: usize, pattern: Option<usize>) {
+        self.song[bar].store(pattern.map_or(NONE, |p| p as u8), Relaxed);
+    }
+
+    /// Bars up to and including the last filled one.
+    pub fn song_len(&self) -> usize {
+        (0..SONG_SLOTS)
+            .rev()
+            .find(|&b| self.song_slot(b).is_some())
+            .map_or(0, |b| b + 1)
     }
 
     /// MIDI note number of C in the current octave (octave 3 = C3 = 48).
@@ -112,12 +187,12 @@ impl Shared {
         12 * (self.octave.load(Relaxed) + 1)
     }
 
-    pub fn preview_note(&self, semitone: u8) {
-        self.preview_note.store(semitone, Relaxed);
-    }
-
     pub fn preview(&self, track: usize) {
         self.preview.fetch_or(1 << track, Relaxed);
+    }
+
+    pub fn preview_note(&self, semitone: u8) {
+        self.preview_note.store(semitone, Relaxed);
     }
 
     pub fn bpm(&self) -> f32 {
@@ -126,6 +201,14 @@ impl Shared {
 
     pub fn set_bpm(&self, bpm: f32) {
         self.bpm_bits.store(bpm.to_bits(), Relaxed);
+    }
+
+    pub fn synth_param(&self, i: usize) -> f32 {
+        f32::from_bits(self.synth_params[i].load(Relaxed))
+    }
+
+    pub fn set_synth_param(&self, i: usize, value: f32) {
+        self.synth_params[i].store(value.to_bits(), Relaxed);
     }
 }
 
@@ -145,6 +228,13 @@ struct Engine {
     melody_held: Option<(u8, u8)>,
     /// Samples left before a clicked melody note is released.
     preview_left: u32,
+    /// Pattern playing in this bar; `None` is a silent song bar.
+    pattern: Option<usize>,
+    song_pos: usize,
+    /// The next bar starts the song from the top instead of advancing.
+    restart_song: bool,
+    was_song_mode: bool,
+    samples_to_params: u32,
     was_playing: bool,
     sr: f32,
 }
@@ -162,6 +252,11 @@ impl Engine {
             synth: Voice::new(sr),
             melody_held: None,
             preview_left: 0,
+            pattern: Some(0),
+            song_pos: 0,
+            restart_song: true,
+            was_song_mode: false,
+            samples_to_params: 0,
             was_playing: false,
             sr,
         }
@@ -206,13 +301,46 @@ impl Engine {
         self.synth.note_off();
     }
 
+    /// Picks which pattern plays for the current step.
+    fn choose_pattern(&mut self, step: usize) {
+        let song_mode = self.shared.song_mode.load(Relaxed);
+        if song_mode != self.was_song_mode {
+            self.restart_song = true;
+            self.was_song_mode = song_mode;
+        }
+        let song_len = self.shared.song_len();
+        if !song_mode || song_len == 0 {
+            // Pattern mode follows the editor right away, like FL Studio.
+            self.pattern = Some(self.shared.edit_pattern.load(Relaxed) as usize);
+        } else if step == 0 {
+            self.song_pos = if self.restart_song {
+                0
+            } else {
+                (self.song_pos + 1) % song_len
+            };
+            self.restart_song = false;
+            self.pattern = self.shared.song_slot(self.song_pos);
+            self.shared.song_pos.store(self.song_pos, Relaxed);
+        }
+        self.shared
+            .play_pattern
+            .store(self.pattern.map_or(NONE, |p| p as u8), Relaxed);
+    }
+
     fn on_tick(&mut self) {
         // Drum notes last one tick, then get their note-off.
         self.release_notes();
         if self.tick.is_multiple_of(TICKS_PER_STEP) {
             let step = (self.tick / TICKS_PER_STEP) as usize;
+            self.choose_pattern(step);
+            let Some(pattern) = self.pattern else {
+                self.shared.current_step.store(step, Relaxed);
+                self.melody_off();
+                self.tick = (self.tick + 1) % (TICKS_PER_STEP * STEPS as u32);
+                return;
+            };
             let mask = (0..TRACKS)
-                .filter(|&t| self.shared.is_on(t, step))
+                .filter(|&t| self.shared.is_on(pattern, t, step))
                 .fold(0u16, |m, t| m | 1 << t);
             self.trigger(mask);
             self.shared.current_step.store(step, Relaxed);
@@ -222,7 +350,7 @@ impl Engine {
                 }
                 self.held = mask;
             }
-            if let Some(semitone) = self.shared.melody_note(step) {
+            if let Some(semitone) = self.shared.melody_note(pattern, step) {
                 self.melody_on(self.shared.base_note() + semitone);
             }
         } else if self.tick % TICKS_PER_STEP == TICKS_PER_STEP - 1 && self.preview_left == 0 {
@@ -240,6 +368,7 @@ impl Engine {
             if playing {
                 self.tick = 0;
                 self.samples_to_next_tick = 0.0;
+                self.restart_song = true;
             } else {
                 self.release_notes();
                 self.melody_off();
@@ -254,6 +383,7 @@ impl Engine {
         if external {
             if self.shared.ext_start.swap(false, Relaxed) {
                 self.tick = 0;
+                self.restart_song = true;
             }
             let ticks = self.shared.ext_ticks.swap(0, Relaxed);
             if playing {
@@ -274,8 +404,8 @@ impl Engine {
         if preview != 0 {
             self.trigger(preview);
         }
-        let note = self.shared.preview_note.swap(REST, Relaxed);
-        if note != REST {
+        let note = self.shared.preview_note.swap(NONE, Relaxed);
+        if note != NONE {
             self.melody_on(self.shared.base_note() + note);
             self.preview_left = (PREVIEW_SECONDS * self.sr) as u32;
         }
@@ -285,6 +415,13 @@ impl Engine {
                 self.melody_off();
             }
         }
+
+        if self.samples_to_params == 0 {
+            let values = std::array::from_fn(|i| self.shared.synth_param(i));
+            self.synth.set_params(&values);
+            self.samples_to_params = PARAM_INTERVAL;
+        }
+        self.samples_to_params -= 1;
 
         let mut mix = 0.0;
         for (t, sample) in self.kit.iter().enumerate() {
@@ -384,7 +521,10 @@ mod tests {
         shared.ext_ticks.store(7, Relaxed); // step 1 at tick 0, step 2 at tick 6
         engine.next_sample();
         assert_eq!(shared.current_step.load(Relaxed), 1);
-        assert!(rx.try_iter().all(|m| m.bytes() != [midi::CLOCK]), "no clock echo");
+        assert!(
+            rx.try_iter().all(|m| m.bytes() != [midi::CLOCK]),
+            "no clock echo"
+        );
     }
 
     #[test]
@@ -400,9 +540,57 @@ mod tests {
         assert!(out.iter().all(|s| s.abs() <= 1.0));
 
         // With drums cleared, what remains is the synth.
-        shared.clear();
+        shared.clear_pattern(0);
         shared.preview_note(7);
         let out: Vec<f32> = (0..4_800).map(|_| engine.next_sample()).collect();
-        assert!(out.iter().any(|s| s.abs() > 0.05), "synth should be audible");
+        assert!(
+            out.iter().any(|s| s.abs() > 0.05),
+            "synth should be audible"
+        );
+    }
+
+    #[test]
+    fn song_mode_plays_bars_in_order() {
+        let (mut engine, shared, rx) = engine();
+        // Pattern B: one melody note, D, on step 1.
+        shared.toggle_melody(1, 0, 2);
+        shared.set_song_slot(1, Some(1));
+        shared.song_mode.store(true, Relaxed);
+        shared.playing.store(true, Relaxed);
+        // One bar at 120 BPM is 2 seconds = 96_000 samples; play into bar 2.
+        for _ in 0..100_000 {
+            engine.next_sample();
+        }
+        assert_eq!(shared.song_pos.load(Relaxed), 1);
+        assert_eq!(shared.play_pattern.load(Relaxed), 1);
+        let msgs: Vec<Msg> = rx.try_iter().collect();
+        assert!(
+            msgs.contains(&Msg::three(0x90, 48, 100)),
+            "bar 1 plays A (C3)"
+        );
+        assert!(
+            msgs.contains(&Msg::three(0x90, 50, 100)),
+            "bar 2 plays B (D3)"
+        );
+    }
+
+    #[test]
+    fn synth_knobs_change_the_sound() {
+        let (mut engine, shared, _rx) = engine();
+        shared.clear_pattern(0);
+        let render = |engine: &mut Engine| {
+            shared.preview_note(0);
+            (0..4_800).map(|_| engine.next_sample().abs()).sum::<f32>()
+        };
+        let before = render(&mut engine);
+        shared.set_synth_param(synth::VOLUME, 0.0);
+        for _ in 0..48_000 {
+            engine.next_sample(); // let the old note fade
+        }
+        let after = render(&mut engine);
+        assert!(
+            before > 1.0 && after < 0.01,
+            "volume knob: {before} -> {after}"
+        );
     }
 }
