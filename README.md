@@ -80,17 +80,15 @@ Press **F1** (or **Help → How to use**) for the built-in guide.
 
 ### Saving songs
 
-- **File → Save** (Ctrl+S, Cmd+S on Mac) saves a `.jay` file (as in blue jay). **Save as…**
+- **File → Save** (Ctrl+S, Cmd+S on Mac) saves a `.daw` file. **Save as…**
   (Ctrl+Shift+S) picks a new name; **Open…** (Ctrl+O) opens one.
 - Samples you loaded are saved inside the file, so songs work on any computer.
 - The song you had open reopens next time you start the app.
 - A dot in the window title means unsaved changes; daw asks before anything
   would lose them.
 
-A `.jay` file is a zip (like `.docx`) holding `song.json`, which is readable
-and editable by hand, plus `samples/*.wav` for any loaded samples. Songs
-saved before v0.5.1 are `.daw` files; they still open, and **Save as…**
-turns one into a `.jay`.
+A `.daw` file is a zip (like `.docx`) holding `song.json`, which is readable
+and editable by hand, plus `samples/*.wav` for any loaded samples.
 
 ### Exporting
 
