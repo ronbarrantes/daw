@@ -1,15 +1,36 @@
-# Workflow: push, merge, release
+# Workflow: request, PR, merge, release
+
+## How we work
+
+Ron works on this away from his main computer, in short bursts, and gives
+ideas rather than code. So:
+
+1. **Ron asks for something.**
+2. **Claude builds it as one or more pull requests**, splitting the work
+   however makes sense.
+3. **Claude merges each PR into `main` once CI is green**, without waiting
+   for approval. The exception is a big breaking change (e.g. old saved
+   songs stop loading, or a feature is removed or reworked): ask first.
+4. **Every merged PR bumps the version and gets a tagged release** (see
+   *Versions* below), so there's always a numbered download.
+
+Ron gets new builds from the Releases page or the one-line `curl` commands
+in the README. Neither laptop has to compile.
+
+This flow isn't fixed. When something in it stops fitting, update this file
+in the same PR as the change that needs it.
 
 ## Branches
 
-- **`main`** always builds and runs. It's what you pull on your laptops.
+- **`main`** always builds and runs.
 - **Work branches** hold changes in progress. Claude sessions use
-  `claude/<name>`; your own work can use `feature/<name>`.
+  `claude/<name>`; hand-made work can use `feature/<name>`.
 - Never commit straight to `main`.
+- After a squash merge, the work branch restarts from the new `main` (a
+  force-push to the work branch is fine), so merged commits don't come
+  along again.
 
-## 1. Push (on a work branch)
-
-Each change is a small commit that does one thing. Before every push:
+## Before every push
 
 ```sh
 cargo fmt
@@ -17,58 +38,46 @@ cargo clippy --all-targets   # no warnings
 cargo test                   # all pass
 ```
 
-Then `git push -u origin <branch>`.
+## Each pull request
 
-## 2. Try it
-
-On whichever laptop is handy:
-
-```sh
-git fetch
-git checkout <branch>
-cargo run --release
-```
-
-The Air (Arch) is the one that counts for speed and screen size. If it's
-fine there, it's fine everywhere.
-
-## 3. Merge
-
-1. Open a pull request from the work branch into `main`.
-2. Wait for CI to pass (see below).
-3. Merge with **Squash and merge**, so each feature is one commit on `main`.
-4. Update your laptops: `git checkout main && git pull`.
-
-After a merge, a Claude session branch restarts from the new `main` for the
-next change, so the old merged commits don't come along again.
-
-## 4. CI (to set up)
-
-A GitHub Actions workflow (`.github/workflows/ci.yml`) runs on every pull
-request and every push to `main`:
-
-- `cargo fmt --check`, `cargo clippy -- -D warnings` and `cargo test`
-- on **ubuntu-latest** (installs `libasound2-dev`) and **macos-latest**
-
-A pull request can only merge when CI is green.
-
-## 5. Release (to set up)
-
-Releases are prebuilt downloads, so neither laptop has to compile.
-
-1. On `main`, set `version` in `Cargo.toml` (e.g. `0.2.0`) and commit.
-2. Tag it and push the tag:
+1. Bump `version` in `Cargo.toml` as part of the PR (see *Versions*), and
+   let `cargo build` update `Cargo.lock`.
+2. Push and open a PR into `main` with a short description of what changed
+   and how it was tested.
+3. Wait for the **Build** workflow to pass on the PR.
+4. **Squash and merge**, so each PR is one commit on `main`.
+5. Tag the merge commit with the new version and push the tag:
    ```sh
-   git tag v0.2.0
-   git push origin v0.2.0
+   git fetch origin main
+   git tag v0.3.0 origin/main
+   git push origin v0.3.0
    ```
-3. A release workflow (`.github/workflows/release.yml`) builds for
-   - **Linux x86_64** (the Air running Arch)
-   - **macOS Apple Silicon** (the M3)
 
-   and attaches both to a GitHub Release with notes made from the merged
-   pull requests.
+## CI
 
-Version numbers stay `0.x` while the app is young: bump the middle number
-for new features (`0.2.0` → `0.3.0`) and the last one for fixes
-(`0.3.0` → `0.3.1`).
+`.github/workflows/build.yml` runs on every push (any branch) and every
+pull request:
+
+- `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and
+  `cargo test`, on **ubuntu-latest** and **macos-latest**
+- a release build for **Linux x86_64** and **macOS Apple Silicon**, kept as
+  downloadable artifacts on the run's page
+
+To have GitHub enforce green checks: repo **Settings → Branches → Add rule**
+for `main`, tick *Require status checks to pass* and pick the **Check** jobs.
+
+## Releases
+
+- **Every push to `main`** replaces the **`latest`** pre-release with fresh
+  builds for Linux x86_64 (the Air running Arch) and macOS Apple Silicon
+  (the M3).
+- **Every `v*` tag** gets its own permanent release, with notes written from
+  the merged pull requests.
+
+## Versions
+
+Version numbers stay `0.x` while the app is young:
+
+- **New feature** → bump the middle number (`0.2.0` → `0.3.0`).
+- **Fix or small tweak** → bump the last number (`0.3.0` → `0.3.1`).
+- Several PRs from one request each get their own bump.

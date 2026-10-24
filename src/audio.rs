@@ -6,9 +6,10 @@
 //! like "play this note now" arrive on a channel. Outgoing MIDI is queued
 //! on a bounded channel and written by the MIDI thread.
 //!
-//! Steps start on MIDI clock ticks, but each hit is scheduled to the exact
-//! sample, so swing, nudge, humanize and ratchets aren't limited to the
-//! clock's resolution.
+//! Every track has one voice per lane (piano-roll row), so melodic tracks
+//! can play chords. Steps start on MIDI clock ticks, but each hit is
+//! scheduled to the exact sample, so swing, nudge, humanize and ratchets
+//! aren't limited to the clock's resolution.
 
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, AtomicUsize, Ordering::Relaxed};
 use std::sync::mpsc::{Receiver, SyncSender};
@@ -18,7 +19,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SampleFormat, SizedSample};
 
 use crate::midi::{self, Msg};
-use crate::project::{Kind, Project, Sample, Step, MAX_TRACKS, NORMAL, SAMPLE_ROOT, STEPS};
+use crate::project::{Kind, Project, Sample, Step, LANES, MAX_TRACKS, NORMAL, SAMPLE_ROOT, STEPS};
 use crate::synth::Voice;
 
 /// MIDI clock runs at 24 ticks per beat, so a 16th-note step is 6 ticks.
@@ -31,8 +32,8 @@ const PREVIEW_SECONDS: f32 = 0.3;
 const UPDATE_INTERVAL: u32 = 64;
 /// Notes last this fraction of their step (or ratchet slice).
 const GATE: f32 = 0.8;
-/// Room for scheduled hits; enough for every track ratcheting at once.
-const MAX_PENDING: usize = 256;
+/// Room for scheduled hits; enough for a busy pattern with chords.
+const MAX_PENDING: usize = 512;
 /// Humanize at full strength: up to this fraction of a step late...
 const HUMANIZE_TIMING: f32 = 0.12;
 /// ...and up to this much velocity either way.
@@ -40,18 +41,21 @@ const HUMANIZE_VELOCITY: f32 = 30.0;
 
 /// Requests from the UI or MIDI in.
 pub enum Event {
-    /// Play a step value on a track briefly, e.g. when clicking a cell.
-    Note {
+    /// Briefly play one lane of a track, e.g. when clicking a cell.
+    Preview {
         track: usize,
-        semitone: u8,
+        lane: usize,
     },
-    /// Start a note that lasts until `Release`, e.g. from the computer keyboard.
+    /// Start a note that lasts until `Release`, from the computer keyboard
+    /// or a MIDI controller. `note` is a MIDI note number.
     Hold {
         track: usize,
-        semitone: u8,
+        note: u8,
+        velocity: u8,
     },
     Release {
         track: usize,
+        note: u8,
     },
 }
 
@@ -69,6 +73,8 @@ pub struct Shared {
     pub play_pattern: AtomicU8,
     /// The song bar being heard.
     pub song_pos: AtomicUsize,
+    /// The track selected in the UI, which MIDI controllers play by default.
+    pub selected_track: AtomicUsize,
     /// Follow incoming MIDI clock instead of the BPM setting.
     pub external_sync: AtomicBool,
     /// Clock ticks received from MIDI in, not yet handled by the engine.
@@ -88,6 +94,7 @@ impl Shared {
             edit_pattern: AtomicU8::new(0),
             play_pattern: AtomicU8::new(0),
             song_pos: AtomicUsize::new(0),
+            selected_track: AtomicUsize::new(0),
             external_sync: AtomicBool::new(false),
             ext_ticks: AtomicU32::new(0),
             ext_start: AtomicBool::new(false),
@@ -120,8 +127,8 @@ fn velocity_gain(velocity: u8) -> f32 {
     (velocity as f32 / NORMAL as f32).powf(1.5)
 }
 
-/// Playback state for one track.
-struct TrackVoice {
+/// Playback state for one lane of one track.
+struct LaneVoice {
     synth: Voice,
     /// The sample being played, if any. Holding the `Arc` keeps it alive
     /// even if the track is deleted mid-note.
@@ -133,9 +140,25 @@ struct TrackVoice {
     generation: u32,
     /// MIDI note (and channel) still on.
     held: Option<(u8, u8)>,
+    /// The note a keyboard or controller is holding here, if any; the
+    /// sequencer leaves the lane alone while it's set.
+    live: Option<u8>,
 }
 
-impl TrackVoice {
+impl LaneVoice {
+    fn new(sr: f32) -> Self {
+        Self {
+            synth: Voice::new(sr),
+            sample: None,
+            pos: 0.0,
+            rate: 1.0,
+            gain: 1.0,
+            generation: 0,
+            held: None,
+            live: None,
+        }
+    }
+
     fn sample_out(&mut self) -> f32 {
         let Some(s) = &self.sample else { return 0.0 };
         let i = self.pos as usize;
@@ -156,18 +179,15 @@ struct Pending {
     /// Samples until it happens.
     at: u32,
     track: usize,
+    lane: usize,
     action: Action,
 }
 
 #[derive(Clone, Copy)]
 enum Action {
-    /// Start a note. `gate` is how long it lasts in samples; `None` holds
-    /// it for a tied step to end.
-    On {
-        semitone: u8,
-        velocity: u8,
-        gate: Option<u32>,
-    },
+    /// Start the lane's note. `gate` is how long it lasts in samples;
+    /// `None` holds it for a tied step to end.
+    On { velocity: u8, gate: Option<u32> },
     /// End the note with this generation, if it's still playing.
     Off { generation: u32 },
 }
@@ -177,7 +197,8 @@ struct Engine {
     project: Arc<Project>,
     events: Receiver<Event>,
     midi_out: SyncSender<Msg>,
-    voices: Vec<TrackVoice>,
+    /// `voices[track][lane]`.
+    voices: Vec<Vec<LaneVoice>>,
     /// Scheduled hits; preallocated so the audio thread never allocates.
     pending: Vec<Pending>,
     /// Clock tick within the bar, 0..TICKS_PER_STEP * STEPS.
@@ -187,11 +208,8 @@ struct Engine {
     samples_per_tick: f32,
     samples_since_tick: u32,
     samples_to_update: u32,
-    /// Track whose clicked note is sounding, and samples until it stops.
-    preview: Option<(usize, u32)>,
-    /// Tracks with a held live note (one bit per track); the sequencer
-    /// leaves these alone.
-    live: u16,
+    /// The clicked note that's sounding (track, lane), and samples until it stops.
+    preview: Option<(usize, usize, u32)>,
     /// Each track's level after mute, solo and group volume; worked out
     /// once per project change rather than every sample.
     gains: [f32; MAX_TRACKS],
@@ -215,15 +233,7 @@ impl Engine {
         sr: f32,
     ) -> Self {
         let voices = (0..MAX_TRACKS)
-            .map(|_| TrackVoice {
-                synth: Voice::new(sr),
-                sample: None,
-                pos: 0.0,
-                rate: 1.0,
-                gain: 1.0,
-                generation: 0,
-                held: None,
-            })
+            .map(|_| (0..LANES).map(|_| LaneVoice::new(sr)).collect())
             .collect();
         let mut engine = Self {
             project: shared.project(),
@@ -238,7 +248,6 @@ impl Engine {
             samples_since_tick: 0,
             samples_to_update: 0,
             preview: None,
-            live: 0,
             gains: [0.0; MAX_TRACKS],
             pattern: Some(0),
             song_pos: 0,
@@ -248,17 +257,27 @@ impl Engine {
             rng: 0x2545_f491,
             sr,
         };
-        engine.update_gains();
+        engine.project_changed();
         engine
     }
 
-    fn update_gains(&mut self) {
+    /// Refreshes everything derived from the project: track levels and
+    /// synth settings.
+    fn project_changed(&mut self) {
+        let project = self.project.clone();
         for i in 0..MAX_TRACKS {
-            self.gains[i] = if i < self.project.tracks.len() {
-                self.project.gain(i)
+            self.gains[i] = if i < project.tracks.len() {
+                project.gain(i)
             } else {
                 0.0
             };
+        }
+        for (lanes, track) in self.voices.iter_mut().zip(&project.tracks) {
+            if let Kind::Synth(values) = &track.kind {
+                for voice in lanes {
+                    voice.synth.set_params(values);
+                }
+            }
         }
     }
 
@@ -280,24 +299,34 @@ impl Engine {
     }
 
     /// Never allocates: if the queue is full, the hit is dropped.
-    fn schedule(&mut self, at: f32, track: usize, action: Action) {
+    fn schedule(&mut self, at: f32, track: usize, lane: usize, action: Action) {
         if self.pending.len() < MAX_PENDING {
             let at = at.max(0.0) as u32;
-            self.pending.push(Pending { at, track, action });
+            self.pending.push(Pending {
+                at,
+                track,
+                lane,
+                action,
+            });
         }
     }
 
-    /// Starts a note and returns its generation.
-    fn note_on(&mut self, i: usize, semitone: u8, velocity: u8) -> u32 {
-        self.note_off(i);
+    /// Starts MIDI note `note` in a track's lane and returns its generation.
+    fn note_on(&mut self, i: usize, lane: usize, note: u8, velocity: u8) -> u32 {
+        self.note_off(i, lane);
         let project = self.project.clone();
         let track = &project.tracks[i];
-        let note = track.note(semitone);
+        // One-shot tracks always send their own note (e.g. 36 for a kick).
+        let midi_note = if track.is_melodic() {
+            note
+        } else {
+            track.midi_note
+        };
         if let Some(ch) = track.midi_channel {
-            self.send(Msg::three(0x90 | ch, note, velocity));
-            self.voices[i].held = Some((note, ch));
+            self.send(Msg::three(0x90 | ch, midi_note, velocity));
+            self.voices[i][lane].held = Some((midi_note, ch));
         }
-        let voice = &mut self.voices[i];
+        let voice = &mut self.voices[i][lane];
         voice.gain = velocity_gain(velocity);
         voice.generation = voice.generation.wrapping_add(1);
         match &track.kind {
@@ -316,22 +345,26 @@ impl Engine {
         voice.generation
     }
 
-    /// Ends a note. Samples keep ringing to their end; synths release.
-    fn note_off(&mut self, i: usize) {
-        if let Some((note, ch)) = self.voices[i].held.take() {
+    /// Ends a lane's note. Samples keep ringing to their end; synths release.
+    fn note_off(&mut self, i: usize, lane: usize) {
+        if let Some((note, ch)) = self.voices[i][lane].held.take() {
             self.send(Msg::three(0x80 | ch, note, 0));
         }
-        self.voices[i].synth.note_off();
+        self.voices[i][lane].synth.note_off();
     }
 
     fn all_notes_off(&mut self) {
         self.pending.clear();
         for i in 0..MAX_TRACKS {
-            self.note_off(i);
+            for lane in 0..LANES {
+                if self.voices[i][lane].live.is_none() {
+                    self.note_off(i, lane);
+                }
+            }
         }
     }
 
-    /// Picks up a new project snapshot, synth settings and UI events.
+    /// Picks up a new project snapshot and UI or MIDI events.
     fn update(&mut self) {
         let latest = match self.shared.project.try_lock() {
             Ok(p) if !Arc::ptr_eq(&p, &self.project) => Some(p.clone()),
@@ -339,27 +372,36 @@ impl Engine {
         };
         if let Some(p) = latest {
             self.project = p;
-            self.update_gains();
-        }
-        let project = self.project.clone();
-        for (voice, track) in self.voices.iter_mut().zip(&project.tracks) {
-            if let Kind::Synth(values) = &track.kind {
-                voice.synth.set_params(values);
-            }
+            self.project_changed();
         }
         while let Ok(event) = self.events.try_recv() {
             match event {
-                Event::Note { track, semitone } if track < self.track_count() => {
-                    self.note_on(track, semitone, NORMAL);
-                    self.preview = Some((track, (PREVIEW_SECONDS * self.sr) as u32));
+                Event::Preview { track, lane } if track < self.track_count() => {
+                    let lane = lane.min(LANES - 1);
+                    let note = self.project.tracks[track].note(lane);
+                    self.note_on(track, lane, note, NORMAL);
+                    self.preview = Some((track, lane, (PREVIEW_SECONDS * self.sr) as u32));
                 }
-                Event::Hold { track, semitone } if track < self.track_count() => {
-                    self.note_on(track, semitone, NORMAL);
-                    self.live |= 1 << track;
+                Event::Hold {
+                    track,
+                    note,
+                    velocity,
+                } if track < self.track_count() => {
+                    let lane = self.project.tracks[track].lane_for(note);
+                    self.note_on(track, lane, note, velocity);
+                    self.voices[track][lane].live = Some(note);
                 }
-                Event::Release { track } if track < MAX_TRACKS => {
-                    self.live &= !(1 << track);
-                    self.note_off(track);
+                Event::Release { track, note } if track < MAX_TRACKS => {
+                    // The track may have been deleted; then lane 0 is as good as any.
+                    let lane = self
+                        .project
+                        .tracks
+                        .get(track)
+                        .map_or(0, |t| t.lane_for(note));
+                    if self.voices[track][lane].live == Some(note) {
+                        self.voices[track][lane].live = None;
+                        self.note_off(track, lane);
+                    }
                 }
                 _ => {}
             }
@@ -402,25 +444,26 @@ impl Engine {
         swing + s.nudge as f32 / 100.0
     }
 
-    /// Schedules a track's step to play `start` samples from now.
-    fn schedule_step(&mut self, i: usize, pattern: usize, step: usize, start: f32) {
+    /// Schedules one lane's step to play `start` samples from now.
+    fn schedule_step(&mut self, i: usize, lane: usize, pattern: usize, step: usize, start: f32) {
         let project = self.project.clone();
         let track = &project.tracks[i];
-        let Some(s) = track.patterns[pattern][step] else {
+        let steps = &track.patterns[pattern][lane];
+        let Some(s) = steps[step] else {
             return;
         };
         let step_len = self.samples_per_tick * TICKS_PER_STEP as f32;
-        let next_tied =
-            step + 1 < STEPS && track.patterns[pattern][step + 1].is_some_and(|n| n.is_tie());
-        let humanize = track.humanize;
+        let next_tied = steps
+            .get(step + 1)
+            .is_some_and(|n| n.is_some_and(|n| n.tie));
 
-        if s.is_tie() {
+        if s.tie {
             // The note was started by an earlier step; end it here unless
             // the tie carries on.
             if !next_tied {
-                let generation = self.voices[i].generation;
+                let generation = self.voices[i][lane].generation;
                 let at = start + step_len * GATE;
-                self.schedule(at, i, Action::Off { generation });
+                self.schedule(at, i, lane, Action::Off { generation });
             }
             return;
         }
@@ -430,17 +473,13 @@ impl Engine {
         let ratchet = s.ratchet.clamp(1, 4);
         let slice = step_len / ratchet as f32;
         for r in 0..ratchet {
-            let late = self.random() * humanize * HUMANIZE_TIMING * step_len;
-            let spread = (self.random() * 2.0 - 1.0) * humanize * HUMANIZE_VELOCITY;
+            let late = self.random() * track.humanize * HUMANIZE_TIMING * step_len;
+            let spread = (self.random() * 2.0 - 1.0) * track.humanize * HUMANIZE_VELOCITY;
             let velocity = (s.velocity as f32 + spread).clamp(1.0, 127.0) as u8;
             let last = r + 1 == ratchet;
             let gate = (!(last && next_tied)).then_some((slice * GATE) as u32);
-            let action = Action::On {
-                semitone: s.note,
-                velocity,
-                gate,
-            };
-            self.schedule(start + r as f32 * slice + late, i, action);
+            let action = Action::On { velocity, gate };
+            self.schedule(start + r as f32 * slice + late, i, lane, action);
         }
     }
 
@@ -451,18 +490,23 @@ impl Engine {
         let step_len = self.samples_per_tick * TICKS_PER_STEP as f32;
         let project = self.project.clone();
         for (i, track) in project.tracks.iter().enumerate().take(MAX_TRACKS) {
-            if let Some(s) = track.patterns[pattern][step] {
-                let offset = self.offset(step, &s);
-                // Step 1 can't look back into the previous bar, so early
-                // hits there just play on time.
-                if offset >= 0.0 || step == 0 {
-                    self.schedule_step(i, pattern, step, offset.max(0.0) * step_len);
+            for lane in 0..track.lanes() {
+                let steps = &track.patterns[pattern][lane];
+                if let Some(s) = steps[step] {
+                    let offset = self.offset(step, &s);
+                    // Step 1 can't look back into the previous bar, so early
+                    // hits there just play on time.
+                    if offset >= 0.0 || step == 0 {
+                        let start = offset.max(0.0) * step_len;
+                        self.schedule_step(i, lane, pattern, step, start);
+                    }
                 }
-            }
-            if let Some(s) = track.patterns[pattern].get(step + 1).copied().flatten() {
-                let offset = self.offset(step + 1, &s);
-                if offset < 0.0 {
-                    self.schedule_step(i, pattern, step + 1, (1.0 + offset) * step_len);
+                if let Some(s) = steps.get(step + 1).copied().flatten() {
+                    let offset = self.offset(step + 1, &s);
+                    if offset < 0.0 {
+                        let start = (1.0 + offset) * step_len;
+                        self.schedule_step(i, lane, pattern, step + 1, start);
+                    }
                 }
             }
         }
@@ -472,24 +516,25 @@ impl Engine {
         if p.track >= self.track_count() {
             return;
         }
+        let voice = &self.voices[p.track][p.lane];
         match p.action {
-            Action::On {
-                semitone,
-                velocity,
-                gate,
-            } => {
-                if self.live & (1 << p.track) != 0 {
-                    return; // you're playing this track live
+            Action::On { velocity, gate } => {
+                if voice.live.is_some() {
+                    return; // you're playing this lane live
                 }
-                let generation = self.note_on(p.track, semitone, velocity);
+                let note = self.project.tracks[p.track].note(p.lane);
+                let generation = self.note_on(p.track, p.lane, note, velocity);
                 if let Some(gate) = gate {
-                    self.schedule(gate as f32, p.track, Action::Off { generation });
+                    let off = Action::Off { generation };
+                    self.schedule(gate as f32, p.track, p.lane, off);
                 }
             }
             Action::Off { generation } => {
-                let previewing = self.preview.is_some_and(|(t, _)| t == p.track);
-                if self.voices[p.track].generation == generation && !previewing {
-                    self.note_off(p.track);
+                let previewing = self
+                    .preview
+                    .is_some_and(|(t, l, _)| t == p.track && l == p.lane);
+                if voice.generation == generation && voice.live.is_none() && !previewing {
+                    self.note_off(p.track, p.lane);
                 }
             }
         }
@@ -573,24 +618,33 @@ impl Engine {
         }
         self.run_pending();
 
-        if let Some((track, left)) = self.preview {
+        if let Some((track, lane, left)) = self.preview {
             if left <= 1 {
                 self.preview = None;
-                self.note_off(track);
+                if self.voices[track][lane].live.is_none() {
+                    self.note_off(track, lane);
+                }
             } else {
-                self.preview = Some((track, left - 1));
+                self.preview = Some((track, lane, left - 1));
             }
         }
 
         let mut mix = 0.0;
         for i in 0..self.track_count() {
-            let track = &self.project.tracks[i];
-            let voice = &mut self.voices[i];
-            let out = match track.kind {
-                Kind::Synth(_) => voice.synth.next_sample(),
-                Kind::Sampler { .. } => voice.sample_out(),
-            };
-            mix += out * voice.gain * self.gains[i];
+            let synth = matches!(self.project.tracks[i].kind, Kind::Synth(_));
+            let mut out = 0.0;
+            for voice in &mut self.voices[i] {
+                let sample = if synth {
+                    if voice.synth.is_idle() {
+                        continue;
+                    }
+                    voice.synth.next_sample()
+                } else {
+                    voice.sample_out()
+                };
+                out += sample * voice.gain;
+            }
+            mix += out * self.gains[i];
         }
         (mix * 0.8).clamp(-1.0, 1.0)
     }
@@ -644,13 +698,14 @@ fn build<T: SizedSample + FromSample<f32>>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::project::{Track, GHOST, PATTERNS};
+    use crate::project::{Track, EMPTY_GRID, GHOST, PATTERNS};
     use crate::{drums, synth};
     use std::sync::mpsc::sync_channel;
 
     const KICK: usize = 0;
     const HAT: usize = 2;
     const LEAD: usize = 4;
+    const PAD: usize = 5;
     /// One 16th-note step at 120 BPM and 48 kHz.
     const STEP: usize = 6_000;
 
@@ -679,6 +734,10 @@ mod tests {
             (0..samples).map(|_| self.engine.next_sample()).collect()
         }
 
+        fn send(&self, event: Event) {
+            self.events.send(event).unwrap();
+        }
+
         fn midi(&self) -> Vec<Msg> {
             self.midi.try_iter().collect()
         }
@@ -703,13 +762,13 @@ mod tests {
     fn quiet_demo() -> Project {
         let mut p = Project::demo();
         for t in &mut p.tracks {
-            t.patterns = [[None; STEPS]; PATTERNS];
+            t.patterns = [EMPTY_GRID; PATTERNS];
         }
         p
     }
 
     fn hit() -> Option<Step> {
-        Some(Step::note(0))
+        Some(Step::HIT)
     }
 
     #[test]
@@ -755,19 +814,34 @@ mod tests {
     #[test]
     fn plays_melody_on_its_channel() {
         let mut project = Project::demo();
-        project.tracks[LEAD].midi_channel = Some(1); // channel 2
+        project.tracks[LEAD].midi_channel = Some(2); // channel 3
         let mut rig = Rig::new(project);
         rig.shared.playing.store(true, Relaxed);
         rig.run(STEP);
         let msgs = rig.midi();
-        assert!(msgs.contains(&Msg::three(0x91, 48, 100)), "C3 on channel 2");
-        assert!(msgs.contains(&Msg::three(0x81, 48, 0)), "and its note-off");
+        assert!(msgs.contains(&Msg::three(0x92, 48, 100)), "C3 on channel 3");
+        assert!(msgs.contains(&Msg::three(0x82, 48, 0)), "and its note-off");
+    }
+
+    #[test]
+    fn plays_chords() {
+        let mut rig = Rig::new(Project::demo());
+        rig.shared.playing.store(true, Relaxed);
+        rig.run(10);
+        let msgs = rig.midi();
+        // The demo pad starts with C minor (C4, E♭4, G4) on channel 2.
+        for note in [60, 63, 67] {
+            assert!(msgs.contains(&Msg::three(0x91, note, 100)), "note {note}");
+        }
+        let voices = &rig.engine.voices[PAD];
+        let sounding = voices.iter().filter(|v| !v.synth.is_idle()).count();
+        assert_eq!(sounding, 3, "three voices at once");
     }
 
     #[test]
     fn song_mode_plays_bars_in_order() {
         let mut project = Project::demo();
-        project.tracks[LEAD].patterns[1][0] = Some(Step::note(2)); // pattern B: D on step 1
+        project.tracks[LEAD].patterns[1][2][0] = hit(); // pattern B: D on step 1
         project.song[1] = Some(1);
         let mut rig = Rig::new(project);
         rig.shared.song_mode.store(true, Relaxed);
@@ -791,12 +865,10 @@ mod tests {
     fn synth_knobs_change_the_sound() {
         let mut rig = Rig::new(quiet_demo());
         let play = |rig: &mut Rig| {
-            rig.events
-                .send(Event::Note {
-                    track: LEAD,
-                    semitone: 0,
-                })
-                .unwrap();
+            rig.send(Event::Preview {
+                track: LEAD,
+                lane: 0,
+            });
             rig.run(4_800).iter().map(|s| s.abs()).sum::<f32>()
         };
         let before = play(&mut rig);
@@ -818,24 +890,20 @@ mod tests {
         let mut project = quiet_demo();
         project.tracks[KICK].muted = true;
         let mut rig = Rig::new(project);
-        rig.events
-            .send(Event::Note {
-                track: KICK,
-                semitone: 0,
-            })
-            .unwrap();
+        rig.send(Event::Preview {
+            track: KICK,
+            lane: 0,
+        });
         assert!(rig.run(4_800).iter().all(|s| *s == 0.0), "muted");
 
         let mut project = quiet_demo();
         project.tracks[LEAD].solo = true;
         rig.shared.publish(Arc::new(project));
         rig.run(48_000);
-        rig.events
-            .send(Event::Note {
-                track: KICK,
-                semitone: 0,
-            })
-            .unwrap();
+        rig.send(Event::Preview {
+            track: KICK,
+            lane: 0,
+        });
         assert!(
             rig.run(4_800).iter().all(|s| *s == 0.0),
             "another track is soloed"
@@ -854,29 +922,15 @@ mod tests {
         project.tracks.push(Track::sampler(sample, true));
         let i = project.tracks.len() - 1;
         let mut rig = Rig::new(project);
-        rig.events
-            .send(Event::Note {
-                track: i,
-                semitone: 0,
-            })
-            .unwrap();
+        rig.send(Event::Preview { track: i, lane: 0 });
         rig.run(1);
-        assert!(
-            (rig.engine.voices[i].rate - 1.0).abs() < 1e-6,
-            "C4 plays as recorded"
-        );
-        rig.events
-            .send(Event::Note {
-                track: i,
-                semitone: 7,
-            })
-            .unwrap();
+        let rate = rig.engine.voices[i][0].rate;
+        assert!((rate - 1.0).abs() < 1e-6, "C4 plays as recorded");
+        rig.send(Event::Preview { track: i, lane: 7 });
         rig.run(UPDATE_INTERVAL as usize);
         let fifth = 2f64.powf(7.0 / 12.0);
-        assert!(
-            (rig.engine.voices[i].rate - fifth).abs() < 1e-4,
-            "G4 a fifth up"
-        );
+        let rate = rig.engine.voices[i][7].rate;
+        assert!((rate - fifth).abs() < 1e-4, "G4 a fifth up");
     }
 
     #[test]
@@ -892,9 +946,10 @@ mod tests {
     #[test]
     fn tied_steps_hold_the_note() {
         let mut project = quiet_demo();
-        project.tracks[LEAD].patterns[0][0] = Some(Step::note(0));
-        project.tracks[LEAD].patterns[0][1] = Some(Step::tie());
-        project.tracks[LEAD].patterns[0][2] = Some(Step::tie());
+        let lane = &mut project.tracks[LEAD].patterns[0][0];
+        lane[0] = hit();
+        lane[1] = Some(Step::TIE);
+        lane[2] = Some(Step::TIE);
         let mut rig = Rig::new(project);
         rig.shared.playing.store(true, Relaxed);
         rig.run(STEP * 2); // two steps: still held
@@ -913,26 +968,39 @@ mod tests {
     fn live_notes_last_until_released() {
         let mut rig = Rig::new(quiet_demo());
         rig.shared.playing.store(true, Relaxed);
-        rig.events
-            .send(Event::Hold {
-                track: LEAD,
-                semitone: 4,
-            })
-            .unwrap();
+        rig.send(Event::Hold {
+            track: LEAD,
+            note: 52,
+            velocity: 90,
+        });
+        rig.send(Event::Hold {
+            track: LEAD,
+            note: 55,
+            velocity: 90,
+        });
         rig.run(48_000); // a second, through many sequencer steps
         let msgs = rig.midi();
-        assert!(msgs.contains(&Msg::three(0x90, 52, 100)), "E3 on");
+        assert!(msgs.contains(&Msg::three(0x90, 52, 90)), "E3 on");
+        assert!(
+            msgs.contains(&Msg::three(0x90, 55, 90)),
+            "G3 on too: a chord"
+        );
         assert!(!msgs.contains(&Msg::three(0x80, 52, 0)), "still held");
-        rig.events.send(Event::Release { track: LEAD }).unwrap();
+        rig.send(Event::Release {
+            track: LEAD,
+            note: 52,
+        });
         rig.run(UPDATE_INTERVAL as usize);
-        assert!(rig.midi().contains(&Msg::three(0x80, 52, 0)), "released");
+        let msgs = rig.midi();
+        assert!(msgs.contains(&Msg::three(0x80, 52, 0)), "E3 released");
+        assert!(!msgs.contains(&Msg::three(0x80, 55, 0)), "G3 still held");
     }
 
     #[test]
     fn swing_delays_every_other_step() {
         let mut project = quiet_demo();
         project.swing = 0.5;
-        project.tracks[HAT].patterns[0] = [hit(); STEPS];
+        project.tracks[HAT].patterns[0][0] = [hit(); STEPS];
         let mut rig = Rig::new(project);
         let times = rig.note_times(STEP * 4, drums::NOTES[2]);
         // Even steps on the grid; odd ones a quarter step (swing/2) late.
@@ -942,13 +1010,14 @@ mod tests {
     #[test]
     fn nudge_moves_a_hit_early_or_late() {
         let mut project = quiet_demo();
-        project.tracks[KICK].patterns[0][2] = Some(Step {
+        let lane = &mut project.tracks[KICK].patterns[0][0];
+        lane[2] = Some(Step {
             nudge: -50,
-            ..Step::note(0)
+            ..Step::HIT
         });
-        project.tracks[KICK].patterns[0][4] = Some(Step {
+        lane[4] = Some(Step {
             nudge: 25,
-            ..Step::note(0)
+            ..Step::HIT
         });
         let mut rig = Rig::new(project);
         let times = rig.note_times(STEP * 6, drums::NOTES[0]);
@@ -958,9 +1027,9 @@ mod tests {
     #[test]
     fn ratchets_repeat_within_a_step() {
         let mut project = quiet_demo();
-        project.tracks[HAT].patterns[0][0] = Some(Step {
+        project.tracks[HAT].patterns[0][0][0] = Some(Step {
             ratchet: 4,
-            ..Step::note(0)
+            ..Step::HIT
         });
         let mut rig = Rig::new(project);
         let times = rig.note_times(STEP, drums::NOTES[2]);
@@ -970,9 +1039,9 @@ mod tests {
     #[test]
     fn velocity_sets_loudness_and_midi_velocity() {
         let mut project = quiet_demo();
-        project.tracks[KICK].patterns[0][0] = Some(Step {
+        project.tracks[KICK].patterns[0][0][0] = Some(Step {
             velocity: GHOST,
-            ..Step::note(0)
+            ..Step::HIT
         });
         let mut rig = Rig::new(project);
         rig.shared.playing.store(true, Relaxed);
@@ -982,7 +1051,7 @@ mod tests {
             .contains(&Msg::three(0x99, drums::NOTES[0], GHOST)));
 
         let mut project = quiet_demo();
-        project.tracks[KICK].patterns[0][0] = hit();
+        project.tracks[KICK].patterns[0][0][0] = hit();
         let mut rig = Rig::new(project);
         rig.shared.playing.store(true, Relaxed);
         let normal: f32 = rig.run(STEP).iter().map(|s| s.abs()).sum();
@@ -996,9 +1065,9 @@ mod tests {
     #[test]
     fn chance_skips_some_hits() {
         let mut project = quiet_demo();
-        project.tracks[HAT].patterns[0] = [Some(Step {
+        project.tracks[HAT].patterns[0][0] = [Some(Step {
             chance: 50,
-            ..Step::note(0)
+            ..Step::HIT
         }); STEPS];
         let mut rig = Rig::new(project);
         let bars = 8;
@@ -1013,7 +1082,7 @@ mod tests {
     #[test]
     fn humanize_varies_timing_slightly() {
         let mut project = quiet_demo();
-        project.tracks[HAT].patterns[0] = [hit(); STEPS];
+        project.tracks[HAT].patterns[0][0] = [hit(); STEPS];
         project.tracks[HAT].humanize = 1.0;
         let mut rig = Rig::new(project);
         let times = rig.note_times(STEP * STEPS, drums::NOTES[2]);

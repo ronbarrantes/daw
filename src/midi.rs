@@ -1,11 +1,13 @@
 //! MIDI in and out.
 //!
 //! The audio thread queues outgoing messages on a channel; a small sender
-//! thread writes them to whichever output port is selected. Incoming
-//! messages update `Shared` from midir's own callback thread.
+//! thread writes them to whichever output port is selected. Several inputs
+//! can be connected at once, each routed to the selected track or to a
+//! fixed track or group. Incoming notes go to the engine as events, and to
+//! the UI so Rec can write them into the pattern.
 
 use std::sync::atomic::Ordering::Relaxed;
-use std::sync::mpsc::{Receiver, SyncSender};
+use std::sync::mpsc::{Receiver, Sender, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -13,6 +15,7 @@ use midir::{Ignore, MidiInput, MidiInputConnection, MidiOutput, MidiOutputConnec
 
 use crate::audio::{Event, Shared};
 use crate::drums;
+use crate::project::Project;
 
 pub const CLOCK: u8 = 0xF8;
 pub const START: u8 = 0xFA;
@@ -46,22 +49,71 @@ impl Msg {
     }
 }
 
+/// Where an input's notes go.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Route {
+    /// Whichever track is selected in the UI; follows your clicks.
+    Selected,
+    /// Always this track, by index.
+    Track(usize),
+    /// Always this group: each note plays the track in it that sends the
+    /// same note (kick pad → Kick), or else its first melodic track.
+    Group(u32),
+}
+
+/// A note played on a controller, for Rec to write into the pattern.
+pub struct Played {
+    pub track: usize,
+    pub note: u8,
+    pub velocity: u8,
+}
+
+/// The track a note should play, or `None` if the route has nowhere to go.
+pub fn target(project: &Project, selected: usize, route: Route, note: u8) -> Option<usize> {
+    let track = match route {
+        Route::Selected => selected,
+        Route::Track(i) => i,
+        Route::Group(id) => {
+            let drum = drums::canonical_note(note);
+            let in_group = |t: &&crate::project::Track| t.group == Some(id);
+            let tracks = &project.tracks;
+            tracks
+                .iter()
+                .position(|t| in_group(&t) && !t.is_melodic() && t.midi_note == drum)
+                .or_else(|| tracks.iter().position(|t| in_group(&t) && t.is_melodic()))?
+        }
+    };
+    (track < project.tracks.len()).then_some(track)
+}
+
 type OutSlot = Arc<Mutex<Option<MidiOutputConnection>>>;
+
+struct Input {
+    name: String,
+    route: Arc<Mutex<Route>>,
+    /// Kept alive to stay connected; dropping it disconnects.
+    _conn: MidiInputConnection<()>,
+}
 
 pub struct Midi {
     shared: Arc<Shared>,
     events: SyncSender<Event>,
+    played: Sender<Played>,
     out: OutSlot,
-    input: Option<MidiInputConnection<()>>,
+    inputs: Vec<Input>,
     pub out_ports: Vec<String>,
     pub in_ports: Vec<String>,
     pub out_name: Option<String>,
-    pub in_name: Option<String>,
     pub error: Option<String>,
 }
 
 impl Midi {
-    pub fn new(shared: Arc<Shared>, events: SyncSender<Event>, queue: Receiver<Msg>) -> Self {
+    pub fn new(
+        shared: Arc<Shared>,
+        events: SyncSender<Event>,
+        played: Sender<Played>,
+        queue: Receiver<Msg>,
+    ) -> Self {
         let out: OutSlot = Arc::default();
         let slot = out.clone();
         thread::spawn(move || {
@@ -74,12 +126,12 @@ impl Midi {
         let mut midi = Self {
             shared,
             events,
+            played,
             out,
-            input: None,
+            inputs: Vec::new(),
             out_ports: Vec::new(),
             in_ports: Vec::new(),
             out_name: None,
-            in_name: None,
             error: None,
         };
         midi.refresh();
@@ -123,19 +175,62 @@ impl Midi {
         }
     }
 
-    pub fn select_in(&mut self, name: Option<String>) {
-        if let Some(conn) = self.input.take() {
-            conn.close();
+    pub fn connected_inputs(&self) -> usize {
+        self.inputs.len()
+    }
+
+    /// The input's route, or `None` if it isn't connected.
+    pub fn route(&self, name: &str) -> Option<Route> {
+        let input = self.inputs.iter().find(|i| i.name == name)?;
+        Some(*input.route.lock().unwrap())
+    }
+
+    /// Connects or disconnects an input.
+    pub fn set_connected(&mut self, name: &str, on: bool) {
+        self.inputs.retain(|i| i.name != name);
+        if !on {
+            return;
         }
-        self.in_name = None;
-        let Some(name) = name else { return };
-        match connect_in(&name, self.shared.clone(), self.events.clone()) {
+        let route = Arc::new(Mutex::new(Route::Selected));
+        let ctx = InputContext {
+            shared: self.shared.clone(),
+            events: self.events.clone(),
+            played: self.played.clone(),
+            route: route.clone(),
+            sounding: [None; 128],
+        };
+        match connect_in(name, ctx) {
             Ok(conn) => {
-                self.input = Some(conn);
-                self.in_name = Some(name);
+                self.inputs.push(Input {
+                    name: name.to_string(),
+                    route,
+                    _conn: conn,
+                });
                 self.error = None;
             }
             Err(e) => self.error = Some(format!("MIDI in: {e}")),
+        }
+    }
+
+    /// Changes where an input's notes go; takes effect on the next note.
+    pub fn set_route(&mut self, name: &str, route: Route) {
+        if let Some(input) = self.inputs.iter().find(|i| i.name == name) {
+            *input.route.lock().unwrap() = route;
+        }
+    }
+
+    /// Keeps fixed-track routes pointing at the same tracks after one is
+    /// deleted; routes to the deleted track fall back to the selected track.
+    pub fn track_deleted(&mut self, deleted: usize) {
+        for input in &self.inputs {
+            let mut route = input.route.lock().unwrap();
+            if let Route::Track(i) = *route {
+                *route = match i.cmp(&deleted) {
+                    std::cmp::Ordering::Less => Route::Track(i),
+                    std::cmp::Ordering::Equal => Route::Selected,
+                    std::cmp::Ordering::Greater => Route::Track(i - 1),
+                };
+            }
         }
     }
 }
@@ -150,11 +245,18 @@ fn connect_out(name: &str) -> Result<MidiOutputConnection, String> {
     out.connect(&port, "daw-out").map_err(|e| e.to_string())
 }
 
-fn connect_in(
-    name: &str,
+/// Everything one input's callback needs.
+struct InputContext {
     shared: Arc<Shared>,
     events: SyncSender<Event>,
-) -> Result<MidiInputConnection<()>, String> {
+    played: Sender<Played>,
+    route: Arc<Mutex<Route>>,
+    /// The track each held note went to, so its note-off goes there too
+    /// even if the route or selection changed meanwhile.
+    sounding: [Option<usize>; 128],
+}
+
+fn connect_in(name: &str, mut ctx: InputContext) -> Result<MidiInputConnection<()>, String> {
     let mut input = MidiInput::new("daw").map_err(|e| e.to_string())?;
     // Keep clock messages; drop SysEx and active sensing.
     input.ignore(Ignore::SysexAndActiveSense);
@@ -164,40 +266,72 @@ fn connect_in(
         .find(|p| input.port_name(p).as_deref() == Ok(name))
         .ok_or("device not found")?;
     input
-        .connect(
-            &port,
-            "daw-in",
-            move |_, msg, _| handle_input(&shared, &events, msg),
-            (),
-        )
+        .connect(&port, "daw-in", move |_, msg, _| ctx.handle(msg), ())
         .map_err(|e| e.to_string())
 }
 
-fn handle_input(shared: &Shared, events: &SyncSender<Event>, msg: &[u8]) {
-    let external = shared.external_sync.load(Relaxed);
-    match *msg {
-        [CLOCK] if external => {
-            shared.ext_ticks.fetch_add(1, Relaxed);
-        }
-        [START] if external => {
-            shared.ext_start.store(true, Relaxed);
-            shared.playing.store(true, Relaxed);
-        }
-        [CONTINUE] if external => shared.playing.store(true, Relaxed),
-        [STOP] if external => shared.playing.store(false, Relaxed),
-        // Note-on from any channel plays the one-shot track (e.g. a drum)
-        // that sends the same note.
-        [status, note, velocity] if status & 0xF0 == 0x90 && velocity > 0 => {
-            let note = drums::canonical_note(note);
-            let project = shared.project();
-            let hit = project
-                .tracks
-                .iter()
-                .position(|t| !t.is_melodic() && t.midi_note == note);
-            if let Some(track) = hit {
-                let _ = events.try_send(Event::Note { track, semitone: 0 });
+impl InputContext {
+    fn handle(&mut self, msg: &[u8]) {
+        let shared = &self.shared;
+        let external = shared.external_sync.load(Relaxed);
+        match *msg {
+            [CLOCK] if external => {
+                shared.ext_ticks.fetch_add(1, Relaxed);
             }
+            [START] if external => {
+                shared.ext_start.store(true, Relaxed);
+                shared.playing.store(true, Relaxed);
+            }
+            [CONTINUE] if external => shared.playing.store(true, Relaxed),
+            [STOP] if external => shared.playing.store(false, Relaxed),
+            [status, note, velocity] if status & 0xF0 == 0x90 && velocity > 0 => {
+                let note = note & 0x7F;
+                let project = shared.project();
+                let selected = shared.selected_track.load(Relaxed);
+                let route = *self.route.lock().unwrap();
+                if let Some(track) = target(&project, selected, route, note) {
+                    self.sounding[note as usize] = Some(track);
+                    let _ = self.events.try_send(Event::Hold {
+                        track,
+                        note,
+                        velocity,
+                    });
+                    let _ = self.played.send(Played {
+                        track,
+                        note,
+                        velocity,
+                    });
+                }
+            }
+            // Note-off, or note-on with velocity 0 (which means the same).
+            [status, note, _] if status & 0xF0 == 0x80 || status & 0xF0 == 0x90 => {
+                let note = note & 0x7F;
+                if let Some(track) = self.sounding[note as usize].take() {
+                    let _ = self.events.try_send(Event::Release { track, note });
+                }
+            }
+            _ => {}
         }
-        _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SNARE: usize = 1;
+    const LEAD: usize = 4;
+
+    #[test]
+    fn routes_pick_the_right_track() {
+        let p = Project::demo();
+        let drums = p.groups[0].id;
+        assert_eq!(target(&p, LEAD, Route::Selected, 60), Some(LEAD));
+        assert_eq!(target(&p, LEAD, Route::Track(SNARE), 60), Some(SNARE));
+        // A drum kit's snare (38, or the 40 variant) finds the Snare track.
+        assert_eq!(target(&p, LEAD, Route::Group(drums), 40), Some(SNARE));
+        // A note no drum sends has nowhere to go in an all-drum group.
+        assert_eq!(target(&p, LEAD, Route::Group(drums), 60), None);
+        assert_eq!(target(&p, 99, Route::Selected, 60), None);
     }
 }

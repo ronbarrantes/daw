@@ -35,7 +35,7 @@ const SECTIONS: &[(&str, &str)] = &[
         "Hiding a part never deletes it or stops it playing.\n\n\
          • View menu, or F5 song and patterns, F6 tracks, F7 piano roll, \
          F8 instrument panel.\n\
-         • View → Focus: Tracks only, or Piano roll and sound.\n\
+         • View > Focus: Tracks only, or Piano roll and sound.\n\
          • F9 shows everything again.",
     ),
     (
@@ -55,17 +55,20 @@ const SECTIONS: &[(&str, &str)] = &[
     ),
     (
         "Piano roll",
-        "• Click a cell to add a note; click it again to remove it.\n\
+        "• Click a cell to add a note; click it again to remove it. Several \
+         notes in one column make a chord.\n\
          • Right-click the cell after a note to hold it longer (darker blue).\n\
          • Right-click a note itself for its velocity, chance, ratchet and \
          nudge; shift-click for a ghost note.\n\
-         • Octave moves the whole roll up or down.",
+         • Octave moves the whole roll up or down.\n\
+         • Other tracks' notes show faintly behind, so you can line parts up \
+         (turn off in the View menu).",
     ),
     (
         "Play from your keyboard",
         "Your laptop keys play the selected track like a piano:\n\n\
-          W E   T Y U   O P    ← black keys\n\
-         A S D F G H J K L     ← white keys (A = C)\n\n\
+          W E   T Y U   O P    <- black keys\n\
+         A S D F G H J K L     <- white keys (A = C)\n\n\
          Z and X change octave. Turn on ⏺ Rec and press Play to write what \
          you play into the pattern.",
     ),
@@ -82,12 +85,12 @@ const SECTIONS: &[(&str, &str)] = &[
         "Synth",
         "Drag a knob up or down; double-click to reset it; hover to see what \
          it does.\n\n\
-         • Sound: Wave (saw → square), Detune (thicker), Volume, Humanize.\n\
+         • Sound: Wave (saw to square), Detune (thicker), Volume, Humanize.\n\
          • Filter: Cutoff and Reso set the tone; Env amt and F decay make \
          each note pluck.\n\
          • Envelope (ADSR): Attack fades in, Decay falls to the Sustain level \
          while a note is held, Release fades out after.\n\n\
-         Try: Cutoff down, Reso up, Env amt up, short F decay → acid bass.",
+         Try: Cutoff down, Reso up, Env amt up, short F decay = acid bass.",
     ),
     (
         "Sample tracks",
@@ -98,10 +101,15 @@ const SECTIONS: &[(&str, &str)] = &[
     (
         "MIDI gear",
         "Plug gear in over USB, then press ⟳ to rescan.\n\n\
+         • MIDI in: click it to connect controllers. Each one plays either \
+         the selected track (follows your clicks) or a fixed track or group. \
+         A drum kit routed to the Drums group plays the matching drum for \
+         each pad. Change it any time.\n\
+         • With ⏺ Rec on and playing, what you play on a controller is \
+         written into the pattern, chords included.\n\
          • MIDI out sends clock and Start/Stop, so gear follows the tempo.\n\
          • Each track's MIDI ch (right panel) sends its notes, with velocity, \
          on that channel. The built-in drums use channel 10.\n\
-         • MIDI in: a note plays the one-shot track that sends the same note.\n\
          • Follow MIDI clock lets another device set the tempo and \
          start/stop.",
     ),
