@@ -9,7 +9,9 @@ an Apple Silicon Mac.
 Follow [docs/WORKFLOW.md](docs/WORKFLOW.md). In short: turn each request
 into one or more PRs, bump the version in each, and merge to `main` yourself
 once CI is green; the Build workflow then tags and publishes the release.
-Only ask Ron first for big breaking changes.
+Only ask Ron first for big breaking changes, and for anything about naming
+or branding (the app's name, file extension, icon): talk it through and wait
+for a clear "do it".
 
 Ron reads in short bursts: keep replies short and plain.
 
