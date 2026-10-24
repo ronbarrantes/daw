@@ -12,7 +12,7 @@
 //! aren't limited to the clock's resolution.
 
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, AtomicUsize, Ordering::Relaxed};
-use std::sync::mpsc::{Receiver, SyncSender};
+use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::{Arc, Mutex};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -672,6 +672,52 @@ pub fn start(
     }?;
     stream.play().map_err(|e| e.to_string())?;
     Ok(stream)
+}
+
+/// What an offline render made: the audio, and the MIDI the engine sent,
+/// each message with the sample it went out on.
+pub struct Rendered {
+    pub audio: Vec<f32>,
+    pub midi: Vec<(usize, Msg)>,
+}
+
+/// Plays a project offline, faster than real time, for exporting. Plays the
+/// song row once if it has bars, otherwise `pattern` `loops` times, then
+/// lets notes ring out for `tail` seconds. Uses the same engine as live
+/// playback, so swing, ratchets, ties and the rest sound the same.
+pub fn render(
+    project: Project,
+    bpm: f32,
+    pattern: usize,
+    loops: usize,
+    sr: f32,
+    tail: f32,
+) -> Rendered {
+    let song_bars = project.song_len();
+    let bars = if song_bars > 0 { song_bars } else { loops };
+    let shared = Arc::new(Shared::new(Arc::new(project)));
+    shared.set_bpm(bpm);
+    shared.song_mode.store(song_bars > 0, Relaxed);
+    shared.edit_pattern.store(pattern as u8, Relaxed);
+    let (_events, events_rx) = sync_channel(1);
+    let (midi_tx, midi_rx) = sync_channel(1024);
+    let mut engine = Engine::new(shared.clone(), events_rx, midi_tx, sr);
+    shared.playing.store(true, Relaxed);
+
+    let bar = sr * 60.0 / bpm * 4.0;
+    // Stop just before the next bar would start.
+    let play = (bars as f32 * bar) as usize - 1;
+    let total = play + (tail * sr) as usize;
+    let mut audio = Vec::with_capacity(total);
+    let mut midi = Vec::new();
+    for t in 0..total {
+        if t == play {
+            shared.playing.store(false, Relaxed);
+        }
+        audio.push(engine.next_sample());
+        midi.extend(midi_rx.try_iter().map(|m| (t, m)));
+    }
+    Rendered { audio, midi }
 }
 
 fn build<T: SizedSample + FromSample<f32>>(

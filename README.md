@@ -90,6 +90,15 @@ Press **F1** (or **Help → How to use**) for the built-in guide.
 A `.daw` file is a zip (like `.docx`) holding `song.json`, which is readable
 and editable by hand, plus `samples/*.wav` for any loaded samples.
 
+### Exporting
+
+- **File → Export WAV…** saves the sound, ready to share or post.
+- **File → Export MIDI…** saves the notes as a standard MIDI file for other
+  DAWs or hardware synths. Each MIDI channel becomes its own track; drums
+  go on channel 10, and synths without a channel get a free one.
+- Both export the **Song** row, or the current pattern four times if the row
+  is empty. Muted tracks are left out.
+
 ### Tracks
 
 Each row is a track: its name, **M** (mute), **S** (solo) and 16 steps.
@@ -216,7 +225,7 @@ Plug gear in over USB (or a USB-MIDI cable), then press **⟳** to rescan.
 7. ~~Track groups, View menu and focus mode~~
 8. ~~Chords, other tracks' notes in the piano roll, routed MIDI inputs with recording~~
 9. ~~Save and load songs~~
-10. Export to WAV and MIDI
+10. ~~Export to WAV and MIDI~~
 11. Sample editor: chop, trim, ADSR, fades, reverse
 12. Mixer and effects
 13. Recording

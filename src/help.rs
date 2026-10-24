@@ -18,7 +18,10 @@ const SECTIONS: &[(&str, &str)] = &[
          computer.\n\
          • The song you had open reopens next time you start the app.\n\
          • A dot in the window title means unsaved changes. daw asks before \
-         anything would lose them.",
+         anything would lose them.\n\
+         • File > Export WAV… saves the sound to share or post. Export MIDI… \
+         saves the notes for other DAWs or hardware synths. Both export the \
+         Song row, or the current pattern four times if the row is empty.",
     ),
     (
         "Tracks",
