@@ -1,7 +1,9 @@
 //! Saving and opening songs.
 //!
-//! A song file (`.daw`) is a zip archive, like `.docx` or Bitwig's
-//! `.dawproject`:
+//! A song file (`.jay`, after the blue jay) is a zip archive, like `.docx`
+//! or Bitwig's `.dawproject`. Songs saved before v0.5.1 used `.daw`; they're
+//! the same inside and still open.
+//!
 //!
 //! - `song.json`: everything about the song, readable by people and tools.
 //! - `samples/N.wav`: each loaded sample, so the song works on any computer.
@@ -30,7 +32,9 @@ use crate::project::{
 use crate::synth;
 
 /// File extension for song files.
-pub const EXTENSION: &str = "daw";
+pub const EXTENSION: &str = "jay";
+/// Every extension songs have used, newest first, for opening files.
+pub const OPEN_EXTENSIONS: [&str; 2] = [EXTENSION, "daw"];
 /// The newest file layout this version can read.
 const FORMAT: u32 = 1;
 const SONG_JSON: &str = "song.json";
@@ -183,7 +187,7 @@ fn is_zero_i8(v: &i8) -> bool {
 /// Writes a song. Saves to a temporary file first and renames it into place,
 /// so a crash mid-save can't leave a half-written song behind.
 pub fn save(path: &Path, project: &Project, bpm: f32) -> Result<(), String> {
-    let tmp = path.with_extension("daw-saving");
+    let tmp = path.with_extension("saving");
     write_zip(&tmp, project, bpm).map_err(|e| {
         let _ = fs::remove_file(&tmp);
         format!("Couldn't save: {e}")
@@ -486,7 +490,7 @@ mod tests {
     use super::*;
 
     fn temp(name: &str) -> std::path::PathBuf {
-        std::env::temp_dir().join(format!("daw-file-test-{}-{name}.daw", std::process::id()))
+        std::env::temp_dir().join(format!("daw-file-test-{}-{name}.jay", std::process::id()))
     }
 
     #[test]
