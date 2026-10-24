@@ -1,5 +1,6 @@
 mod audio;
 mod drums;
+mod file;
 mod help;
 mod midi;
 mod project;
@@ -64,7 +65,12 @@ const HUMANIZE: Param = Param {
 };
 
 fn main() -> eframe::Result<()> {
-    let project = Project::demo();
+    // Reopen the song from last time, or start with the demo.
+    let last = file::last_song().and_then(|path| Some((file::open(&path).ok()?, path)));
+    let (project, path, bpm) = match last {
+        Some((song, path)) => (song.project, Some(path), song.bpm),
+        None => (Project::demo(), None, 120.0),
+    };
     let snapshot = Arc::new(project.clone());
     let shared = Arc::new(Shared::new(snapshot.clone()));
     let (events, events_rx) = sync_channel(256);
@@ -75,6 +81,7 @@ fn main() -> eframe::Result<()> {
     let stream = audio::start(shared.clone(), events_rx, midi_tx);
     let audio_error = stream.as_ref().err().cloned();
     let (load_tx, load_rx) = channel();
+    shared.set_bpm(bpm);
 
     // Sized to fit the 1366x768 screen of an 11" MacBook Air.
     let mut viewport = egui::ViewportBuilder::default()
@@ -89,6 +96,7 @@ fn main() -> eframe::Result<()> {
         viewport,
         ..Default::default()
     };
+    let selected = first_melodic(&project);
     let app = App {
         shared,
         project,
@@ -98,7 +106,7 @@ fn main() -> eframe::Result<()> {
         midi,
         audio_error,
         clipboard: None,
-        selected: 4,
+        selected,
         load_tx,
         load_rx,
         loading: 0,
@@ -113,6 +121,11 @@ fn main() -> eframe::Result<()> {
         view: View::ALL,
         played,
         show_midi_inputs: false,
+        file: path,
+        modified: false,
+        saved_bpm: bpm,
+        may_close: false,
+        title: String::new(),
     };
     eframe::run_native("daw", options, Box::new(|_cc| Ok(Box::new(app))))
 }
@@ -146,11 +159,23 @@ enum TrackAction {
     Delete,
 }
 
-/// A "replace the song?" question waiting for an answer.
-#[derive(Clone, Copy)]
-enum StartOver {
-    Empty,
+/// What to do once any unsaved changes are saved or discarded.
+#[derive(Clone)]
+enum Then {
+    NewSong,
     Demo,
+    Open(PathBuf),
+    Quit,
+}
+
+/// The track to select in a newly opened song: the first melodic one, so
+/// the piano roll shows something.
+fn first_melodic(project: &Project) -> usize {
+    project
+        .tracks
+        .iter()
+        .position(Track::is_melodic)
+        .unwrap_or(0)
 }
 
 struct App {
@@ -178,7 +203,8 @@ struct App {
     held_key: Option<(egui::Key, usize, u8)>,
     show_help: bool,
     show_about: bool,
-    confirm: Option<StartOver>,
+    /// Waiting for "save changes first?" to be answered.
+    confirm: Option<Then>,
     /// Extra tracks picked with Ctrl/Cmd-click, for grouping.
     picked: Vec<usize>,
     /// A group shown in the side panel instead of a track.
@@ -187,6 +213,16 @@ struct App {
     /// Notes played on MIDI controllers, for Rec.
     played: Receiver<Played>,
     show_midi_inputs: bool,
+    /// The song file being edited, once saved or opened.
+    file: Option<PathBuf>,
+    /// Changed since the last save or open.
+    modified: bool,
+    /// Tempo lives in the engine, so it's compared to what was saved.
+    saved_bpm: f32,
+    /// Closing has been confirmed; don't ask again.
+    may_close: bool,
+    /// The window title last set.
+    title: String,
 }
 
 /// Computer keys laid out like a piano, as in FL Studio: the home row is
@@ -295,6 +331,11 @@ fn step_marks(s: &Step) -> String {
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let playing = self.shared.playing.load(Relaxed);
+        if ctx.input(|i| i.viewport().close_requested()) && !self.may_close && self.unsaved() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.confirm = Some(Then::Quit);
+        }
+        self.file_shortcuts(ctx);
         if !ctx.wants_keyboard_input() {
             if ctx.input(|i| i.key_pressed(egui::Key::Space)) {
                 self.shared.playing.store(!playing, Relaxed);
@@ -415,6 +456,7 @@ impl eframe::App for App {
         if self.dirty {
             self.publish();
         }
+        self.update_title(ctx);
         // Only redraw continuously while playing, to keep CPU low when idle.
         if playing {
             ctx.request_repaint_after(Duration::from_millis(30));
@@ -431,6 +473,135 @@ impl App {
             self.history.pop_front();
         }
         self.dirty = false;
+        self.modified = true;
+    }
+
+    fn unsaved(&self) -> bool {
+        self.modified || self.shared.bpm() != self.saved_bpm
+    }
+
+    fn song_name(&self) -> String {
+        self.file
+            .as_ref()
+            .and_then(|p| p.file_stem())
+            .map_or_else(|| "Untitled".into(), |n| n.to_string_lossy().into_owned())
+    }
+
+    /// Shows the song's name, with a dot while there are unsaved changes.
+    fn update_title(&mut self, ctx: &egui::Context) {
+        let dot = if self.unsaved() { "• " } else { "" };
+        let title = format!("{dot}{} - daw", self.song_name());
+        if title != self.title {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
+            self.title = title;
+        }
+    }
+
+    /// Ctrl+N, Ctrl+O, Ctrl+S and Ctrl+Shift+S (Cmd on Mac).
+    fn file_shortcuts(&mut self, ctx: &egui::Context) {
+        use egui::{Key, KeyboardShortcut, Modifiers};
+        let pressed = |modifiers, key| {
+            ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(modifiers, key)))
+        };
+        // Check Shift+S first: plain Ctrl+S would also match it.
+        if pressed(Modifiers::COMMAND | Modifiers::SHIFT, Key::S) {
+            self.save_as();
+        } else if pressed(Modifiers::COMMAND, Key::S) {
+            self.save();
+        } else if pressed(Modifiers::COMMAND, Key::O) {
+            self.open_dialog(ctx);
+        } else if pressed(Modifiers::COMMAND, Key::N) {
+            self.request(ctx, Then::NewSong);
+        }
+    }
+
+    /// Does `then`, first asking to save if there are unsaved changes.
+    fn request(&mut self, ctx: &egui::Context, then: Then) {
+        if self.unsaved() {
+            self.confirm = Some(then);
+        } else {
+            self.carry_out(ctx, then);
+        }
+    }
+
+    fn carry_out(&mut self, ctx: &egui::Context, then: Then) {
+        match then {
+            Then::NewSong => self.replace_song(Project::empty(), None, 120.0),
+            Then::Demo => self.replace_song(Project::demo(), None, 120.0),
+            Then::Open(path) => match file::open(&path) {
+                Ok(song) => {
+                    file::remember(&path);
+                    self.replace_song(song.project, Some(path), song.bpm);
+                }
+                Err(e) => self.load_error = Some(e),
+            },
+            Then::Quit => {
+                self.may_close = true;
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+        }
+    }
+
+    fn replace_song(&mut self, project: Project, file: Option<PathBuf>, bpm: f32) {
+        self.shared.playing.store(false, Relaxed);
+        self.selected = first_melodic(&project);
+        self.project = project;
+        self.selected_group = None;
+        self.picked.clear();
+        self.shared.edit_pattern.store(0, Relaxed);
+        self.shared.set_bpm(bpm);
+        self.publish();
+        self.file = file;
+        self.modified = false;
+        self.saved_bpm = bpm;
+        self.load_error = None;
+    }
+
+    fn open_dialog(&mut self, ctx: &egui::Context) {
+        let picked = rfd::FileDialog::new()
+            .add_filter("daw song", &[file::EXTENSION])
+            .pick_file();
+        if let Some(path) = picked {
+            self.request(ctx, Then::Open(path));
+        }
+    }
+
+    /// Saves to the current file, or asks where. Returns false if cancelled
+    /// or it failed.
+    fn save(&mut self) -> bool {
+        match self.file.clone() {
+            Some(path) => self.write_song(path),
+            None => self.save_as(),
+        }
+    }
+
+    fn save_as(&mut self) -> bool {
+        let picked = rfd::FileDialog::new()
+            .add_filter("daw song", &[file::EXTENSION])
+            .set_file_name(format!("{}.{}", self.song_name(), file::EXTENSION))
+            .save_file();
+        match picked {
+            Some(path) => self.write_song(path.with_extension(file::EXTENSION)),
+            None => false,
+        }
+    }
+
+    fn write_song(&mut self, path: PathBuf) -> bool {
+        let bpm = self.shared.bpm();
+        match file::save(&path, &self.project, bpm) {
+            Ok(()) => {
+                file::remember(&path);
+                self.file = Some(path);
+                self.modified = false;
+                self.saved_bpm = bpm;
+                self.load_error = None;
+                true
+            }
+            Err(e) => {
+                self.load_error = Some(e);
+                false
+            }
+        }
     }
 
     fn preview(&self, track: usize, lane: usize) {
@@ -588,15 +759,31 @@ impl App {
     fn menu_bar(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         egui::menu::bar(ui, |ui| {
             ui.menu_button("File", |ui| {
-                if ui.button("New empty song").clicked() {
-                    self.confirm = Some(StartOver::Empty);
-                    ui.close_menu();
+                let item = |ui: &mut egui::Ui, label: &str, keys: &str| {
+                    let clicked = ui
+                        .add(egui::Button::new(label).shortcut_text(keys))
+                        .clicked();
+                    if clicked {
+                        ui.close_menu();
+                    }
+                    clicked
+                };
+                if item(ui, "New song", "Ctrl+N") {
+                    self.request(ctx, Then::NewSong);
                 }
-                if ui.button("Load demo song").clicked() {
-                    self.confirm = Some(StartOver::Demo);
-                    ui.close_menu();
+                if item(ui, "Open…", "Ctrl+O") {
+                    self.open_dialog(ctx);
                 }
-                ui.add_enabled(false, egui::Button::new("Save (coming soon)"));
+                if item(ui, "Save", "Ctrl+S") {
+                    self.save();
+                }
+                if item(ui, "Save as…", "Ctrl+Shift+S") {
+                    self.save_as();
+                }
+                ui.separator();
+                if item(ui, "Load demo song", "") {
+                    self.request(ctx, Then::Demo);
+                }
                 ui.separator();
                 if ui.button("Quit").clicked() {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -757,33 +944,56 @@ impl App {
         self.show_midi_inputs = open;
     }
 
+    /// "Save changes first?", shown before anything that would lose them.
     fn confirm_dialog(&mut self, ctx: &egui::Context) {
-        let Some(kind) = self.confirm else { return };
-        egui::Window::new("Start over?")
+        let Some(then) = self.confirm.clone() else {
+            return;
+        };
+        #[derive(PartialEq)]
+        enum Choice {
+            Save,
+            Discard,
+            Cancel,
+        }
+        let mut choice = None;
+        egui::Window::new("Save changes?")
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
             .show(ctx, |ui| {
-                ui.label("This replaces the current song. Saving isn't built yet,");
-                ui.label("so the current song will be lost.");
+                ui.label(format!(
+                    "Save the changes to \"{}\" first?",
+                    self.song_name()
+                ));
+                ui.weak("If you don't, they'll be lost.");
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    if ui.button("Start over").clicked() {
-                        self.shared.playing.store(false, Relaxed);
-                        self.project = match kind {
-                            StartOver::Empty => Project::empty(),
-                            StartOver::Demo => Project::demo(),
-                        };
-                        self.selected = 0;
-                        self.shared.edit_pattern.store(0, Relaxed);
-                        self.dirty = true;
-                        self.confirm = None;
+                    if ui.button("Save").clicked() {
+                        choice = Some(Choice::Save);
+                    }
+                    if ui.button("Don't save").clicked() {
+                        choice = Some(Choice::Discard);
                     }
                     if ui.button("Cancel").clicked() {
-                        self.confirm = None;
+                        choice = Some(Choice::Cancel);
                     }
                 });
             });
+        match choice {
+            Some(Choice::Save) => {
+                // If saving is cancelled or fails, stay put and keep asking.
+                if self.save() {
+                    self.confirm = None;
+                    self.carry_out(ctx, then);
+                }
+            }
+            Some(Choice::Discard) => {
+                self.confirm = None;
+                self.carry_out(ctx, then);
+            }
+            Some(Choice::Cancel) => self.confirm = None,
+            None => {}
+        }
     }
 
     fn transport_row(&mut self, ui: &mut egui::Ui, playing: bool) {

@@ -86,7 +86,12 @@ pub fn load(path: &Path) -> Result<Sample, String> {
     if data.is_empty() {
         return Err(format!("{name}: no audio found"));
     }
-    Ok(Sample { name, data, rate })
+    Ok(Sample {
+        name,
+        data,
+        rate,
+        builtin: None,
+    })
 }
 
 #[cfg(test)]

@@ -11,6 +11,16 @@ const SECTIONS: &[(&str, &str)] = &[
          Synth tracks also get a piano roll below the rows.",
     ),
     (
+        "Saving songs",
+        "• File > Save (Ctrl+S) saves your song as a .daw file. Save as… \
+         (Ctrl+Shift+S) picks a new name; Open… (Ctrl+O) opens one.\n\
+         • Samples you loaded are saved inside the file, so it works on any \
+         computer.\n\
+         • The song you had open reopens next time you start the app.\n\
+         • A dot in the window title means unsaved changes. daw asks before \
+         anything would lose them.",
+    ),
+    (
         "Tracks",
         "• + Synth adds a synth. + Sample… loads WAV, MP3, FLAC or OGG files, \
          or drop audio files onto the window.\n\
@@ -116,6 +126,8 @@ const SECTIONS: &[(&str, &str)] = &[
     (
         "Shortcuts",
         "Space — play / stop\n\
+         Ctrl+S / Ctrl+Shift+S — save / save as (Cmd on Mac)\n\
+         Ctrl+O / Ctrl+N — open / new song\n\
          Ctrl+G — group the picked tracks\n\
          F5 / F6 / F7 / F8 — show or hide song, tracks, piano roll, panel\n\
          F9 — show everything\n\
