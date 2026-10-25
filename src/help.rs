@@ -83,7 +83,9 @@ const SECTIONS: &[(&str, &str)] = &[
          nudge; shift-click for a ghost note.\n\
          • Octave moves the whole roll up or down.\n\
          • Other tracks' notes show faintly behind, so you can line parts up \
-         (turn off in the View menu).",
+         (turn off in the View menu).\n\
+         • Each track plays up to 16 notes at once; past that, the oldest \
+         note gives way.",
     ),
     (
         "Play from your keyboard",

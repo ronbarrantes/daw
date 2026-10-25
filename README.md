@@ -232,6 +232,9 @@ All of this goes out over MIDI too, with velocity.
 - **Right-click** a note for its groove settings; **shift-click** for a ghost note.
 - Other tracks' notes show faintly behind, to help line parts up (View menu
   to turn off).
+- Each track plays up to 16 notes at once, so long releases, chords and
+  notes played from a keyboard can overlap. Past that, the oldest note
+  gives way.
 
 ### Play from your computer keyboard
 
@@ -370,13 +373,13 @@ Done:
 - ~~Pan, reverb and delay, metronome, undo~~
 - ~~Web version, Windows build~~
 - ~~Timeline, pattern library, Jam and Arrange views with chains and blocks~~
+- ~~Real polyphony: 16 voices per track~~
 
 Next:
 
 1. **MIDI blocks:** a third kind of block, a free-length list of notes
    (any pitch, any length, exact timing and velocity) placed on the
-   timeline and played by any track. Comes with real polyphony (a pool of
-   voices per track instead of one per note name) and a full multi-octave
+   timeline and played by any track. Comes with a full multi-octave
    piano roll to draw, move and resize notes, with triplet grids.
 2. Import .mid files as MIDI blocks (say, sheet music turned into MIDI)
 3. Record a take from a MIDI keyboard or the computer keys into a MIDI block
