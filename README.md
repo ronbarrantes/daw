@@ -13,8 +13,8 @@ AIRA Compacts.
 Install steps for each are below. Or [build it yourself](#build-it-yourself).
 
 > **No install? Try the [web version](https://ronbarrantes.github.io/daw/).**
-> It's the full app in your browser, best in Chrome or Edge. Safari isn't
-> supported. [More about it below](#use-it-in-a-browser).
+> It's the full app in your browser: Chrome, Edge, Firefox or Safari (even on
+> iPhone). [More about it below](#use-it-in-a-browser).
 
 ## Install on Windows
 
@@ -107,8 +107,8 @@ The first build takes a few minutes. After that it's fast.
 
 **[ronbarrantes.github.io/daw](https://ronbarrantes.github.io/daw/)** runs
 the same app in your browser, nothing to install. It's updated with every
-merge to `main`. Use **Chrome or Edge** (Firefox should work too).
-**Safari isn't supported.**
+merge to `main`. It works in Chrome, Edge, Firefox and Safari, including
+Safari on iPhone.
 
 It works like the desktop app, with a few differences:
 
@@ -119,7 +119,11 @@ It works like the desktop app, with a few differences:
 - Your song is **kept in the browser** and is back when you return, even
   without saving. Songs with long samples may be too big for that (about
   5 MB); then use Save.
-- **MIDI gear** works in Chrome and Edge (they'll ask for permission).
+- **MIDI gear** works in Chrome and Edge (they'll ask for permission), not
+  in Safari.
+- **If the app doesn't respond to clicks**, a browser extension is probably
+  in the way. Try a private (Incognito) window, then turn extensions off one
+  at a time to find which.
 - Ctrl+N opens a new browser window instead; use **File → New song**.
 - On older or slower computers, the downloadable app runs much better.
 

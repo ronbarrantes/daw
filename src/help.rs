@@ -137,13 +137,14 @@ const SECTIONS: &[(&str, &str)] = &[
     ),
     (
         "In a browser",
-        "The web version works like the desktop app (in Chrome or Edge; \
-         Safari isn't supported), except:\n\n\
+        "The web version works like the desktop app, except:\n\n\
          • Sound starts on your first click or key press.\n\
          • Save downloads the .daw file; Open… uploads one. Exports download \
          too.\n\
          • Your song is kept in the browser, so it's back next visit.\n\
          • MIDI gear works in Chrome and Edge only.\n\
+         • If nothing responds to clicks, a browser extension may be in the \
+         way; try a private window.\n\
          • Ctrl+N opens a browser window; use File > New song.",
     ),
     (
