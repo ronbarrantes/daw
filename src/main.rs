@@ -56,6 +56,15 @@ const GROUP_VOLUME: Param = Param {
     unit: Unit::Percent,
 };
 
+const PAN: Param = Param {
+    name: "Pan",
+    min: -1.0,
+    max: 1.0,
+    default: 0.0,
+    log: false,
+    unit: Unit::Pan,
+};
+
 const HUMANIZE: Param = Param {
     name: "Humanize",
     min: 0.0,
@@ -1789,8 +1798,6 @@ impl App {
                     for i in [synth::WAVE, synth::DETUNE] {
                         changed |= knob(ui, &PARAMS[i], &mut values[i]);
                     }
-                    changed |= knob(ui, &TRACK_VOLUME, &mut track.volume);
-                    changed |= knob(ui, &HUMANIZE, &mut track.humanize);
                 });
                 let sections: [(&str, [usize; 4]); 2] = [
                     (
@@ -1827,13 +1834,15 @@ impl App {
                     .checkbox(pitched, "Pitched")
                     .on_hover_text(hint)
                     .changed();
-                ui.add_space(6.0);
-                ui.horizontal(|ui| {
-                    changed |= knob(ui, &TRACK_VOLUME, &mut track.volume);
-                    changed |= knob(ui, &HUMANIZE, &mut track.humanize);
-                });
             }
         }
+        ui.add_space(6.0);
+        ui.label(RichText::new("Mix").small().strong());
+        ui.horizontal(|ui| {
+            changed |= knob(ui, &TRACK_VOLUME, &mut track.volume);
+            changed |= knob(ui, &PAN, &mut track.pan);
+            changed |= knob(ui, &HUMANIZE, &mut track.humanize);
+        });
         if changed {
             self.dirty = true;
         }
