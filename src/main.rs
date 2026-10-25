@@ -30,8 +30,8 @@ use eframe::egui::{self, Color32, RichText, Sense, Vec2};
 use audio::{Event, Shared};
 use midi::{Midi, Played, Route};
 use project::{
-    Effects, Grid, Kind, Project, Row, Sample, Step, Track, ACCENT, EMPTY_GRID, GHOST, LANES,
-    MAX_RATCHET, MAX_TRACKS, NORMAL, STEPS,
+    note_head, set_note_length, Effects, Grid, Kind, Project, Row, Sample, Step, Track, ACCENT,
+    EMPTY_GRID, GHOST, LANES, MAX_RATCHET, MAX_TRACKS, NORMAL, STEPS,
 };
 use synth::{Param, Unit, PARAMS};
 use undo::Undo;
@@ -272,6 +272,8 @@ struct App {
     show_about: bool,
     show_fx: bool,
     timeline: timeline::State,
+    /// A piano-roll note being dragged longer or shorter: (lane, its first step).
+    note_drag: Option<(usize, usize)>,
     /// Waiting for "save changes first?" to be answered.
     confirm: Option<Then>,
     /// Extra tracks picked with Ctrl/Cmd-click, for grouping.
@@ -358,6 +360,7 @@ impl App {
             show_about: false,
             show_fx: false,
             timeline: timeline::State::default(),
+            note_drag: None,
             confirm: None,
             picked: Vec::new(),
             selected_group: None,
@@ -1929,11 +1932,14 @@ impl App {
             {
                 self.dirty = true;
             }
-            ui.weak("Click: add/remove · several per column = chord · right-click after a note: hold · right-click a note: groove");
+            ui.weak("Click: add/remove · drag a note sideways: longer/shorter · several per column = chord · right-click a note: groove");
         });
         ui.add_space(4.0);
         ui.spacing_mut().item_spacing.y = 2.0;
         let grid = &mut track.patterns[pattern];
+        // Where each step's column is, for working out where a note is
+        // being dragged to.
+        let mut columns = [0.0_f32; STEPS];
         // Highest note on top, like a piano.
         for lane in (0..LANES).rev() {
             let name = NOTE_NAMES[lane];
@@ -1966,9 +1972,20 @@ impl App {
                     let cell = egui::Button::new(RichText::new(text).small().color(Color32::BLACK))
                         .fill(fill)
                         .stroke(playhead(current == Some(step)))
-                        .min_size(Vec2::new(28.0, 17.0));
+                        .min_size(Vec2::new(28.0, 17.0))
+                        .sense(Sense::click_and_drag());
                     let resp = ui.add(cell);
+                    columns[step] = resp.rect.center().x;
                     let lane_steps = &mut grid[lane];
+                    if value.is_some() {
+                        if resp.hovered() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+                        }
+                        if resp.drag_started() {
+                            // Drag any part of a note to change its length.
+                            self.note_drag = note_head(lane_steps, step).map(|head| (lane, head));
+                        }
+                    }
                     if resp.clicked() {
                         if ui.input(|i| i.modifiers.shift) {
                             if !Step::is_hit(&value) {
@@ -2004,6 +2021,28 @@ impl App {
                     }
                 }
             });
+        }
+        if let Some((lane, head)) = self.note_drag {
+            let pointer =
+                ui.input(|i| i.pointer.primary_down().then_some(i.pointer.interact_pos()));
+            match pointer {
+                Some(Some(pos)) => {
+                    // The column nearest the pointer, but never before the note.
+                    let end = (0..STEPS)
+                        .min_by(|&a, &b| {
+                            (columns[a] - pos.x)
+                                .abs()
+                                .total_cmp(&(columns[b] - pos.x).abs())
+                        })
+                        .unwrap_or(head)
+                        .max(head);
+                    if set_note_length(&mut grid[lane], head, end) {
+                        self.dirty = true;
+                    }
+                }
+                Some(None) => {}
+                None => self.note_drag = None,
+            }
         }
     }
 

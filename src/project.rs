@@ -108,6 +108,38 @@ impl Step {
 
 /// One lane's steps in one pattern; `None` is a rest.
 pub type Lane = [Option<Step>; STEPS];
+/// Makes the note starting at `head` last until step `end` (or as close
+/// as it can get without running into the next note), by adding or
+/// removing the ties after it. Returns whether anything changed.
+pub fn set_note_length(lane: &mut Lane, head: usize, end: usize) -> bool {
+    let before = *lane;
+    let mut last = head;
+    for step in head + 1..=end.min(STEPS - 1) {
+        if Step::is_hit(&lane[step]) {
+            break;
+        }
+        last = step;
+    }
+    for step in head + 1..STEPS {
+        if step <= last {
+            lane[step] = Some(Step::TIE);
+        } else if lane[step].is_some_and(|s| s.tie) {
+            lane[step] = None;
+        } else {
+            break;
+        }
+    }
+    *lane != before
+}
+
+/// The step where the note covering `step` starts, if there is one.
+pub fn note_head(lane: &Lane, step: usize) -> Option<usize> {
+    (0..=step)
+        .rev()
+        .find(|&s| !lane[s].is_some_and(|x| x.tie))
+        .filter(|&s| Step::is_hit(&lane[s]))
+}
+
 /// One pattern of a track: a lane per piano-roll row. One-shot tracks only
 /// use lane 0.
 pub type Grid = [Lane; LANES];
@@ -711,6 +743,28 @@ mod tests {
         while p.new_pattern().is_some() {}
         assert_eq!(p.patterns.len(), MAX_PATTERNS);
         assert_eq!(p.patterns[30].name, "P31");
+    }
+
+    #[test]
+    fn notes_stretch_and_shrink_but_stop_at_the_next_note() {
+        let mut lane: Lane = [None; STEPS];
+        lane[2] = Some(Step::HIT);
+        lane[9] = Some(Step::HIT);
+        assert!(set_note_length(&mut lane, 2, 5));
+        let held: Vec<usize> = (0..STEPS).filter(|&s| lane[s] == Some(Step::TIE)).collect();
+        assert_eq!(held, [3, 4, 5]);
+        assert_eq!(note_head(&lane, 4), Some(2));
+        // Shorter again.
+        set_note_length(&mut lane, 2, 3);
+        assert_eq!(lane[4], None);
+        assert_eq!(lane[3], Some(Step::TIE));
+        // Too far: it stops just before the next note, which stays.
+        set_note_length(&mut lane, 2, 14);
+        assert_eq!(lane[8], Some(Step::TIE));
+        assert_eq!(lane[9], Some(Step::HIT));
+        assert_eq!(lane[10], None);
+        assert!(!set_note_length(&mut lane, 2, 8), "no change");
+        assert_eq!(note_head(&lane, 0), None);
     }
 
     #[test]
