@@ -23,7 +23,9 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, AtomicUsize, Ordering::
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::{Arc, Mutex};
 
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+#[cfg(not(target_arch = "wasm32"))]
+use cpal::traits::StreamTrait;
+use cpal::traits::{DeviceTrait, HostTrait};
 use cpal::{FromSample, SampleFormat, SizedSample};
 
 use crate::fx::{Delay, Reverb};
@@ -814,6 +816,9 @@ pub fn start(
         SampleFormat::U16 => build::<u16>(&device, &config, engine),
         other => Err(format!("unsupported sample format: {other}")),
     }?;
+    // Browsers only allow sound after a click or key press, so the web
+    // version calls `play` then (and calling it twice would double up).
+    #[cfg(not(target_arch = "wasm32"))]
     stream.play().map_err(|e| e.to_string())?;
     Ok(stream)
 }

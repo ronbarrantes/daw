@@ -4,6 +4,8 @@
 #     versioned release (e.g. v0.2.0) for the version in Cargo.toml if there
 #     isn't one yet, so bumping the version is all a release needs
 #   - a v* tag pushed by hand also gets its own release
+#   - each push to main also builds the web version and pushes it to the
+#     web-build branch, which GitHub Pages (or Vercel) serves as-is
 name: Build
 
 on:
@@ -39,6 +41,31 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
+
+  web:
+    name: Web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --target wasm32-unknown-unknown -- -D warnings
+      - name: Install wasm-bindgen
+        run: |
+          # Has to match the wasm-bindgen crate the app was built with.
+          version=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | grep -m1 version | cut -d'"' -f2)
+          cargo install wasm-bindgen-cli --version "$version" --locked
+      - run: ./web/build.sh
+      - run: touch web/dist/.nojekyll
+      - uses: actions/upload-artifact@v6
+        with:
+          name: daw-web
+          path: web/dist
+          include-hidden-files: true
+          if-no-files-found: error
 
   package:
     name: Package (${{ matrix.name }})
@@ -145,3 +172,28 @@ jobs:
           gh release create "$GITHUB_REF_NAME" dist/* \
             --title "$GITHUB_REF_NAME" \
             --generate-notes
+
+  publish-web:
+    name: Publish web version
+    needs: [check, web]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          name: daw-web
+          path: site
+      - name: Push to the web-build branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd site
+          git init -q -b web-build
+          git add -A
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -qm "Web build of ${GITHUB_SHA::7}"
+          # Only the latest build is kept, so the branch stays small.
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" web-build

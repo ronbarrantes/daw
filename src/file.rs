@@ -13,8 +13,8 @@
 //! make older versions of the app misread the file.
 
 use std::collections::{BTreeMap, HashMap};
-use std::fs::{self, File};
 use std::io::{Cursor, Read, Write};
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::Path;
 use std::sync::Arc;
 
@@ -215,16 +215,20 @@ fn is_zero_i8(v: &i8) -> bool {
 
 /// Writes a song. Saves to a temporary file first and renames it into place,
 /// so a crash mid-save can't leave a half-written song behind.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn save(path: &Path, project: &Project, bpm: f32) -> Result<(), String> {
+    let bytes = to_bytes(project, bpm).map_err(|e| format!("Couldn't save: {e}"))?;
     let tmp = path.with_extension("daw-saving");
-    write_zip(&tmp, project, bpm).map_err(|e| {
-        let _ = fs::remove_file(&tmp);
-        format!("Couldn't save: {e}")
-    })?;
-    fs::rename(&tmp, path).map_err(|e| format!("Couldn't save: {e}"))
+    std::fs::write(&tmp, bytes)
+        .and_then(|()| std::fs::rename(&tmp, path))
+        .map_err(|e| {
+            let _ = std::fs::remove_file(&tmp);
+            format!("Couldn't save: {e}")
+        })
 }
 
-fn write_zip(path: &Path, project: &Project, bpm: f32) -> Result<(), String> {
+/// A song file's contents.
+pub fn to_bytes(project: &Project, bpm: f32) -> Result<Vec<u8>, String> {
     let err = |e: &dyn std::fmt::Display| e.to_string();
     // Each loaded sample is stored once, even if several tracks use it.
     let mut stored: Vec<Arc<Sample>> = Vec::new();
@@ -310,7 +314,7 @@ fn write_zip(path: &Path, project: &Project, bpm: f32) -> Result<(), String> {
         tracks,
     };
 
-    let mut zip = ZipWriter::new(File::create(path).map_err(|e| err(&e))?);
+    let mut zip = ZipWriter::new(Cursor::new(Vec::new()));
     let deflate = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
     zip.start_file(SONG_JSON, deflate).map_err(|e| err(&e))?;
     let json = serde_json::to_vec_pretty(&song).map_err(|e| err(&e))?;
@@ -320,8 +324,7 @@ fn write_zip(path: &Path, project: &Project, bpm: f32) -> Result<(), String> {
             .map_err(|e| err(&e))?;
         zip.write_all(&wav_bytes(sample)?).map_err(|e| err(&e))?;
     }
-    zip.finish().map_err(|e| err(&e))?;
-    Ok(())
+    Ok(zip.finish().map_err(|e| err(&e))?.into_inner())
 }
 
 /// Every step of every pattern that isn't a rest.
@@ -367,19 +370,24 @@ fn wav_bytes(sample: &Sample) -> Result<Vec<u8>, String> {
 }
 
 /// Reads a song.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn open(path: &Path) -> Result<Song, String> {
-    read_zip(path).map_err(|e| format!("Couldn't open {}: {e}", file_name(path)))
+    let name = path
+        .file_name()
+        .map_or_else(|| "the song".into(), |n| n.to_string_lossy().into_owned());
+    let bytes = std::fs::read(path).map_err(|e| format!("Couldn't open {name}: {e}"))?;
+    from_bytes(&name, bytes)
 }
 
-fn file_name(path: &Path) -> String {
-    path.file_name()
-        .map_or_else(|| "the song".into(), |n| n.to_string_lossy().into_owned())
+/// Reads a song file's contents; `name` is only for error messages.
+pub fn from_bytes(name: &str, bytes: Vec<u8>) -> Result<Song, String> {
+    read_zip(bytes).map_err(|e| format!("Couldn't open {name}: {e}"))
 }
 
-fn read_zip(path: &Path) -> Result<Song, String> {
+fn read_zip(bytes: Vec<u8>) -> Result<Song, String> {
     let err = |e: &dyn std::fmt::Display| e.to_string();
-    let file = File::open(path).map_err(|e| err(&e))?;
-    let mut zip = ZipArchive::new(file).map_err(|_| "not a daw song file".to_string())?;
+    let mut zip =
+        ZipArchive::new(Cursor::new(bytes)).map_err(|_| "not a daw song file".to_string())?;
     let mut json = String::new();
     zip.by_name(SONG_JSON)
         .map_err(|_| "not a daw song file".to_string())?
@@ -490,7 +498,11 @@ fn read_zip(path: &Path) -> Result<Song, String> {
     })
 }
 
-fn read_wav(zip: &mut ZipArchive<File>, entry: &str, name: &str) -> Result<Sample, String> {
+fn read_wav(
+    zip: &mut ZipArchive<Cursor<Vec<u8>>>,
+    entry: &str,
+    name: &str,
+) -> Result<Sample, String> {
     let mut bytes = Vec::new();
     zip.by_name(entry)
         .map_err(|_| format!("missing sample {entry}"))?
@@ -512,30 +524,34 @@ fn read_wav(zip: &mut ZipArchive<File>, entry: &str, name: &str) -> Result<Sampl
 }
 
 /// Where the app remembers the last song, so it reopens at startup.
+#[cfg(not(target_arch = "wasm32"))]
 fn last_song_record() -> Option<std::path::PathBuf> {
     Some(dirs::config_dir()?.join("daw").join("last-song"))
 }
 
 /// The song that was open last time, if it still exists.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn last_song() -> Option<std::path::PathBuf> {
-    let path = fs::read_to_string(last_song_record()?).ok()?;
+    let path = std::fs::read_to_string(last_song_record()?).ok()?;
     let path = std::path::PathBuf::from(path.trim());
     path.exists().then_some(path)
 }
 
 /// Remembers a song to reopen next time. Failing to is harmless.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn remember(song: &Path) {
     if let Some(record) = last_song_record() {
         if let Some(dir) = record.parent() {
-            let _ = fs::create_dir_all(dir);
+            let _ = std::fs::create_dir_all(dir);
         }
-        let _ = fs::write(record, song.to_string_lossy().as_bytes());
+        let _ = std::fs::write(record, song.to_string_lossy().as_bytes());
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::{self, File};
 
     fn temp(name: &str) -> std::path::PathBuf {
         std::env::temp_dir().join(format!("daw-file-test-{}-{name}.daw", std::process::id()))

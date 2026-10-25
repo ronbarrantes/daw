@@ -58,6 +58,11 @@ pull request:
   `cargo test`, on **ubuntu-latest** and **macos-latest**
 - a release build for **Linux x86_64** and **macOS Apple Silicon**, kept as
   downloadable artifacts on the run's page
+- the **web version** (`cargo clippy` for `wasm32-unknown-unknown`, then
+  `web/build.sh`); on `main` it's pushed to the `web-build` branch, which
+  GitHub Pages serves (Settings → Pages → Deploy from a branch →
+  `web-build`, `/ (root)`). Vercel could serve the same branch with no
+  build step.
 
 To have GitHub enforce green checks: repo **Settings → Branches → Add rule**
 for `main`, tick *Require status checks to pass* and pick the **Check** jobs.
