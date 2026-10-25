@@ -31,7 +31,9 @@ use cpal::{FromSample, SampleFormat, SizedSample};
 
 use crate::fx::{Delay, Reverb};
 use crate::midi::{self, Msg};
-use crate::project::{Block, Kind, Project, Sample, Step, MAX_TRACKS, NORMAL, SAMPLE_ROOT, STEPS};
+use crate::project::{
+    Block, Kind, MidiPart, Project, Sample, Step, MAX_TRACKS, NORMAL, PPS, SAMPLE_ROOT, STEPS,
+};
 use crate::synth::Voice;
 
 /// MIDI clock runs at 24 ticks per beat, so a 16th-note step is 6 ticks.
@@ -48,8 +50,8 @@ const PREVIEW_SECONDS: f32 = 0.3;
 const UPDATE_INTERVAL: u32 = 64;
 /// Notes last this fraction of their step (or ratchet slice).
 const GATE: f32 = 0.8;
-/// Room for scheduled hits; enough for a busy pattern with chords.
-const MAX_PENDING: usize = 512;
+/// Room for scheduled hits; enough for busy patterns and long MIDI notes.
+const MAX_PENDING: usize = 1024;
 /// Humanize at full strength: up to this fraction of a step late...
 const HUMANIZE_TIMING: f32 = 0.12;
 /// ...and up to this much velocity either way.
@@ -720,6 +722,10 @@ impl Engine {
             let Some(at) = c.step_at(pos, block.len()) else {
                 continue;
             };
+            if let Some(part) = &block.midi {
+                self.schedule_notes(part, at, c.end() - pos);
+                continue;
+            }
             let (Some(pattern), step) = block.at(at) else {
                 continue;
             };
@@ -735,6 +741,31 @@ impl Engine {
         let (pattern, step) = shown.map_or((NONE, 0), |(p, s)| (p as u8, s));
         self.shared.play_pattern.store(pattern, Relaxed);
         self.shared.current_step.store(step, Relaxed);
+    }
+
+    /// Schedules the notes of a MIDI block that start during its step
+    /// `at`, at their exact times. `left` is how many steps of the clip
+    /// remain, counting this one; notes are cut off where it ends.
+    fn schedule_notes(&mut self, part: &MidiPart, at: usize, left: usize) {
+        let Some(i) = part.track.filter(|&i| i < self.track_count()) else {
+            return;
+        };
+        let step_len = self.samples_per_tick * TICKS_PER_STEP as f32;
+        let from = at as u32 * PPS;
+        let room = left as u32 * PPS;
+        let samples = |parts: u32| parts as f32 / PPS as f32 * step_len;
+        for n in &part.notes {
+            if n.start < from || n.start >= from + PPS {
+                continue;
+            }
+            let into = n.start - from;
+            let len = n.len.min(room - into).max(1);
+            let action = Action::On {
+                velocity: n.velocity.clamp(1, 127),
+                gate: Some((samples(len) as u32).max(1)),
+            };
+            self.schedule(samples(into), i, n.pitch, action);
+        }
     }
 
     /// Where a step's hit lands, in steps from the step's start: swing
@@ -1452,6 +1483,57 @@ mod tests {
         project.blocks[0] = chain_block(&[Some(1), Some(2)]);
         let kicks = song_kicks(project, STEP * 64, |_| {});
         assert_eq!(kicks, [0, STEP * 32]);
+    }
+
+    #[test]
+    fn midi_blocks_play_exact_notes_on_their_track() {
+        let mut project = quiet_demo();
+        project.tracks[LEAD].midi_channel = Some(0);
+        let b = project.new_midi_block(Some(LEAD)).unwrap();
+        let notes = &mut project.blocks[b].midi.as_mut().unwrap().notes;
+        // A triplet-ish note a third of a step in, two octaves up, and a
+        // long note that the clip's end cuts short.
+        notes.push(crate::project::Note {
+            start: PPS / 3,
+            len: PPS / 2,
+            pitch: 84,
+            velocity: 70,
+        });
+        notes.push(crate::project::Note {
+            start: 4 * PPS,
+            len: 100 * PPS,
+            pitch: 36,
+            velocity: 100,
+        });
+        project.clips = vec![Clip {
+            block: b,
+            row: 0,
+            start: 0,
+            len: 8,
+            offset: 0,
+        }];
+        let mut rig = Rig::new(project);
+        rig.shared.song_mode.store(true, Relaxed);
+        rig.shared.playing.store(true, Relaxed);
+        let mut events = Vec::new();
+        for t in 0..STEP * 9 {
+            rig.engine.next_sample();
+            events.extend(
+                rig.midi
+                    .try_iter()
+                    .filter(|m| m.bytes().len() == 3)
+                    .map(|m| (t, m)),
+            );
+        }
+        let at = |msg: Msg| events.iter().find(|(_, m)| *m == msg).map(|(t, _)| *t);
+        assert_eq!(at(Msg::three(0x90, 84, 70)), Some(STEP / 3));
+        assert_eq!(at(Msg::three(0x80, 84, 0)), Some(STEP / 3 + STEP / 2));
+        assert_eq!(at(Msg::three(0x90, 36, 100)), Some(4 * STEP));
+        assert_eq!(
+            at(Msg::three(0x80, 36, 0)),
+            Some(8 * STEP),
+            "cut where the clip ends"
+        );
     }
 
     #[test]

@@ -8,6 +8,7 @@ mod file;
 mod fx;
 mod help;
 mod midi;
+mod notes;
 mod project;
 mod sample;
 mod synth;
@@ -282,6 +283,8 @@ struct App {
     /// Jam (make patterns and blocks) or Arrange (the timeline).
     tab: Tab,
     timeline: timeline::State,
+    /// The note editor for MIDI blocks, in Arrange.
+    notes: notes::State,
     /// A piano-roll note being dragged longer or shorter: (lane, its first step).
     note_drag: Option<(usize, usize)>,
     /// The oscilloscope and envelope drawing in the instrument panel.
@@ -377,6 +380,7 @@ impl App {
             show_fx: false,
             tab: Tab::Jam,
             timeline: timeline::State::default(),
+            notes: notes::State::default(),
             note_drag: None,
             show_scope: true,
             scope_span: 1,
@@ -554,7 +558,8 @@ impl eframe::App for App {
             }
             self.view_keys(ctx);
             self.undo_keys(ctx);
-            if self.tab == Tab::Arrange {
+            // With notes selected, Delete and the rest are the note editor's.
+            if self.tab == Tab::Arrange && !self.note_keys(ctx) {
                 self.timeline_keys(ctx);
             }
             if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::G)) {
@@ -648,6 +653,10 @@ impl eframe::App for App {
                     self.timeline(ui, playing);
                     ui.add_space(8.0);
                     self.block_drawer(ui);
+                    if let Some(b) = self.open_notes() {
+                        ui.add_space(8.0);
+                        self.note_editor(ui, b, playing);
+                    }
                     return;
                 }
                 if self.view.song {
@@ -790,6 +799,7 @@ impl App {
             self.selected_group = None;
         }
         self.picked.clear();
+        self.notes.deselect();
         self.publish();
     }
 
@@ -1105,8 +1115,7 @@ impl App {
 
     fn delete_track(&mut self, i: usize) {
         if i < self.project.tracks.len() {
-            self.project.tracks.remove(i);
-            self.project.prune_groups();
+            self.project.remove_track(i);
             self.midi.track_deleted(i);
             self.selected = self
                 .selected

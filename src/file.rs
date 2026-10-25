@@ -24,9 +24,9 @@ use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
 use crate::drums;
 use crate::project::{
-    builtin_drums, default_patterns, Block, Clip, Effects, Group, Kind, Pattern, Project, Sample,
-    Step, Track, EMPTY_GRID, LANES, MAX_BLOCKS, MAX_PATTERNS, MAX_SONG_STEPS, MAX_TRACKS, NORMAL,
-    STEPS,
+    builtin_drums, default_patterns, Block, Clip, Effects, Group, Kind, MidiPart, Pattern, Project,
+    Sample, Step, Track, EMPTY_GRID, LANES, MAX_BLOCKS, MAX_NOTES, MAX_PATTERNS, MAX_SONG_STEPS,
+    MAX_TRACKS, NORMAL, PPS, STEPS,
 };
 use crate::synth;
 
@@ -35,7 +35,9 @@ pub const EXTENSION: &str = "daw";
 /// The newest file layout this version can read.
 /// 2: the timeline (`clips`) and a pattern library replaced the Song row.
 /// 3: the timeline holds blocks (chains of patterns), not patterns.
-const FORMAT: u32 = 3;
+/// 4: MIDI blocks. Only written when a song has one, so other songs still
+/// open in older versions.
+const FORMAT: u32 = 4;
 const SONG_JSON: &str = "song.json";
 
 /// What a song file holds besides the project itself.
@@ -80,12 +82,36 @@ struct PatternFile {
     name: String,
 }
 
-/// A jam block: a pattern (by index) or `null` for each bar.
+/// A jam block: a pattern (by index) or `null` for each bar. Or a MIDI
+/// block, with `midi` set and no chain.
 #[derive(Serialize, Deserialize)]
 struct BlockFile {
     name: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     chain: Vec<Option<usize>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    midi: Option<MidiFile>,
+}
+
+/// A MIDI block's notes and the track that plays them (by index).
+#[derive(Serialize, Deserialize)]
+struct MidiFile {
+    #[serde(default)]
+    track: Option<usize>,
+    /// Length in 16th notes.
+    len: usize,
+    #[serde(default)]
+    notes: Vec<NoteFile>,
+}
+
+/// A MIDI block's note. Times are in 960ths of a beat (240 per 16th).
+#[derive(Serialize, Deserialize)]
+struct NoteFile {
+    start: u32,
+    len: u32,
+    pitch: u8,
+    #[serde(default = "normal", skip_serializing_if = "is_normal")]
+    velocity: u8,
 }
 
 /// A block on the timeline; positions and lengths are in 16th notes.
@@ -329,8 +355,9 @@ pub fn to_bytes(project: &Project, bpm: f32) -> Result<Vec<u8>, String> {
             group: t.group,
         });
     }
+    let has_midi = project.blocks.iter().any(Block::is_midi);
     let song = SongFile {
-        format: FORMAT,
+        format: if has_midi { FORMAT } else { 3 },
         app_version: env!("CARGO_PKG_VERSION").to_string(),
         bpm,
         swing: project.swing,
@@ -345,9 +372,30 @@ pub fn to_bytes(project: &Project, bpm: f32) -> Result<Vec<u8>, String> {
         blocks: project
             .blocks
             .iter()
-            .map(|b| BlockFile {
-                name: b.name.clone(),
-                chain: b.chain[..b.bars()].to_vec(),
+            .map(|b| match &b.midi {
+                Some(m) => BlockFile {
+                    name: b.name.clone(),
+                    chain: Vec::new(),
+                    midi: Some(MidiFile {
+                        track: m.track,
+                        len: m.len,
+                        notes: m
+                            .notes
+                            .iter()
+                            .map(|n| NoteFile {
+                                start: n.start,
+                                len: n.len,
+                                pitch: n.pitch,
+                                velocity: n.velocity,
+                            })
+                            .collect(),
+                    }),
+                },
+                None => BlockFile {
+                    name: b.name.clone(),
+                    chain: b.chain[..b.bars()].to_vec(),
+                    midi: None,
+                },
             })
             .collect(),
         clips: project
@@ -550,6 +598,13 @@ fn read_zip(bytes: Vec<u8>) -> Result<Song, String> {
         tracks.push(track);
     }
 
+    // MIDI blocks can only point to tracks that made it in.
+    let track_count = tracks.len();
+    let mut blocks = blocks;
+    for m in blocks.iter_mut().filter_map(|b| b.midi.as_mut()) {
+        m.track = m.track.filter(|&t| t < track_count);
+    }
+
     let mut project = Project::empty();
     project.tracks = tracks;
     project.swing = song.swing.clamp(0.0, 1.0);
@@ -596,6 +651,10 @@ fn read_timeline(song: &SongFile, patterns: &[Pattern]) -> (Vec<Block>, Vec<Clip
         .take(MAX_BLOCKS)
         .map(|b| {
             let mut block = Block::new(&b.name);
+            if let Some(m) = &b.midi {
+                block.midi = Some(read_midi(m));
+                return block;
+            }
             for (slot, p) in block.chain.iter_mut().zip(&b.chain) {
                 *slot = pattern(p);
             }
@@ -646,10 +705,35 @@ fn read_timeline(song: &SongFile, patterns: &[Pattern]) -> (Vec<Block>, Vec<Clip
         });
         blocks.push(block);
     }
-    if blocks.is_empty() {
+    // There's always a chain block for the Jam view.
+    if blocks.iter().all(Block::is_midi) && blocks.len() < MAX_BLOCKS {
         blocks.push(Block::new("Block 1"));
+    } else if blocks.iter().all(Block::is_midi) {
+        blocks[0] = Block::new("Block 1");
     }
     (blocks, clips)
+}
+
+/// A MIDI block's notes, kept within sensible limits.
+fn read_midi(m: &MidiFile) -> MidiPart {
+    let len = m.len.clamp(1, MAX_SONG_STEPS);
+    let notes = m
+        .notes
+        .iter()
+        .take(MAX_NOTES)
+        .filter(|n| n.start < (MAX_SONG_STEPS as u32) * PPS)
+        .map(|n| crate::project::Note {
+            start: n.start,
+            len: n.len.clamp(1, MAX_SONG_STEPS as u32 * PPS),
+            pitch: n.pitch.min(127),
+            velocity: n.velocity.clamp(1, 127),
+        })
+        .collect();
+    MidiPart {
+        track: m.track,
+        notes,
+        len,
+    }
 }
 
 fn read_wav(
@@ -721,6 +805,21 @@ mod tests {
         chorus.chain[0] = Some(2);
         chorus.chain[2] = Some(8);
         project.blocks.push(chorus);
+        let riff = project.new_midi_block(Some(4)).unwrap();
+        project.blocks[riff].midi.as_mut().unwrap().notes = vec![
+            crate::project::Note {
+                start: 80,
+                len: 1000,
+                pitch: 91,
+                velocity: 64,
+            },
+            crate::project::Note {
+                start: 0,
+                len: 240,
+                pitch: 12,
+                velocity: NORMAL,
+            },
+        ];
         project.clips.push(Clip {
             block: 1,
             row: 1,
@@ -767,6 +866,7 @@ mod tests {
 
         let p = &opened.project;
         assert_eq!(opened.bpm, 97.0);
+        assert!(song_format(&project) == FORMAT, "MIDI blocks need format 4");
         assert_eq!(p.swing, 0.4);
         assert_eq!(p.clips, project.clips);
         assert_eq!(p.patterns, project.patterns);
@@ -808,6 +908,48 @@ mod tests {
             panic!("kick is a sample")
         };
         assert_eq!(kick.builtin, Some(0));
+    }
+
+    /// The format a song would be saved with.
+    fn song_format(project: &Project) -> u32 {
+        let bytes = to_bytes(project, 120.0).unwrap();
+        let mut zip = ZipArchive::new(Cursor::new(bytes)).unwrap();
+        let mut json = String::new();
+        zip.by_name(SONG_JSON)
+            .unwrap()
+            .read_to_string(&mut json)
+            .unwrap();
+        serde_json::from_str::<SongFile>(&json).unwrap().format
+    }
+
+    #[test]
+    fn songs_without_midi_blocks_stay_format_3() {
+        assert_eq!(song_format(&Project::demo()), 3, "older versions open it");
+    }
+
+    #[test]
+    fn midi_blocks_with_missing_tracks_go_silent() {
+        let json = r#"{
+            "format": 4,
+            "blocks": [ { "name": "Riff", "midi": { "track": 5, "len": 0,
+                "notes": [ { "start": 0, "len": 0, "pitch": 200 } ] } } ]
+        }"#;
+        let song = read_json(json);
+        let p = &song.project;
+        assert_eq!(p.blocks.len(), 2, "a chain block is added for Jam");
+        let m = p.blocks[0].midi.as_ref().unwrap();
+        assert_eq!(m.track, None);
+        assert_eq!(m.len, 1);
+        let n = m.notes[0];
+        assert_eq!((n.len, n.pitch, n.velocity), (1, 127, NORMAL));
+    }
+
+    fn read_json(json: &str) -> Song {
+        let mut zip = ZipWriter::new(Cursor::new(Vec::new()));
+        zip.start_file(SONG_JSON, SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(json.as_bytes()).unwrap();
+        from_bytes("test", zip.finish().unwrap().into_inner()).unwrap()
     }
 
     #[test]

@@ -273,7 +273,9 @@ top left:
 
 The units, from small to big: **pattern** (one bar of steps), **chain**
 (patterns bar by bar), **block** (a chain you can place on the timeline;
-like a clip in other DAWs), **song** (blocks on the timeline).
+like a clip in other DAWs), **song** (blocks on the timeline). A **MIDI
+block** is the other kind of block: free notes for one track, made in
+Arrange.
 
 ### Patterns (Jam)
 
@@ -320,7 +322,29 @@ Arrange plays the timeline, from the cursor.
 
 Songs from v0.12 and v0.13 open with each pattern on the timeline turned
 into a one-bar block; older songs' Song row becomes a block called *Song*.
-Songs saved now need v0.14 or later to open.
+Songs saved now need v0.14 or later to open (v0.16 or later if they have
+MIDI blocks).
+
+### MIDI blocks (Arrange)
+
+A MIDI block is free notes for one track: any pitch, any length, starting
+anywhere, each with its own velocity. Good for melodies, bass lines and
+chords that don't fit a one-bar pattern.
+
+- **+ MIDI** in the Blocks drawer makes one for the selected track. Click a
+  MIDI block (in the drawer or on the timeline) to open its notes below.
+- **Plays** picks the track; **Bars** sets how long it is. Drawing past the
+  end makes it longer by itself.
+- **Click** to add a note, **drag** it to move it, drag its **end** to make
+  it longer or shorter, **right-click** to delete it.
+- **Drag empty space** to select notes; **Shift-click** adds or removes one.
+  **Alt-drag** copies. **Ctrl+A** selects all, **Delete** deletes,
+  **Ctrl+D** duplicates, the **arrows** move them (Shift: by octave or bar),
+  **Esc** deselects.
+- **Snap** goes from 1/4 to 1/32, with **1/8 and 1/16 triplets**, or Off;
+  hold **Shift** while dragging to go off the grid.
+- **Velocity** sets how loud the selected notes are (or new ones).
+- Scroll to move around, **Ctrl+scroll** or **-** / **+** to zoom.
 
 ### Synth
 
@@ -374,25 +398,22 @@ Done:
 - ~~Web version, Windows build~~
 - ~~Timeline, pattern library, Jam and Arrange views with chains and blocks~~
 - ~~Real polyphony: 16 voices per track~~
+- ~~MIDI blocks with a full piano roll and triplet grids~~
 
 Next:
 
-1. **MIDI blocks:** a third kind of block, a free-length list of notes
-   (any pitch, any length, exact timing and velocity) placed on the
-   timeline and played by any track. Comes with a full multi-octave
-   piano roll to draw, move and resize notes, with triplet grids.
-2. Import .mid files as MIDI blocks (say, sheet music turned into MIDI)
-3. Record a take from a MIDI keyboard or the computer keys into a MIDI block
-4. Audio blocks on the timeline: vocals and full tracks, with trim, split,
+1. Import .mid files as MIDI blocks (say, sheet music turned into MIDI)
+2. Record a take from a MIDI keyboard or the computer keys into a MIDI block
+3. Audio blocks on the timeline: vocals and full tracks, with trim, split,
    fades and clip volume
-5. Sampled instruments (SoundFont / SFZ), for real piano and other sounds
-6. Recording audio onto the timeline
-7. Record a jam (pattern and chain changes) straight into the timeline
-8. Time signatures: 3/4, 6/8, 5/4, 13/8 and others, and pattern lengths
+4. Sampled instruments (SoundFont / SFZ), for real piano and other sounds
+5. Recording audio onto the timeline
+6. Record a jam (pattern and chain changes) straight into the timeline
+7. Time signatures: 3/4, 6/8, 5/4, 13/8 and others, and pattern lengths
    other than 16 steps
-9. Clip overrides: mute a track, transpose or change the volume of one
+8. Clip overrides: mute a track, transpose or change the volume of one
    block without unlinking it
-10. Sample editor: chop, trim, ADSR, fades, reverse
+9. Sample editor: chop, trim, ADSR, fades, reverse
 11. A full mixer
 12. Freesound.org sample browser
 
