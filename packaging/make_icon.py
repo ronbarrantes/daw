@@ -1,5 +1,5 @@
-"""Draws the app icon (assets/icon.png and icon-512.png): a 4x4 grid of step
-pads, some lit.
+"""Draws the app icon (assets/icon.png, icon-512.png and icon.ico): a 4x4
+grid of step pads, some lit.
 
 Run from the repo root with `python3 packaging/make_icon.py` (needs Pillow).
 The PNG is committed, so builds don't need Python.
@@ -65,6 +65,11 @@ def main():
     img.resize((SIZE, SIZE), Image.LANCZOS).save("assets/icon.png")
     # Linux icon themes want exact sizes.
     img.resize((512, 512), Image.LANCZOS).save("assets/icon-512.png")
+    # Windows icons fill their square, so the macOS margin is cropped off.
+    edge = MARGIN * scale
+    square = img.crop((edge, edge, s - edge, s - edge)).resize((256, 256), Image.LANCZOS)
+    sizes = [(n, n) for n in (16, 24, 32, 48, 64, 128, 256)]
+    square.save("assets/icon.ico", sizes=sizes)
 
 
 if __name__ == "__main__":

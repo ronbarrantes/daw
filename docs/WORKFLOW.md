@@ -55,8 +55,9 @@ cargo test                   # all pass
 pull request:
 
 - `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and
-  `cargo test`, on **ubuntu-latest** and **macos-latest**
-- a release build for **Linux x86_64** and **macOS Apple Silicon**, kept as
+  `cargo test`, on **ubuntu-latest**, **macos-latest** and **windows-latest**
+- a release build for **Linux x86_64**, **macOS Apple Silicon** and
+  **Windows x86_64**, kept as
   downloadable artifacts on the run's page
 - the **web version** (`cargo clippy` for `wasm32-unknown-unknown`, then
   `web/build.sh`); on `main` it's pushed to the `web-build` branch, which

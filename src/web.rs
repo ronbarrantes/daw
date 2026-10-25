@@ -179,11 +179,25 @@ mod browser {
         let started = Cell::new(false);
         let start = Closure::<dyn FnMut()>::new(move || {
             if !started.replace(true) {
+                // `play` schedules the audio callbacks, so only once.
                 let _ = stream.play();
+            } else {
+                // The browser may still (or again) have sound paused.
+                let cpal::platform::StreamInner::WebAudio(web) = stream.as_inner();
+                let context = web.audio_context();
+                if context.state() != web_sys::AudioContextState::Running {
+                    let _ = context.resume();
+                }
             }
         });
-        for event in ["pointerdown", "keydown"] {
-            let _ = window.add_event_listener_with_callback(event, start.as_ref().unchecked_ref());
+        // Listen while the event is on its way down to the canvas: eframe
+        // stops clicks and keys from going any further once it has them.
+        for event in ["pointerdown", "mousedown", "touchend", "keydown"] {
+            let _ = window.add_event_listener_with_callback_and_bool(
+                event,
+                start.as_ref().unchecked_ref(),
+                true,
+            );
         }
         start.forget();
     }
