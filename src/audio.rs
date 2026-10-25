@@ -30,7 +30,9 @@ use cpal::{FromSample, SampleFormat, SizedSample};
 
 use crate::fx::{Delay, Reverb};
 use crate::midi::{self, Msg};
-use crate::project::{Kind, Project, Sample, Step, LANES, MAX_TRACKS, NORMAL, SAMPLE_ROOT, STEPS};
+use crate::project::{
+    Block, Kind, Project, Sample, Step, LANES, MAX_TRACKS, NORMAL, SAMPLE_ROOT, STEPS,
+};
 use crate::synth::Voice;
 
 /// MIDI clock runs at 24 ticks per beat, so a 16th-note step is 6 ticks.
@@ -92,6 +94,11 @@ pub struct Shared {
     pub current_step: AtomicUsize,
     /// Play the song arrangement instead of looping the edited pattern.
     pub song_mode: AtomicBool,
+    /// Outside Song mode, play the chain of the block being edited instead
+    /// of looping one pattern.
+    pub chain_mode: AtomicBool,
+    /// The block shown in the Jam view.
+    pub edit_block: AtomicUsize,
     /// The pattern shown in the editor.
     pub edit_pattern: AtomicU8,
     /// The pattern being heard, or `NONE` when nothing is.
@@ -139,6 +146,8 @@ impl Shared {
             playing: AtomicBool::new(false),
             current_step: AtomicUsize::new(0),
             song_mode: AtomicBool::new(false),
+            chain_mode: AtomicBool::new(false),
+            edit_block: AtomicUsize::new(0),
             edit_pattern: AtomicU8::new(0),
             play_pattern: AtomicU8::new(0),
             song_step: AtomicUsize::new(0),
@@ -342,7 +351,8 @@ struct Engine {
     song_step: usize,
     /// The next step starts the song from the top instead of advancing.
     restart_song: bool,
-    was_song_mode: bool,
+    /// Song and chain mode last step, to restart when they change.
+    was_mode: (bool, bool),
     was_playing: bool,
     click: Click,
     /// Clock ticks of count-in still to go; 0 when not counting in.
@@ -382,7 +392,7 @@ impl Engine {
             fx_quiet: u32::MAX,
             song_step: 0,
             restart_song: true,
-            was_song_mode: false,
+            was_mode: (false, false),
             was_playing: false,
             click: Click::new(sr),
             count_in: 0,
@@ -550,22 +560,35 @@ impl Engine {
     /// loops the pattern being edited; Song mode walks the timeline.
     fn next_step(&mut self) {
         let song_mode = self.shared.song_mode.load(Relaxed);
-        if song_mode != self.was_song_mode {
+        let chain_mode = self.shared.chain_mode.load(Relaxed);
+        if (song_mode, chain_mode) != self.was_mode {
             self.restart_song = true;
-            self.was_song_mode = song_mode;
+            self.was_mode = (song_mode, chain_mode);
         }
         let project = self.project.clone();
         let song_len = project.song_len();
-        if !song_mode || song_len == 0 {
-            // Pattern mode follows the editor right away, like FL Studio.
-            let pattern = self.shared.edit_pattern.load(Relaxed) as usize;
-            let step = (self.tick / TICKS_PER_STEP) as usize;
-            self.shared.play_pattern.store(pattern as u8, Relaxed);
-            self.shared.current_step.store(step, Relaxed);
-            self.schedule_hits(pattern, step, step, STEPS - 1 - step, step == 0);
+        if song_mode && song_len > 0 {
+            self.timeline_step(&project, song_len);
             return;
         }
+        let block = self.shared.edit_block.load(Relaxed);
+        if !song_mode && chain_mode {
+            if let Some(block) = project.blocks.get(block) {
+                self.chain_step(block);
+                return;
+            }
+        }
+        // Pattern mode follows the editor right away, like FL Studio.
+        let pattern = self.shared.edit_pattern.load(Relaxed) as usize;
+        let step = (self.tick / TICKS_PER_STEP) as usize;
+        self.shared.play_pattern.store(pattern as u8, Relaxed);
+        self.shared.current_step.store(step, Relaxed);
+        self.schedule_hits(pattern, step, step, STEPS - 1 - step, step == 0);
+    }
 
+    /// The next song position: one step on, or where a seek says, kept
+    /// inside `len` and (when `looping`) the loop region.
+    fn advance(&mut self, len: usize, looping: Option<(usize, usize)>) -> usize {
         let seek = self.shared.seek.swap(NO_SEEK, Relaxed);
         let mut pos = if seek != NO_SEEK {
             self.all_notes_off();
@@ -576,19 +599,14 @@ impl Engine {
             self.song_step + 1
         };
         self.restart_song = false;
-        let loop_start = self.shared.loop_start.load(Relaxed);
-        let loop_end = self.shared.loop_end.load(Relaxed);
-        let looping = self.shared.loop_on.load(Relaxed) && loop_start < loop_end;
-        // Jump back at the loop's end (but not when seeking past it).
-        if looping && seek == NO_SEEK && self.song_step < loop_end && pos >= loop_end {
-            pos = loop_start;
+        if let Some((start, end)) = looping {
+            // Jump back at the loop's end (but not when seeking past it).
+            if seek == NO_SEEK && self.song_step < end && pos >= end {
+                pos = start;
+            }
         }
-        if pos >= song_len {
-            pos = if looping {
-                loop_start.min(song_len - 1)
-            } else {
-                0
-            };
+        if pos >= len {
+            pos = looping.map_or(0, |(start, _)| start.min(len - 1));
         }
         if pos != self.song_step + 1 {
             // Keep the clock's place in the bar in step with the song, so
@@ -597,20 +615,49 @@ impl Engine {
         }
         self.song_step = pos;
         self.shared.song_step.store(pos, Relaxed);
+        pos
+    }
 
-        // Every clip covering this step plays; the editor follows the
-        // pattern being edited if it's one of them.
+    /// Jam view's Chain mode: plays the block being edited, bar by bar.
+    fn chain_step(&mut self, block: &Block) {
+        let pos = self.advance(block.len(), None);
+        let (pattern, step) = block.at(pos);
+        let shown = pattern.map_or(NONE, |p| p as u8);
+        self.shared.play_pattern.store(shown, Relaxed);
+        self.shared.current_step.store(step, Relaxed);
+        if let Some(p) = pattern {
+            self.schedule_hits(p, step, pos, STEPS - 1 - step, step == 0);
+        }
+    }
+
+    /// Song mode: plays every block on the timeline that covers this step.
+    fn timeline_step(&mut self, project: &Project, song_len: usize) {
+        let loop_start = self.shared.loop_start.load(Relaxed);
+        let loop_end = self.shared.loop_end.load(Relaxed);
+        let looping = (self.shared.loop_on.load(Relaxed) && loop_start < loop_end)
+            .then_some((loop_start, loop_end));
+        let pos = self.advance(song_len, looping);
+
+        // The editor follows the pattern being edited if it's playing.
         let edit = self.shared.edit_pattern.load(Relaxed) as usize;
         let mut shown = None;
         for c in &project.clips {
-            let Some(step) = c.step_at(pos) else { continue };
-            // Steps left in this pass through the pattern, within the clip.
+            let Some(block) = project.blocks.get(c.block) else {
+                continue;
+            };
+            let Some(at) = c.step_at(pos, block.len()) else {
+                continue;
+            };
+            let (Some(pattern), step) = block.at(at) else {
+                continue;
+            };
+            // Steps left in this bar of the block, within the clip.
             let room = (c.end() - pos - 1).min(STEPS - 1 - step);
             // Nothing looked ahead to a clip's first step.
             let fresh = pos == c.start || step == 0;
-            self.schedule_hits(c.pattern, step, pos, room, fresh);
-            if shown.is_none() || c.pattern == edit {
-                shown = Some((c.pattern, step));
+            self.schedule_hits(pattern, step, pos, room, fresh);
+            if shown.is_none() || pattern == edit {
+                shown = Some((pattern, step));
             }
         }
         let (pattern, step) = shown.map_or((NONE, 0), |(p, s)| (p as u8, s));
@@ -933,6 +980,14 @@ pub fn start(
     Ok(stream)
 }
 
+/// What's open in the Jam view, which decides what an export plays when
+/// the timeline is empty.
+#[derive(Clone, Copy)]
+pub struct Edit {
+    pub pattern: usize,
+    pub block: usize,
+}
+
 /// What an offline render made: the audio (left and right), and the MIDI
 /// the engine sent, each message with the sample it went out on.
 pub struct Rendered {
@@ -941,27 +996,35 @@ pub struct Rendered {
 }
 
 /// Plays a project offline, faster than real time, for exporting. Plays the
-/// timeline once if it has clips, otherwise `pattern` `loops` times, then
+/// timeline once if it has blocks, else the edited block's chain once,
+/// else the edited pattern `loops` times, then
 /// lets notes ring out for `tail` seconds. Uses the same engine as live
 /// playback, so swing, ratchets, ties and the rest sound the same.
 pub fn render(
     project: Project,
     bpm: f32,
-    pattern: usize,
+    edit: Edit,
     loops: usize,
     sr: f32,
     tail: f32,
 ) -> Rendered {
     let song_steps = project.song_len();
+    let chain = project
+        .blocks
+        .get(edit.block)
+        .filter(|b| b.chain.iter().any(Option::is_some))
+        .map(Block::len);
     let steps = if song_steps > 0 {
         song_steps
     } else {
-        loops * STEPS
+        chain.unwrap_or(loops * STEPS)
     };
     let shared = Arc::new(Shared::new(Arc::new(project)));
     shared.set_bpm(bpm);
     shared.song_mode.store(song_steps > 0, Relaxed);
-    shared.edit_pattern.store(pattern as u8, Relaxed);
+    shared.chain_mode.store(chain.is_some(), Relaxed);
+    shared.edit_pattern.store(edit.pattern as u8, Relaxed);
+    shared.edit_block.store(edit.block, Relaxed);
     let (_events, events_rx) = sync_channel(1);
     let (midi_tx, midi_rx) = sync_channel(1024);
     let mut engine = Engine::new(shared.clone(), events_rx, midi_tx, sr);
@@ -1167,8 +1230,9 @@ mod tests {
     fn song_mode_plays_bars_in_order() {
         let mut project = Project::demo();
         project.tracks[LEAD].patterns[1][2][0] = hit(); // pattern B: D on step 1
+        project.blocks.push(chain_block(&[Some(1)]));
         project.clips.push(Clip {
-            pattern: 1,
+            block: 1,
             row: 0,
             start: STEPS,
             len: STEPS,
@@ -1192,14 +1256,22 @@ mod tests {
         );
     }
 
-    /// A one-kick pattern B, placed as `clips` (start, len, offset).
+    fn chain_block(chain: &[Option<usize>]) -> Block {
+        let mut block = Block::new("Test");
+        block.chain[..chain.len()].copy_from_slice(chain);
+        block
+    }
+
+    /// A one-kick pattern B in a one-bar block, placed as `clips`
+    /// (start, len, offset).
     fn kick_clips(clips: &[(usize, usize, usize)]) -> Project {
         let mut project = quiet_demo();
         project.tracks[KICK].patterns[1][0][0] = hit();
+        project.blocks = vec![chain_block(&[Some(1)])];
         project.clips = clips
             .iter()
             .map(|&(start, len, offset)| Clip {
-                pattern: 1,
+                block: 0,
                 row: 0,
                 start,
                 len,
@@ -1227,6 +1299,27 @@ mod tests {
         // A gap in the timeline is silent, then the song loops to the top.
         let kicks = song_kicks(kick_clips(&[(8, 8, 0)]), STEP * 24 + 1, |_| {});
         assert_eq!(kicks, [STEP * 8, STEP * 24]);
+    }
+
+    #[test]
+    fn chain_mode_plays_the_block_bar_by_bar() {
+        // Kick (pattern B), a silent bar, the kick again, then round again.
+        let mut project = kick_clips(&[]);
+        project.blocks[0] = chain_block(&[Some(1), None, Some(1)]);
+        let mut rig = Rig::new(project);
+        rig.shared.chain_mode.store(true, Relaxed);
+        let kicks = rig.note_times(STEP * 48 + 1, drums::NOTES[0]);
+        assert_eq!(kicks, [0, STEP * 32, STEP * 48]);
+    }
+
+    #[test]
+    fn blocks_on_the_timeline_play_their_chain() {
+        // A 2-bar block (kick, then empty pattern C) stretched to 4 bars
+        // repeats.
+        let mut project = kick_clips(&[(0, 64, 0)]);
+        project.blocks[0] = chain_block(&[Some(1), Some(2)]);
+        let kicks = song_kicks(project, STEP * 64, |_| {});
+        assert_eq!(kicks, [0, STEP * 32]);
     }
 
     #[test]

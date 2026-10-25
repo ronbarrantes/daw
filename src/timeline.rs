@@ -1,16 +1,22 @@
-//! The timeline, where a song is put together, and the pattern library
-//! above the groovebox.
+//! The Jam view's Chain row and pattern library, and the Arrange view's
+//! timeline and block drawer.
 //!
-//! Clips on the timeline point to patterns from the library, like Figma
-//! instances of a component: edit a pattern and every clip of it changes.
-//! "Make unique" gives one clip its own copy. Time is in steps (16ths).
+//! The units: patterns are chained bar by bar into blocks (the Chain row
+//! in Jam edits the current block), and blocks are placed on the timeline
+//! to make a song. Each placed block points to its block, like a Figma
+//! instance: edit the block and every copy changes. "Make unique" gives one
+//! copy its own block. Time is in steps (16ths).
 
 use std::sync::atomic::Ordering::Relaxed;
 
 use eframe::egui::{self, Align2, Color32, CursorIcon, FontId, Pos2, Rect, Sense, Stroke, Vec2};
 
-use crate::project::{Clip, MAX_SONG_STEPS, STEPS};
-use crate::App;
+use crate::project::{Clip, CHAIN_SLOTS, MAX_BLOCKS, MAX_PATTERNS, MAX_SONG_STEPS, STEPS};
+use crate::widgets::playhead;
+use crate::{App, Tab};
+
+/// What's carried when a block is dragged from the drawer.
+struct BlockDrag(usize);
 
 const RULER: f32 = 18.0;
 const ROW: f32 = 24.0;
@@ -96,7 +102,12 @@ impl Default for State {
     }
 }
 
-/// A clip's color, by pattern, so linked clips match.
+/// A block's color on the timeline and in the drawer, so copies match.
+pub fn block_color(b: usize) -> Color32 {
+    pattern_color(b + 3)
+}
+
+/// A pattern's color, in the library and the Chain row.
 pub fn pattern_color(p: usize) -> Color32 {
     const COLORS: [Color32; 8] = [
         Color32::from_rgb(70, 130, 180),
@@ -120,19 +131,18 @@ fn snap_near(step: f32, to: usize) -> usize {
 }
 
 impl App {
-    /// The pattern library: pick a pattern to edit, drag one onto the
-    /// timeline, right-click to rename, duplicate or delete.
+    /// The pattern library: pick a pattern to edit; right-click to rename,
+    /// duplicate or delete.
     pub fn library_row(&mut self, ui: &mut egui::Ui) {
         let edit = self.edit_pattern();
-        let ctx = ui.ctx().clone();
         ui.horizontal_wrapped(|ui| {
             ui.add_sized(
                 [60.0, 20.0],
                 egui::Label::new(egui::RichText::new("Patterns").strong()),
             )
             .on_hover_text(
-                "Click a pattern to edit it below. Drag it onto the timeline,\n\
-                 or double-click the timeline to place it. Right-click to rename.",
+                "Click a pattern to edit it below; click a Chain square to put it\n\
+                 in that bar. Right-click to rename, duplicate or delete.",
             );
             for p in 0..self.project.patterns.len() {
                 let name = &self.project.patterns[p].name;
@@ -144,37 +154,19 @@ impl App {
                     } else {
                         Stroke::NONE
                     })
-                    .min_size(Vec2::new(28.0, 22.0))
-                    .sense(Sense::click_and_drag());
-                let uses = self.project.uses(p);
-                let hint = match uses {
-                    0 => "Not on the timeline yet".to_string(),
-                    1 => "Used by 1 clip".to_string(),
-                    n => format!("Used by {n} clips"),
+                    .min_size(Vec2::new(28.0, 22.0));
+                let hint = match self.project.pattern_uses(p) {
+                    0 => "Not in a block yet".to_string(),
+                    1 => "Used in 1 block".to_string(),
+                    n => format!("Used in {n} blocks"),
                 };
                 let resp = ui.add(button).on_hover_text(hint);
                 if resp.clicked() {
                     self.shared.edit_pattern.store(p as u8, Relaxed);
                 }
-                if resp.drag_started() {
-                    egui::DragAndDrop::set_payload(&ctx, p);
-                }
-                if resp.dragged() {
-                    // Show what's being dragged next to the pointer.
-                    if let Some(pos) = ctx.pointer_interact_pos() {
-                        egui::Area::new(egui::Id::new("dragged pattern"))
-                            .fixed_pos(pos + Vec2::new(10.0, 10.0))
-                            .interactable(false)
-                            .show(&ctx, |ui| {
-                                egui::Frame::popup(ui.style()).show(ui, |ui| {
-                                    ui.label(self.project.patterns[p].name.clone());
-                                });
-                            });
-                    }
-                }
                 resp.context_menu(|ui| self.pattern_menu(ui, p));
             }
-            let full = self.project.patterns.len() >= crate::project::MAX_PATTERNS;
+            let full = self.project.patterns.len() >= MAX_PATTERNS;
             let new = ui
                 .add_enabled(!full, egui::Button::new("+"))
                 .on_hover_text("New empty pattern");
@@ -212,10 +204,12 @@ impl App {
             }
             ui.close_menu();
         }
-        let uses = self.project.uses(p);
-        let label = match uses {
+        let label = match self.project.pattern_uses(p) {
             0 => "Delete".to_string(),
-            n => format!("Delete (and its {n} clip{})", if n == 1 { "" } else { "s" }),
+            n => format!(
+                "Delete (its bars in {n} block{} go silent)",
+                if n == 1 { "" } else { "s" }
+            ),
         };
         let can_delete = self.project.patterns.len() > 1;
         if ui
@@ -284,12 +278,227 @@ impl App {
         }
     }
 
-    /// Starts or stops playback. In Song mode it starts from the cursor.
+    /// Starts or stops playback. In Arrange it starts from the cursor.
     pub fn set_playing(&mut self, on: bool) {
-        if on && self.shared.song_mode.load(Relaxed) {
+        if on && self.tab == Tab::Arrange {
             self.shared.seek.store(self.timeline.cursor, Relaxed);
         }
         self.shared.playing.store(on, Relaxed);
+    }
+
+    /// The block shown in the Jam view.
+    pub fn edit_block(&self) -> usize {
+        self.shared
+            .edit_block
+            .load(Relaxed)
+            .min(self.project.blocks.len() - 1)
+    }
+
+    /// Opens a block in the Jam view to edit its chain.
+    fn open_block(&mut self, b: usize) {
+        self.shared.edit_block.store(b, Relaxed);
+        self.shared.chain_mode.store(true, Relaxed);
+        if let Some(p) = self.project.blocks[b].chain.iter().flatten().next() {
+            self.shared.edit_pattern.store(*p as u8, Relaxed);
+        }
+        self.tab = Tab::Jam;
+    }
+
+    /// The Jam view's Chain row: the current block's patterns, bar by bar.
+    /// Click a square to put the selected pattern there; click it again or
+    /// right-click to empty it.
+    pub fn chain_row(&mut self, ui: &mut egui::Ui, playing: bool) {
+        let b = self.edit_block();
+        let edit = self.edit_pattern();
+        let chain_mode = self.shared.chain_mode.load(Relaxed);
+        let pos = self.shared.song_step.load(Relaxed) / STEPS;
+        ui.horizontal(|ui| {
+            ui.add_sized(
+                [60.0, 20.0],
+                egui::Label::new(egui::RichText::new("Chain").strong()),
+            )
+            .on_hover_text(
+                "A block: patterns played bar by bar. Click a square to put the\n\
+                 selected pattern in that bar; click again or right-click to empty it.\n\
+                 Blocks go on the timeline in Arrange (like clips in other DAWs).",
+            );
+            egui::ComboBox::from_id_salt("block")
+                .selected_text(self.project.blocks[b].name.clone())
+                .width(110.0)
+                .show_ui(ui, |ui| {
+                    for (i, block) in self.project.blocks.iter().enumerate() {
+                        if ui.selectable_label(i == b, &block.name).clicked() {
+                            self.shared.edit_block.store(i, Relaxed);
+                        }
+                    }
+                })
+                .response
+                .on_hover_text("The block you're editing")
+                .context_menu(|ui| self.block_menu(ui, b));
+            let full = self.project.blocks.len() >= MAX_BLOCKS;
+            if ui
+                .add_enabled(!full, egui::Button::new("Save as new block"))
+                .on_hover_text("Copy this chain into a new block and keep editing that")
+                .clicked()
+            {
+                if let Some(copy) = self.project.duplicate_block(b) {
+                    self.shared.edit_block.store(copy, Relaxed);
+                    self.dirty = true;
+                }
+            }
+            if ui
+                .add_enabled(!full, egui::Button::new("+"))
+                .on_hover_text("New empty block")
+                .clicked()
+            {
+                if let Some(new) = self.project.new_block() {
+                    self.shared.edit_block.store(new, Relaxed);
+                    self.dirty = true;
+                }
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 2.0;
+            ui.add_space(66.0);
+            for bar in 0..CHAIN_SLOTS {
+                let slot = self.project.blocks[b].chain[bar];
+                let fill = match slot {
+                    Some(p) => pattern_color(p),
+                    None if bar % 4 == 0 => Color32::from_gray(60),
+                    None => Color32::from_gray(45),
+                };
+                let label = slot.map_or(String::new(), |p| self.project.patterns[p].name.clone());
+                let cell =
+                    egui::Button::new(egui::RichText::new(label).color(Color32::WHITE).small())
+                        .fill(fill)
+                        .stroke(playhead(playing && chain_mode && bar == pos))
+                        .min_size(Vec2::new(22.0, 22.0));
+                let resp = ui.add(cell);
+                let old_len = self.project.block_len(b);
+                let chain = &mut self.project.blocks[b].chain;
+                if resp.secondary_clicked() || (resp.clicked() && slot == Some(edit)) {
+                    chain[bar] = None;
+                    self.dirty = true;
+                } else if resp.clicked() {
+                    chain[bar] = Some(edit);
+                    self.dirty = true;
+                }
+                if self.project.block_len(b) != old_len {
+                    self.project.fit_clips(b, old_len);
+                }
+            }
+        });
+    }
+
+    /// Rename, duplicate or delete a block.
+    fn block_menu(&mut self, ui: &mut egui::Ui, b: usize) {
+        ui.label("Name");
+        if ui
+            .text_edit_singleline(&mut self.project.blocks[b].name)
+            .changed()
+        {
+            self.dirty = true;
+        }
+        ui.separator();
+        if ui.button("Edit in Jam").clicked() {
+            self.open_block(b);
+            ui.close_menu();
+        }
+        if ui.button("Duplicate").clicked() {
+            if let Some(copy) = self.project.duplicate_block(b) {
+                self.shared.edit_block.store(copy, Relaxed);
+                self.dirty = true;
+            }
+            ui.close_menu();
+        }
+        let label = match self.project.block_uses(b) {
+            0 => "Delete".to_string(),
+            n => format!(
+                "Delete (and its {n} cop{} on the timeline)",
+                if n == 1 { "y" } else { "ies" }
+            ),
+        };
+        if ui
+            .add_enabled(self.project.blocks.len() > 1, egui::Button::new(label))
+            .clicked()
+        {
+            self.project.delete_block(b);
+            self.timeline.selected = None;
+            self.dirty = true;
+            ui.close_menu();
+        }
+    }
+
+    /// The Arrange view's block drawer: drag a block onto the timeline,
+    /// double-click it to edit it in Jam, right-click for more.
+    pub fn block_drawer(&mut self, ui: &mut egui::Ui) {
+        let ctx = ui.ctx().clone();
+        let edit = self.edit_block();
+        ui.horizontal_wrapped(|ui| {
+            ui.add_sized(
+                [60.0, 20.0],
+                egui::Label::new(egui::RichText::new("Blocks").strong()),
+            )
+            .on_hover_text(
+                "Drag a block onto the timeline. Double-click one to edit it in Jam.\n\
+                 Blocks are made in Jam's Chain row (they're like clips in other DAWs).",
+            );
+            for b in 0..self.project.blocks.len() {
+                let block = &self.project.blocks[b];
+                let fill = block_color(b).gamma_multiply(if b == edit { 1.0 } else { 0.6 });
+                let text = format!(
+                    "{}  ({} bar{})",
+                    block.name,
+                    block.bars(),
+                    if block.bars() == 1 { "" } else { "s" }
+                );
+                let button = egui::Button::new(egui::RichText::new(text).color(Color32::WHITE))
+                    .fill(fill)
+                    .min_size(Vec2::new(28.0, 24.0))
+                    .sense(Sense::click_and_drag());
+                let hint = match self.project.block_uses(b) {
+                    0 => "Not on the timeline yet".to_string(),
+                    1 => "On the timeline once".to_string(),
+                    n => format!("On the timeline {n} times"),
+                };
+                let resp = ui.add(button).on_hover_text(hint);
+                if resp.double_clicked() {
+                    self.open_block(b);
+                } else if resp.clicked() {
+                    self.shared.edit_block.store(b, Relaxed);
+                }
+                if resp.drag_started() {
+                    egui::DragAndDrop::set_payload(&ctx, BlockDrag(b));
+                }
+                if resp.dragged() {
+                    // Show what's being dragged next to the pointer.
+                    if let Some(pos) = ctx.pointer_interact_pos() {
+                        egui::Area::new(egui::Id::new("dragged block"))
+                            .fixed_pos(pos + Vec2::new(10.0, 10.0))
+                            .interactable(false)
+                            .show(&ctx, |ui| {
+                                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                                    ui.label(self.project.blocks[b].name.clone());
+                                });
+                            });
+                    }
+                }
+                resp.context_menu(|ui| self.block_menu(ui, b));
+            }
+            if ui
+                .add_enabled(
+                    self.project.blocks.len() < MAX_BLOCKS,
+                    egui::Button::new("+"),
+                )
+                .on_hover_text("New empty block (opens in Jam)")
+                .clicked()
+            {
+                if let Some(new) = self.project.new_block() {
+                    self.dirty = true;
+                    self.open_block(new);
+                }
+            }
+        });
     }
 
     pub fn timeline(&mut self, ui: &mut egui::Ui, playing: bool) {
@@ -301,10 +510,11 @@ impl App {
                 egui::Label::new(egui::RichText::new("Timeline").strong()),
             )
             .on_hover_text(
-                "Drag patterns here, or double-click to place the selected one.\n\
-                 Drag clips to move them, their edges to trim.\n\
-                 Alt-drag copies. Right-click for more. C splits at the cursor.\n\
-                 Click the ruler to set where playback starts; drag it to loop.",
+                "Drag blocks here from the drawer, or double-click to place the\n\
+                 current one. Drag a block to move it, its edges to trim or stretch.\n\
+                 Alt-drag copies. Double-click one to edit it in Jam. Right-click for\n\
+                 more. C splits at the cursor. Click the ruler to set where playback\n\
+                 starts; drag along it to loop.",
             );
             let mut looping = s.loop_on.load(Relaxed);
             if ui
@@ -329,9 +539,6 @@ impl App {
             }
             if ui.button("+").on_hover_text("Zoom in").clicked() {
                 self.timeline.zoom = (self.timeline.zoom * 1.5).min(MAX_ZOOM);
-            }
-            if !song_mode {
-                ui.weak("Pattern mode: switch to Song to play the timeline");
             }
         });
 
@@ -404,10 +611,10 @@ impl App {
         let on_ruler = |pos: Pos2| pos.y < rect.top() + RULER;
         let max_start = MAX_SONG_STEPS;
 
-        // A pattern dropped from the library.
-        if let Some(p) = resp.dnd_release_payload::<usize>() {
+        // A block dropped from the drawer.
+        if let Some(drag) = resp.dnd_release_payload::<BlockDrag>() {
             if let Some(pos) = resp.hover_pos() {
-                self.place_clip(*p, snap_down(step_at(pos), snap), row_at(pos));
+                self.place_clip(drag.0, snap_down(step_at(pos), snap), row_at(pos));
             }
         }
 
@@ -472,15 +679,15 @@ impl App {
                 }
                 Drag::TrimStart { clip, before } => {
                     let start = snap_near(step, snap).min(before.end() - 1);
+                    let len = self.project.block_len(before.block) as isize;
                     if let Some(c) = self.project.clips.get_mut(clip) {
                         if start != c.start {
                             // Trimming (or extending) the start moves where
-                            // the pattern begins, so the notes stay put.
+                            // the block begins, so the notes stay put.
                             let moved = start as isize - before.start as isize;
                             c.start = start;
                             c.len = before.end() - start;
-                            c.offset = (before.offset as isize + moved).rem_euclid(STEPS as isize)
-                                as usize;
+                            c.offset = (before.offset as isize + moved).rem_euclid(len) as usize;
                             self.dirty = true;
                         }
                     }
@@ -525,14 +732,10 @@ impl App {
             if let Some(pos) = resp.interact_pointer_pos() {
                 if !on_ruler(pos) {
                     match self.clip_at(rect, pos) {
-                        // Open the clip's pattern in the editor.
-                        Some((i, _)) => {
-                            let p = self.project.clips[i].pattern;
-                            self.shared.edit_pattern.store(p as u8, Relaxed);
-                        }
+                        Some((i, _)) => self.open_block(self.project.clips[i].block),
                         None => {
-                            let p = self.edit_pattern();
-                            self.place_clip(p, snap_down(step_at(pos), snap), row_at(pos));
+                            let b = self.edit_block();
+                            self.place_clip(b, snap_down(step_at(pos), snap), row_at(pos));
                         }
                     }
                 }
@@ -550,14 +753,15 @@ impl App {
         }
     }
 
-    /// Adds a one-bar clip of pattern `p`.
-    fn place_clip(&mut self, p: usize, start: usize, row: usize) {
-        if p < self.project.patterns.len() && start + STEPS <= MAX_SONG_STEPS {
+    /// Places block `b` on the timeline, once through.
+    fn place_clip(&mut self, b: usize, start: usize, row: usize) {
+        let len = self.project.block_len(b);
+        if b < self.project.blocks.len() && start + len <= MAX_SONG_STEPS {
             self.project.clips.push(Clip {
-                pattern: p,
+                block: b,
                 row: row.min(MAX_ROWS - 1),
                 start,
-                len: STEPS,
+                len,
                 offset: 0,
             });
             self.timeline.selected = Some(self.project.clips.len() - 1);
@@ -575,31 +779,27 @@ impl App {
             return;
         };
         let c = self.project.clips[i];
-        let name = self.project.patterns[c.pattern].name.clone();
+        let name = self.project.blocks[c.block].name.clone();
         ui.label(egui::RichText::new(&name).strong());
-        if ui.button("Edit pattern").clicked() {
-            self.shared.edit_pattern.store(c.pattern as u8, Relaxed);
+        if ui.button("Edit in Jam").clicked() {
+            self.open_block(c.block);
             ui.close_menu();
         }
-        let others = self.project.uses(c.pattern) - 1;
+        let others = self.project.block_uses(c.block) - 1;
         let unique = egui::Button::new("Make unique");
-        let hint = if others == 0 {
-            "This is the only clip of the pattern".to_string()
-        } else {
-            format!(
-                "Give this clip its own copy of {name}, so editing it\n\
-                 doesn't change the other {others} clip{}",
-                if others == 1 { "" } else { "s" }
-            )
-        };
+        let hint = format!(
+            "Give this copy its own block, so editing it\n\
+             doesn't change the other {others} cop{} of {name}",
+            if others == 1 { "y" } else { "ies" }
+        );
         if ui
             .add_enabled(others > 0, unique)
             .on_hover_text(hint)
-            .on_disabled_hover_text("This is the only clip of the pattern")
+            .on_disabled_hover_text("This is the only copy of the block")
             .clicked()
         {
             if let Some(copy) = self.project.make_unique(i) {
-                self.shared.edit_pattern.store(copy as u8, Relaxed);
+                self.shared.edit_block.store(copy, Relaxed);
                 self.dirty = true;
             }
             ui.close_menu();
@@ -714,33 +914,34 @@ impl App {
             }
         }
 
-        // Clips. Ones of the pattern being edited are brighter, so you can
+        // Blocks. Copies of the block being edited are brighter, so you can
         // see everything an edit will change.
-        let edit = self.edit_pattern();
+        let edit = self.edit_block();
         for (i, c) in self.project.clips.iter().enumerate() {
             let r = clip_rect(rect, zoom, c);
             if r.right() < visible.left() || r.left() > visible.right() {
                 continue;
             }
-            let base = pattern_color(c.pattern);
-            let fill = if c.pattern == edit {
+            let base = block_color(c.block);
+            let fill = if c.block == edit {
                 base
             } else {
                 base.gamma_multiply(0.6)
             };
             painter.rect_filled(r, 3.0, fill);
-            // Marks where the pattern repeats inside a long clip.
-            let mut repeat = c.start + (STEPS - c.offset % STEPS) % STEPS;
+            // Marks where the block repeats when stretched.
+            let len = self.project.block_len(c.block);
+            let mut repeat = c.start + (len - c.offset % len) % len;
             if repeat == c.start {
-                repeat += STEPS;
+                repeat += len;
             }
             while repeat < c.end() {
                 let x = rect.left() + repeat as f32 * zoom;
                 painter.line_segment(
-                    [Pos2::new(x, r.top() + 4.0), Pos2::new(x, r.bottom() - 4.0)],
-                    Stroke::new(1.0_f32, Color32::from_black_alpha(90)),
+                    [Pos2::new(x, r.top() + 3.0), Pos2::new(x, r.bottom() - 3.0)],
+                    Stroke::new(1.5_f32, Color32::from_black_alpha(110)),
                 );
-                repeat += STEPS;
+                repeat += len;
             }
             let selected = self.timeline.selected == Some(i);
             let stroke = if selected {
@@ -755,7 +956,7 @@ impl App {
                 .text(
                     Pos2::new(r.left() + 4.0, r.center().y),
                     Align2::LEFT_CENTER,
-                    &self.project.patterns[c.pattern].name,
+                    &self.project.blocks[c.block].name,
                     FontId::proportional(12.0),
                     Color32::WHITE,
                 );

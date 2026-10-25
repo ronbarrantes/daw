@@ -22,7 +22,8 @@ const SECTIONS: &[(&str, &str)] = &[
          anything would lose them.\n\
          • File > Export WAV… saves the sound to share or post. Export MIDI… \
          saves the notes for other DAWs or hardware synths. Both export the \
-         timeline, or the current pattern four times if it's empty.",
+         timeline; if it's empty, the current block's chain, or else the \
+         current pattern four times.",
     ),
     (
         "Tracks",
@@ -96,32 +97,42 @@ const SECTIONS: &[(&str, &str)] = &[
          higher on beat 1.",
     ),
     (
-        "Patterns",
-        "The Patterns row is your library. Click one to edit it in the grid \
-         below; each holds every track's steps.\n\n\
-         • + adds a pattern. Right-click one to rename, duplicate or delete \
-         it.\n\
-         • Copy, Paste and Clear work on the pattern you're editing.\n\
-         • Pattern mode (top bar) loops the pattern you're editing, for \
-         jamming.",
+        "Jam and Arrange",
+        "Two tabs at the top left. Jam is the groovebox: patterns, chains \
+         and sounds. Arrange is the timeline, where blocks become a song.\n\n\
+         The units: a pattern is one bar of steps; a chain plays patterns \
+         bar by bar; a block is a chain you can place on the timeline (like \
+         a clip in other DAWs); a song is blocks on the timeline.",
     ),
     (
-        "Timeline",
-        "The timeline is where a song comes together. Song mode (top bar) \
-         plays it.\n\n\
-         • Drag a pattern from the library onto it, or double-click it to \
-         place the selected pattern.\n\
-         • Drag a clip to move it; drag its edges to trim or stretch it (a \
-         long clip repeats its pattern). Alt-drag makes a copy.\n\
-         • Clips are linked to their pattern: edit the pattern and every \
-         clip of it changes. Right-click a clip and choose Make unique to \
-         give it its own copy.\n\
-         • Double-click a clip to edit its pattern.\n\
+        "Patterns and chains (Jam)",
+        "• The Patterns row is your library. Click one to edit it in the \
+         grid below; + adds one; right-click to rename, duplicate or \
+         delete.\n\
+         • Copy, Paste and Clear work on the pattern you're editing.\n\
+         • The Chain row is the block you're editing, one square per bar. \
+         Click a square to put the selected pattern there; click again or \
+         right-click to empty it.\n\
+         • Pattern mode (top bar) loops the pattern; Chain mode plays the \
+         chain.\n\
+         • Pick a block from the drop-down; + starts a new one; Save as new \
+         block copies this chain into a new block.",
+    ),
+    (
+        "Timeline (Arrange)",
+        "Arrange plays the timeline, from the cursor.\n\n\
+         • Drag a block from the Blocks drawer onto the timeline, or \
+         double-click the timeline to place the current block.\n\
+         • Drag a block to move it; drag its edges to trim or stretch it (it \
+         repeats). Alt-drag makes a copy.\n\
+         • Copies are linked: edit the block in Jam and they all change. \
+         Right-click one and choose Make unique to give it its own block.\n\
+         • Double-click a block to edit it in Jam.\n\
          • Click the ruler to set where playback starts; drag along it to \
          mark a loop, and turn Loop on or off.\n\
-         • C splits the selected clip at the cursor, Ctrl+D duplicates it, \
+         • C splits the selected block at the cursor, Ctrl+D duplicates it, \
          Delete removes it.\n\
-         • Snap sets what clips line up to; hold Shift for single steps. \
+         • Snap sets what blocks line up to; hold Shift for single steps. \
          Ctrl+scroll or - and + zoom.",
     ),
     (
@@ -178,8 +189,9 @@ const SECTIONS: &[(&str, &str)] = &[
          Ctrl+O / Ctrl+N — open / new song\n\
          Ctrl+Z / Ctrl+Shift+Z — undo / redo (Ctrl+Y redoes too)\n\
          Ctrl+G — group the picked tracks\n\
-         F5 / F6 / F7 / F8 — show or hide timeline, tracks, piano roll, panel\n\
-         C / Ctrl+D / Delete — split, duplicate, delete the selected clip\n\
+         F5 / F6 / F7 / F8 — show or hide chain, tracks, piano roll, panel\n\
+         C / Ctrl+D / Delete — split, duplicate, delete the selected block \
+         (Arrange)\n\
          F9 — show everything\n\
          A–P — play notes on the selected track\n\
          Z / X — octave down / up\n\

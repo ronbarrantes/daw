@@ -24,8 +24,9 @@ use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
 use crate::drums;
 use crate::project::{
-    builtin_drums, default_patterns, Clip, Effects, Group, Kind, Pattern, Project, Sample, Step,
-    Track, EMPTY_GRID, LANES, MAX_PATTERNS, MAX_SONG_STEPS, MAX_TRACKS, NORMAL, STEPS,
+    builtin_drums, default_patterns, Block, Clip, Effects, Group, Kind, Pattern, Project, Sample,
+    Step, Track, EMPTY_GRID, LANES, MAX_BLOCKS, MAX_PATTERNS, MAX_SONG_STEPS, MAX_TRACKS, NORMAL,
+    STEPS,
 };
 use crate::synth;
 
@@ -33,7 +34,8 @@ use crate::synth;
 pub const EXTENSION: &str = "daw";
 /// The newest file layout this version can read.
 /// 2: the timeline (`clips`) and a pattern library replaced the Song row.
-const FORMAT: u32 = 2;
+/// 3: the timeline holds blocks (chains of patterns), not patterns.
+const FORMAT: u32 = 3;
 const SONG_JSON: &str = "song.json";
 
 /// What a song file holds besides the project itself.
@@ -59,6 +61,9 @@ struct SongFile {
     /// The pattern library, by name; notes refer to patterns by index.
     #[serde(default)]
     patterns: Vec<PatternFile>,
+    /// The block library.
+    #[serde(default)]
+    blocks: Vec<BlockFile>,
     /// The timeline.
     #[serde(default)]
     clips: Vec<ClipFile>,
@@ -75,10 +80,22 @@ struct PatternFile {
     name: String,
 }
 
-/// A pattern on the timeline; positions and lengths are in 16th notes.
+/// A jam block: a pattern (by index) or `null` for each bar.
+#[derive(Serialize, Deserialize)]
+struct BlockFile {
+    name: String,
+    #[serde(default)]
+    chain: Vec<Option<usize>>,
+}
+
+/// A block on the timeline; positions and lengths are in 16th notes.
 #[derive(Serialize, Deserialize)]
 struct ClipFile {
-    pattern: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    block: Option<usize>,
+    /// Format 2 placed patterns directly; they're turned into blocks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pattern: Option<usize>,
     #[serde(default)]
     row: usize,
     start: usize,
@@ -325,11 +342,20 @@ pub fn to_bytes(project: &Project, bpm: f32) -> Result<Vec<u8>, String> {
                 name: p.name.clone(),
             })
             .collect(),
+        blocks: project
+            .blocks
+            .iter()
+            .map(|b| BlockFile {
+                name: b.name.clone(),
+                chain: b.chain[..b.bars()].to_vec(),
+            })
+            .collect(),
         clips: project
             .clips
             .iter()
             .map(|c| ClipFile {
-                pattern: c.pattern,
+                block: Some(c.block),
+                pattern: None,
                 row: c.row,
                 start: c.start,
                 len: c.len,
@@ -454,6 +480,8 @@ fn read_zip(bytes: Vec<u8>) -> Result<Song, String> {
             .collect()
     };
 
+    let (blocks, clips) = read_timeline(&song, &patterns);
+
     let mut drums: Option<Vec<Arc<Sample>>> = None;
     let mut loaded: HashMap<String, Arc<Sample>> = HashMap::new();
     let mut tracks = Vec::new();
@@ -532,22 +560,8 @@ fn read_zip(bytes: Vec<u8>) -> Result<Song, String> {
         delay_steps: fx.delay_steps.round().clamp(1.0, 8.0),
         delay_feedback: fx.delay_feedback.clamp(0.0, 0.9),
     };
-    project.clips = song
-        .clips
-        .iter()
-        .filter(|c| c.pattern < patterns.len() && c.len > 0)
-        .filter(|c| c.start + c.len <= MAX_SONG_STEPS)
-        .map(|c| Clip {
-            pattern: c.pattern,
-            row: c.row.min(MAX_ROWS),
-            start: c.start,
-            len: c.len,
-            offset: c.offset % STEPS,
-        })
-        .collect();
-    if song.clips.is_empty() {
-        project.clips = clips_from_song_row(&song.song, patterns.len());
-    }
+    project.blocks = blocks;
+    project.clips = clips;
     project.patterns = patterns;
     project.groups = song
         .groups
@@ -571,27 +585,71 @@ fn read_zip(bytes: Vec<u8>) -> Result<Song, String> {
 /// Highest timeline row a file may use; more would only be empty space.
 const MAX_ROWS: usize = 64;
 
-/// Turns format 1's Song row (a pattern per bar) into clips, joining
-/// repeats of the same pattern into one longer clip.
-fn clips_from_song_row(row: &[Option<u8>], patterns: usize) -> Vec<Clip> {
-    let mut clips: Vec<Clip> = Vec::new();
-    for (bar, slot) in row.iter().enumerate() {
-        let Some(p) = slot.map(usize::from).filter(|&p| p < patterns) else {
+/// The block library and timeline, including from older files: format 2
+/// placed patterns on the timeline (each becomes a one-bar block), and
+/// format 1 had a single Song row (it becomes a block called Song).
+fn read_timeline(song: &SongFile, patterns: &[Pattern]) -> (Vec<Block>, Vec<Clip>) {
+    let pattern = |p: &Option<usize>| p.filter(|&p| p < patterns.len());
+    let mut blocks: Vec<Block> = song
+        .blocks
+        .iter()
+        .take(MAX_BLOCKS)
+        .map(|b| {
+            let mut block = Block::new(&b.name);
+            for (slot, p) in block.chain.iter_mut().zip(&b.chain) {
+                *slot = pattern(p);
+            }
+            block
+        })
+        .collect();
+    // Format 2: one block per pattern that was on the timeline.
+    let mut for_pattern: HashMap<usize, usize> = HashMap::new();
+    let mut clips = Vec::new();
+    for c in &song.clips {
+        if c.len == 0 || c.start + c.len > MAX_SONG_STEPS {
             continue;
+        }
+        let block = match (c.block, pattern(&c.pattern)) {
+            (Some(b), _) => b,
+            (None, Some(p)) if blocks.len() < MAX_BLOCKS => {
+                *for_pattern.entry(p).or_insert_with(|| {
+                    let mut block = Block::new(&patterns[p].name);
+                    block.chain[0] = Some(p);
+                    blocks.push(block);
+                    blocks.len() - 1
+                })
+            }
+            _ => continue,
         };
-        let start = bar * STEPS;
-        match clips.last_mut() {
-            Some(c) if c.pattern == p && c.end() == start => c.len += STEPS,
-            _ => clips.push(Clip {
-                pattern: p,
-                row: 0,
-                start,
-                len: STEPS,
-                offset: 0,
-            }),
+        if block < blocks.len() {
+            clips.push(Clip {
+                block,
+                row: c.row.min(MAX_ROWS),
+                start: c.start,
+                len: c.len,
+                offset: c.offset % blocks[block].len(),
+            });
         }
     }
-    clips
+    // Format 1: the Song row becomes a block, placed at the start.
+    if song.clips.is_empty() && song.song.iter().any(Option::is_some) {
+        let mut block = Block::new("Song");
+        for (slot, p) in block.chain.iter_mut().zip(&song.song) {
+            *slot = pattern(&p.map(usize::from));
+        }
+        clips.push(Clip {
+            block: blocks.len(),
+            row: 0,
+            start: 0,
+            len: block.len(),
+            offset: 0,
+        });
+        blocks.push(block);
+    }
+    if blocks.is_empty() {
+        blocks.push(Block::new("Block 1"));
+    }
+    (blocks, clips)
 }
 
 fn read_wav(
@@ -657,15 +715,19 @@ mod tests {
     fn songs_survive_a_save_and_open() {
         let mut project = Project::demo();
         project.swing = 0.4;
-        project.clips.push(Clip {
-            pattern: 2,
-            row: 1,
-            start: 48,
-            len: 20,
-            offset: 3,
-        });
         project.duplicate_pattern(0);
         project.patterns[8].name = "Chorus".into();
+        let mut chorus = Block::new("Chorus");
+        chorus.chain[0] = Some(2);
+        chorus.chain[2] = Some(8);
+        project.blocks.push(chorus);
+        project.clips.push(Clip {
+            block: 1,
+            row: 1,
+            start: 48,
+            len: 100,
+            offset: 3,
+        });
         project.tracks[1].patterns[2][0][5] = Some(Step {
             velocity: 30,
             chance: 50,
@@ -708,6 +770,7 @@ mod tests {
         assert_eq!(p.swing, 0.4);
         assert_eq!(p.clips, project.clips);
         assert_eq!(p.patterns, project.patterns);
+        assert_eq!(p.blocks, project.blocks);
         assert_eq!(p.tracks.len(), project.tracks.len());
         for (a, b) in p.tracks.iter().zip(&project.tracks) {
             assert_eq!(a.name, b.name);
@@ -770,14 +833,17 @@ mod tests {
 
         assert_eq!(song.bpm, 120.0);
         assert_eq!(song.project.effects, Effects::DEFAULT);
-        // Format 1's Song row becomes clips, repeats joined into one.
-        let clips: Vec<(usize, usize, usize)> = song
-            .project
-            .clips
-            .iter()
-            .map(|c| (c.pattern, c.start, c.len))
-            .collect();
-        assert_eq!(clips, [(0, 0, 32), (3, 48, 16)]);
+        // Format 1's Song row becomes a block, placed at the start.
+        let p = &song.project;
+        assert_eq!(p.blocks.len(), 1);
+        assert_eq!(p.blocks[0].name, "Song");
+        assert_eq!(
+            p.blocks[0].chain[..5],
+            [Some(0), Some(0), None, Some(3), None]
+        );
+        let clips: Vec<(usize, usize, usize)> =
+            p.clips.iter().map(|c| (c.block, c.start, c.len)).collect();
+        assert_eq!(clips, [(0, 0, 64)]);
         assert_eq!(song.project.patterns, default_patterns());
         let t = &song.project.tracks[0];
         assert_eq!(t.patterns[0][2][4], Some(Step::HIT));
@@ -786,6 +852,38 @@ mod tests {
         };
         assert_eq!(v[synth::CUTOFF], 500.0);
         assert_eq!(v[synth::RESONANCE], synth::PARAMS[synth::RESONANCE].default);
+    }
+
+    #[test]
+    fn format_2_pattern_clips_become_blocks() {
+        let json = r#"{
+            "format": 2,
+            "patterns": [ { "name": "A" }, { "name": "Verse" } ],
+            "clips": [
+                { "pattern": 1, "start": 0, "len": 32, "offset": 4 },
+                { "pattern": 0, "row": 1, "start": 16, "len": 16 },
+                { "pattern": 1, "start": 64, "len": 16 }
+            ]
+        }"#;
+        let path = temp("format2");
+        let mut zip = ZipWriter::new(File::create(&path).unwrap());
+        zip.start_file(SONG_JSON, SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(json.as_bytes()).unwrap();
+        zip.finish().unwrap();
+        let song = open(&path).unwrap();
+        fs::remove_file(&path).unwrap();
+
+        let p = &song.project;
+        let names: Vec<&str> = p.blocks.iter().map(|b| b.name.as_str()).collect();
+        assert_eq!(names, ["Verse", "A"], "one block per pattern");
+        assert_eq!(p.blocks[0].chain[0], Some(1));
+        let clips: Vec<(usize, usize, usize, usize)> = p
+            .clips
+            .iter()
+            .map(|c| (c.block, c.start, c.len, c.offset))
+            .collect();
+        assert_eq!(clips, [(0, 0, 32, 4), (1, 16, 16, 0), (0, 64, 16, 0)]);
     }
 
     #[test]

@@ -186,6 +186,13 @@ fn main() {
     });
 }
 
+/// The two halves of the app.
+#[derive(Clone, Copy, PartialEq)]
+enum Tab {
+    Jam,
+    Arrange,
+}
+
 /// Which parts of the window are showing.
 #[derive(Clone, Copy, PartialEq)]
 struct View {
@@ -272,6 +279,8 @@ struct App {
     show_help: bool,
     show_about: bool,
     show_fx: bool,
+    /// Jam (make patterns and blocks) or Arrange (the timeline).
+    tab: Tab,
     timeline: timeline::State,
     /// A piano-roll note being dragged longer or shorter: (lane, its first step).
     note_drag: Option<(usize, usize)>,
@@ -366,6 +375,7 @@ impl App {
             show_help: false,
             show_about: false,
             show_fx: false,
+            tab: Tab::Jam,
             timeline: timeline::State::default(),
             note_drag: None,
             show_scope: true,
@@ -509,12 +519,17 @@ fn step_marks(s: &Step) -> String {
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let playing = self.shared.playing.load(Relaxed);
-        // Undo or deleting a pattern can leave the editor pointing past
-        // the last one.
+        // Undo or deleting a pattern or block can leave the editor
+        // pointing past the last one.
         let last = self.project.patterns.len() - 1;
         if self.shared.edit_pattern.load(Relaxed) as usize > last {
             self.shared.edit_pattern.store(last as u8, Relaxed);
         }
+        self.shared.edit_block.store(self.edit_block(), Relaxed);
+        // Arrange plays the timeline; Jam plays a pattern or a chain.
+        self.shared
+            .song_mode
+            .store(self.tab == Tab::Arrange, Relaxed);
         if self
             .timeline
             .selected
@@ -539,7 +554,9 @@ impl eframe::App for App {
             }
             self.view_keys(ctx);
             self.undo_keys(ctx);
-            self.timeline_keys(ctx);
+            if self.tab == Tab::Arrange {
+                self.timeline_keys(ctx);
+            }
             if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::G)) {
                 self.group_picked();
             }
@@ -627,8 +644,14 @@ impl eframe::App for App {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
-                if self.view.song {
+                if self.tab == Tab::Arrange {
                     self.timeline(ui, playing);
+                    ui.add_space(8.0);
+                    self.block_drawer(ui);
+                    return;
+                }
+                if self.view.song {
+                    self.chain_row(ui, playing);
                     ui.add_space(6.0);
                     self.library_row(ui);
                     ui.add_space(6.0);
@@ -921,15 +944,15 @@ impl App {
         let path = path.with_extension(ext);
         let project = self.project.clone();
         let bpm = self.shared.bpm();
-        let pattern = self.edit_pattern();
+        let edit = self.edit_now();
         let tx = self.export_tx.clone();
         let ctx = ctx.clone();
         self.exporting = true;
         self.notice = None;
         thread::spawn(move || {
             let bytes = match kind {
-                ExportKind::Wav => export::wav(&project, bpm, pattern),
-                ExportKind::Midi => Ok(export::midi(&project, bpm, pattern)),
+                ExportKind::Wav => export::wav(&project, bpm, edit),
+                ExportKind::Midi => Ok(export::midi(&project, bpm, edit)),
             };
             let result = bytes.and_then(|bytes| {
                 std::fs::write(&path, bytes).map_err(|e| format!("Couldn't export: {e}"))
@@ -945,11 +968,11 @@ impl App {
     #[cfg(target_arch = "wasm32")]
     fn export(&mut self, _ctx: &egui::Context, kind: ExportKind) {
         let bpm = self.shared.bpm();
-        let pattern = self.edit_pattern();
+        let edit = self.edit_now();
         let (bytes, ext, mime) = match kind {
-            ExportKind::Wav => (export::wav(&self.project, bpm, pattern), "wav", "audio/wav"),
+            ExportKind::Wav => (export::wav(&self.project, bpm, edit), "wav", "audio/wav"),
             ExportKind::Midi => (
-                Ok(export::midi(&self.project, bpm, pattern)),
+                Ok(export::midi(&self.project, bpm, edit)),
                 "mid",
                 "audio/midi",
             ),
@@ -1023,6 +1046,14 @@ impl App {
 
     fn preview(&self, track: usize, lane: usize) {
         let _ = self.events.try_send(Event::Preview { track, lane });
+    }
+
+    /// What the Jam view has open, for exports.
+    fn edit_now(&self) -> audio::Edit {
+        audio::Edit {
+            pattern: self.edit_pattern(),
+            block: self.edit_block(),
+        }
     }
 
     /// Rec: writes a played note into the pattern at the step that's playing.
@@ -1286,7 +1317,7 @@ impl App {
             });
             ui.menu_button("View", |ui| {
                 let v = &mut self.view;
-                ui.checkbox(&mut v.song, "Timeline and patterns  (F5)");
+                ui.checkbox(&mut v.song, "Chain and patterns  (F5)");
                 ui.checkbox(&mut v.tracks, "Tracks  (F6)");
                 ui.checkbox(&mut v.piano, "Piano roll  (F7)");
                 ui.checkbox(&mut v.panel, "Instrument panel  (F8)");
@@ -1460,6 +1491,29 @@ impl App {
     fn transport_row(&mut self, ui: &mut egui::Ui, playing: bool) {
         let s = self.shared.clone();
         ui.horizontal(|ui| {
+            for (tab, name, hint) in [
+                (Tab::Jam, "Jam", "Make patterns and chain them into blocks"),
+                (
+                    Tab::Arrange,
+                    "Arrange",
+                    "Put blocks on the timeline to make a song",
+                ),
+            ] {
+                let text = RichText::new(name).size(15.0).strong();
+                if ui
+                    .selectable_label(self.tab == tab, text)
+                    .on_hover_text(hint)
+                    .clicked()
+                    && self.tab != tab
+                {
+                    self.tab = tab;
+                    if tab == Tab::Arrange && playing {
+                        // Pick up the song from the cursor.
+                        s.seek.store(self.timeline.cursor, Relaxed);
+                    }
+                }
+            }
+            ui.separator();
             let label = if playing { "■ Stop" } else { "▶ Play" };
             if ui.button(label).clicked() {
                 self.set_playing(!playing);
@@ -1484,25 +1538,24 @@ impl App {
                 self.dirty = true;
             }
             ui.separator();
-            let song = s.song_mode.load(Relaxed);
-            let pattern_hint = "Loop the pattern you're editing";
-            if ui
-                .selectable_label(!song, "Pattern")
-                .on_hover_text(pattern_hint)
-                .clicked()
-            {
-                s.song_mode.store(false, Relaxed);
-            }
-            let song_hint = "Play the timeline, from the cursor";
-            if ui
-                .selectable_label(song, "Song")
-                .on_hover_text(song_hint)
-                .clicked()
-                && !song
-            {
-                // Pick up from the cursor rather than bar 1.
-                s.seek.store(self.timeline.cursor, Relaxed);
-                s.song_mode.store(true, Relaxed);
+            if self.tab == Tab::Jam {
+                let chain = s.chain_mode.load(Relaxed);
+                if ui
+                    .selectable_label(!chain, "Pattern")
+                    .on_hover_text("Loop the pattern you're editing")
+                    .clicked()
+                {
+                    s.chain_mode.store(false, Relaxed);
+                }
+                if ui
+                    .selectable_label(chain, "Chain")
+                    .on_hover_text("Play the block's chain, bar by bar")
+                    .clicked()
+                {
+                    s.chain_mode.store(true, Relaxed);
+                }
+            } else {
+                ui.weak("Plays the timeline");
             }
             ui.separator();
             let rec_color = if self.recording {
