@@ -24,15 +24,16 @@ use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
 use crate::drums;
 use crate::project::{
-    builtin_drums, Effects, Group, Kind, Project, Sample, Step, Track, EMPTY_GRID, LANES,
-    MAX_TRACKS, NORMAL, PATTERNS, SONG_SLOTS, STEPS,
+    builtin_drums, default_patterns, Clip, Effects, Group, Kind, Pattern, Project, Sample, Step,
+    Track, EMPTY_GRID, LANES, MAX_PATTERNS, MAX_SONG_STEPS, MAX_TRACKS, NORMAL, STEPS,
 };
 use crate::synth;
 
 /// File extension for song files.
 pub const EXTENSION: &str = "daw";
 /// The newest file layout this version can read.
-const FORMAT: u32 = 1;
+/// 2: the timeline (`clips`) and a pattern library replaced the Song row.
+const FORMAT: u32 = 2;
 const SONG_JSON: &str = "song.json";
 
 /// What a song file holds besides the project itself.
@@ -51,15 +52,39 @@ struct SongFile {
     bpm: f32,
     #[serde(default)]
     swing: f32,
-    /// Pattern per song bar, `null` for a silent bar.
-    #[serde(default)]
+    /// Format 1's Song row: a pattern per bar, `null` for a silent bar.
+    /// Read from old files and turned into clips; no longer written.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     song: Vec<Option<u8>>,
+    /// The pattern library, by name; notes refer to patterns by index.
+    #[serde(default)]
+    patterns: Vec<PatternFile>,
+    /// The timeline.
+    #[serde(default)]
+    clips: Vec<ClipFile>,
     #[serde(default)]
     groups: Vec<GroupFile>,
     #[serde(default)]
     effects: EffectsFile,
     #[serde(default)]
     tracks: Vec<TrackFile>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct PatternFile {
+    name: String,
+}
+
+/// A pattern on the timeline; positions and lengths are in 16th notes.
+#[derive(Serialize, Deserialize)]
+struct ClipFile {
+    pattern: usize,
+    #[serde(default)]
+    row: usize,
+    start: usize,
+    len: usize,
+    #[serde(default)]
+    offset: usize,
 }
 
 /// The shared reverb and delay. Missing values get the defaults.
@@ -292,7 +317,25 @@ pub fn to_bytes(project: &Project, bpm: f32) -> Result<Vec<u8>, String> {
         app_version: env!("CARGO_PKG_VERSION").to_string(),
         bpm,
         swing: project.swing,
-        song: project.song[..project.song_len()].to_vec(),
+        song: Vec::new(),
+        patterns: project
+            .patterns
+            .iter()
+            .map(|p| PatternFile {
+                name: p.name.clone(),
+            })
+            .collect(),
+        clips: project
+            .clips
+            .iter()
+            .map(|c| ClipFile {
+                pattern: c.pattern,
+                row: c.row,
+                start: c.start,
+                len: c.len,
+                offset: c.offset,
+            })
+            .collect(),
         groups: project
             .groups
             .iter()
@@ -398,6 +441,19 @@ fn read_zip(bytes: Vec<u8>) -> Result<Song, String> {
         return Err("it was saved by a newer version of daw. Please update.".into());
     }
 
+    // Format 1 files have no library: they had patterns A to H.
+    let patterns: Vec<Pattern> = if song.patterns.is_empty() {
+        default_patterns()
+    } else {
+        song.patterns
+            .iter()
+            .take(MAX_PATTERNS)
+            .map(|p| Pattern {
+                name: p.name.clone(),
+            })
+            .collect()
+    };
+
     let mut drums: Option<Vec<Arc<Sample>>> = None;
     let mut loaded: HashMap<String, Arc<Sample>> = HashMap::new();
     let mut tracks = Vec::new();
@@ -436,10 +492,10 @@ fn read_zip(bytes: Vec<u8>) -> Result<Song, String> {
         };
         let mut track = Track::synth(&t.name);
         track.kind = kind;
-        track.patterns = [EMPTY_GRID; PATTERNS];
+        track.patterns = vec![EMPTY_GRID; patterns.len()];
         for n in t.notes {
             let (p, l, s) = (n.pattern as usize, n.lane as usize, n.step as usize);
-            if p < PATTERNS && l < LANES && s < STEPS {
+            if p < patterns.len() && l < LANES && s < STEPS {
                 track.patterns[p][l][s] = Some(Step {
                     tie: n.tie,
                     velocity: n.velocity.clamp(1, 127),
@@ -476,9 +532,23 @@ fn read_zip(bytes: Vec<u8>) -> Result<Song, String> {
         delay_steps: fx.delay_steps.round().clamp(1.0, 8.0),
         delay_feedback: fx.delay_feedback.clamp(0.0, 0.9),
     };
-    for (bar, slot) in song.song.into_iter().take(SONG_SLOTS).enumerate() {
-        project.song[bar] = slot.filter(|&p| (p as usize) < PATTERNS);
+    project.clips = song
+        .clips
+        .iter()
+        .filter(|c| c.pattern < patterns.len() && c.len > 0)
+        .filter(|c| c.start + c.len <= MAX_SONG_STEPS)
+        .map(|c| Clip {
+            pattern: c.pattern,
+            row: c.row.min(MAX_ROWS),
+            start: c.start,
+            len: c.len,
+            offset: c.offset % STEPS,
+        })
+        .collect();
+    if song.clips.is_empty() {
+        project.clips = clips_from_song_row(&song.song, patterns.len());
     }
+    project.patterns = patterns;
     project.groups = song
         .groups
         .into_iter()
@@ -496,6 +566,32 @@ fn read_zip(bytes: Vec<u8>) -> Result<Song, String> {
         project,
         bpm: song.bpm.clamp(40.0, 240.0),
     })
+}
+
+/// Highest timeline row a file may use; more would only be empty space.
+const MAX_ROWS: usize = 64;
+
+/// Turns format 1's Song row (a pattern per bar) into clips, joining
+/// repeats of the same pattern into one longer clip.
+fn clips_from_song_row(row: &[Option<u8>], patterns: usize) -> Vec<Clip> {
+    let mut clips: Vec<Clip> = Vec::new();
+    for (bar, slot) in row.iter().enumerate() {
+        let Some(p) = slot.map(usize::from).filter(|&p| p < patterns) else {
+            continue;
+        };
+        let start = bar * STEPS;
+        match clips.last_mut() {
+            Some(c) if c.pattern == p && c.end() == start => c.len += STEPS,
+            _ => clips.push(Clip {
+                pattern: p,
+                row: 0,
+                start,
+                len: STEPS,
+                offset: 0,
+            }),
+        }
+    }
+    clips
 }
 
 fn read_wav(
@@ -561,7 +657,15 @@ mod tests {
     fn songs_survive_a_save_and_open() {
         let mut project = Project::demo();
         project.swing = 0.4;
-        project.song[3] = Some(2);
+        project.clips.push(Clip {
+            pattern: 2,
+            row: 1,
+            start: 48,
+            len: 20,
+            offset: 3,
+        });
+        project.duplicate_pattern(0);
+        project.patterns[8].name = "Chorus".into();
         project.tracks[1].patterns[2][0][5] = Some(Step {
             velocity: 30,
             chance: 50,
@@ -585,8 +689,8 @@ mod tests {
             rate: 44_100.0,
             builtin: None,
         });
-        project.tracks.push(Track::sampler(tone.clone(), true));
-        project.tracks.push(Track::sampler(tone, false));
+        project.add_track(Track::sampler(tone.clone(), true));
+        project.add_track(Track::sampler(tone, false));
 
         let path = temp("roundtrip");
         save(&path, &project, 97.0).unwrap();
@@ -602,7 +706,8 @@ mod tests {
         let p = &opened.project;
         assert_eq!(opened.bpm, 97.0);
         assert_eq!(p.swing, 0.4);
-        assert_eq!(p.song[..4], [Some(0), None, None, Some(2)]);
+        assert_eq!(p.clips, project.clips);
+        assert_eq!(p.patterns, project.patterns);
         assert_eq!(p.tracks.len(), project.tracks.len());
         for (a, b) in p.tracks.iter().zip(&project.tracks) {
             assert_eq!(a.name, b.name);
@@ -647,6 +752,7 @@ mod tests {
         // Only the bare minimum; everything else should get a default.
         let json = r#"{
             "format": 1,
+            "song": [0, 0, null, 3],
             "tracks": [
                 { "name": "Bass", "instrument": { "type": "synth", "settings": { "Cutoff": 500 } },
                   "notes": [ { "pattern": 0, "lane": 2, "step": 4 } ],
@@ -664,6 +770,15 @@ mod tests {
 
         assert_eq!(song.bpm, 120.0);
         assert_eq!(song.project.effects, Effects::DEFAULT);
+        // Format 1's Song row becomes clips, repeats joined into one.
+        let clips: Vec<(usize, usize, usize)> = song
+            .project
+            .clips
+            .iter()
+            .map(|c| (c.pattern, c.start, c.len))
+            .collect();
+        assert_eq!(clips, [(0, 0, 32), (3, 48, 16)]);
+        assert_eq!(song.project.patterns, default_patterns());
         let t = &song.project.tracks[0];
         assert_eq!(t.patterns[0][2][4], Some(Step::HIT));
         let Kind::Synth(v) = &t.kind else {

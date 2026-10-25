@@ -157,8 +157,8 @@ and editable by hand, plus `samples/*.wav` for any loaded samples.
 - **File → Export MIDI…** saves the notes as a standard MIDI file for other
   DAWs or hardware synths. Each MIDI channel becomes its own track; drums
   go on channel 10, and synths without a channel get a free one.
-- Both export the **Song** row, or the current pattern four times if the row
-  is empty. Muted tracks are left out.
+- Both export the **timeline**, or the current pattern four times if it's
+  empty. Muted tracks are left out.
 
 ### Tracks
 
@@ -257,14 +257,41 @@ A S D F G H J K L         ← white keys (A = C)
 On Arch, the **+ Sample…** file picker needs `xdg-desktop-portal` and
 `xdg-desktop-portal-gtk`. Drag and drop always works.
 
-### Patterns and song
+### Patterns
 
-- **A–H** pick which pattern you're editing. Each holds every track's steps.
+The **Patterns** row is your library, like components in Figma. Click a
+pattern to edit it in the grid below; each holds every track's steps.
+
+- **+** adds a pattern (up to 64). Right-click one to **rename**,
+  **duplicate** or **delete** it.
 - **Copy** / **Paste** / **Clear** work on the pattern you're editing.
-- **Pattern** mode loops the pattern you're editing.
-- **Song** mode plays the **Song** row left to right, one bar per box.
-  Click a box to drop in the selected pattern; click it again (or
-  right-click) to empty it. Empty boxes in the middle are silent bars.
+- **Pattern** mode (top bar) loops the pattern you're editing: the
+  groovebox, for jamming.
+
+### Timeline
+
+The timeline is where a song comes together. **Song** mode (top bar) plays it.
+
+- **Drag a pattern** from the library onto the timeline, or **double-click**
+  the timeline to place the selected pattern. Rows are just for layout:
+  clips on different rows play together, so a drums pattern and a bass
+  pattern can overlap.
+- **Drag** a clip to move it; drag its **edges** to trim or stretch it. A
+  clip longer than its pattern repeats it. **Alt-drag** makes a copy.
+- Clips are **linked** to their pattern, like Figma instances: edit the
+  pattern and every clip of it changes. Right-click a clip and choose **Make
+  unique** to give it its own copy (*A* becomes *A 2*). Clips of the pattern
+  you're editing are drawn brighter.
+- **Double-click** a clip to edit its pattern.
+- Click the **ruler** to set where playback starts; drag along it to mark a
+  **loop**, and toggle **Loop** on or off.
+- **C** splits the selected clip at the cursor (like Premiere's razor),
+  **Ctrl+D** duplicates it, **Delete** removes it.
+- **Snap** sets what clips line up to (bar, beat or step); hold **Shift**
+  while dragging for single steps. **Ctrl+scroll** or **-** / **+** zoom.
+
+Songs saved before v0.12 open with their Song row turned into clips. Songs
+saved now need v0.12 or later to open.
 
 ### Synth
 
@@ -296,20 +323,34 @@ Plug gear in over USB (or a USB-MIDI cable), then press **⟳** to rescan.
 
 ## Roadmap
 
-1. ~~Drum step sequencer~~
-2. ~~MIDI clock and notes for the FM-1 and AIRA Compacts~~
-3. ~~Built-in synth with knobs~~
-4. ~~Patterns and song arrangement~~
-5. ~~Add/remove tracks, per-track volume, sample tracks~~
-6. ~~Groove: swing, velocity/ghost notes, humanize, chance, ratchets, nudge; solo~~
-7. ~~Track groups, View menu and focus mode~~
-8. ~~Chords, other tracks' notes in the piano roll, routed MIDI inputs with recording~~
-9. ~~Save and load songs~~
-10. ~~Export to WAV and MIDI~~
-11. Sample editor: chop, trim, ADSR, fades, reverse
-12. ~~Pan, reverb and delay~~ (a full mixer to come)
-13. Recording
-14. Freesound.org sample browser
-15. ~~Web version~~
+Done:
+
+- ~~Drum step sequencer~~
+- ~~MIDI clock and notes for the FM-1 and AIRA Compacts~~
+- ~~Built-in synth with knobs~~
+- ~~Patterns and song arrangement~~
+- ~~Add/remove tracks, per-track volume, sample tracks~~
+- ~~Groove: swing, velocity/ghost notes, humanize, chance, ratchets, nudge; solo~~
+- ~~Track groups, View menu and focus mode~~
+- ~~Chords, other tracks' notes in the piano roll, routed MIDI inputs with recording~~
+- ~~Save and load songs~~
+- ~~Export to WAV and MIDI~~
+- ~~Pan, reverb and delay, metronome, undo~~
+- ~~Web version, Windows build~~
+- ~~Timeline with linked pattern clips and a pattern library~~
+
+Next:
+
+1. Sections: a group of patterns (say a chorus) used like one clip
+2. Audio clips on the timeline: vocals and full tracks, with trim, split,
+   fades and clip volume
+3. Recording audio onto the timeline
+4. Time signatures: 3/4, 6/8, 5/4, 13/8 and others, and pattern lengths
+   other than 16 steps
+5. Clip overrides: mute a track, transpose or change the volume of one clip
+   without unlinking it
+6. Sample editor: chop, trim, ADSR, fades, reverse
+7. A full mixer
+8. Freesound.org sample browser
 
 See [docs/WORKFLOW.md](docs/WORKFLOW.md) for how changes get pushed, merged and released.
