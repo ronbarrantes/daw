@@ -22,6 +22,8 @@ pub enum Unit {
     Seconds,
     /// -1 to 1, shown as L50, C or R50.
     Pan,
+    /// A count of 16th notes, shown as a note length like 3/16 or 1/4.
+    Steps,
 }
 
 pub const WAVE: usize = 0;

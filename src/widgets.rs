@@ -123,6 +123,16 @@ fn format_value(p: &Param, v: f32) -> String {
         Unit::Pan if v.abs() < 0.005 => "C".into(),
         Unit::Pan if v < 0.0 => format!("L{:.0}", -v * 100.0),
         Unit::Pan => format!("R{:.0}", v * 100.0),
+        Unit::Steps => {
+            // Reduce n/16, so 4 steps reads 1/4.
+            let mut n = v.round().max(1.0) as u32;
+            let mut d = 16;
+            while n.is_multiple_of(2) && d > 1 {
+                n /= 2;
+                d /= 2;
+            }
+            format!("{n}/{d}")
+        }
     }
 }
 
@@ -140,6 +150,12 @@ fn hint(p: &Param) -> &'static str {
         "Release" => "Fade-out time after a note ends",
         "Volume" => "Track level",
         "Pan" => "Left or right in the stereo mix",
+        "Reverb" => "How much of this track goes to the reverb (FX)",
+        "Delay" => "How much of this track goes to the delay (FX)",
+        "Size" => "How long the reverb rings",
+        "Tone" => "Reverb brightness: low is muffled, high is airy",
+        "Time" => "Time between echoes, in 16th notes",
+        "Feedback" => "How many times each echo repeats",
         "Humanize" => "Random small changes to each hit's timing and loudness",
         _ => "",
     }

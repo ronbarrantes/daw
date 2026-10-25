@@ -112,7 +112,21 @@ soloed tracks so you can hear a part on its own.
   files as sample tracks, or just drop files onto the window.
 - Rename a track by editing its name at the top of the right panel.
 - **Mix** (right panel): **Volume**, **Pan** (left or right in the stereo
-  mix; double-click to centre) and **Humanize**.
+  mix; double-click to centre), and **Reverb** and **Delay**: how much of
+  the track goes to the shared effects.
+
+### Effects
+
+Every track can send to one shared reverb and one delay. Turn up a
+track's **Reverb** or **Delay** knob, then press **FX** in the top bar to
+shape them:
+
+- **Reverb:** **Size** (how long it rings) and **Tone** (muffled to airy).
+- **Delay:** **Time** between echoes in 16th notes (3/16, a dotted eighth,
+  is a classic) and **Feedback** (how many echoes). Echoes bounce between
+  left and right and follow the tempo.
+
+The demo's pad has some reverb on it.
 
 ### Groups
 
@@ -196,7 +210,7 @@ On Arch, the **+ Sample…** file picker needs `xdg-desktop-portal` and
 Select a synth track to see its knobs. Drag a knob up or down; double-click
 to reset it. Hover for what each one does.
 
-- **Sound:** **Wave** saw → square. **Detune** thickens.
+- **Sound:** **Wave** saw → square. **Detune** thickens. **Humanize**.
 - **Filter:** **Cutoff** and **Reso** set the tone; **Env amt** and
   **F decay** make each note "pluck" by opening the filter and closing it.
 - **Envelope (ADSR):** **Attack** fades in, **Decay** falls to the
