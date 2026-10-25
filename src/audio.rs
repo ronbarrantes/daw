@@ -118,7 +118,18 @@ pub struct Shared {
     pub count_in: AtomicBool,
     /// The count-in bar is playing; the sequencer hasn't started yet.
     pub counting_in: AtomicBool,
+    /// The oscilloscope: the selected track's latest samples, before its
+    /// volume and pan, as `f32` bits in a ring. Only written while on.
+    pub scope_on: AtomicBool,
+    scope: Box<[AtomicU32]>,
+    /// Where the next scope sample goes; it only counts up.
+    scope_pos: AtomicUsize,
+    /// The engine's sample rate, for the scope's time scale.
+    pub sample_rate: AtomicU32,
 }
+
+/// How many samples the scope keeps: about 85 ms at 48 kHz.
+pub const SCOPE_LEN: usize = 4096;
 
 impl Shared {
     pub fn new(project: Arc<Project>) -> Self {
@@ -142,7 +153,27 @@ impl Shared {
             metronome: AtomicBool::new(false),
             count_in: AtomicBool::new(false),
             counting_in: AtomicBool::new(false),
+            scope_on: AtomicBool::new(false),
+            scope: (0..SCOPE_LEN).map(|_| AtomicU32::new(0)).collect(),
+            scope_pos: AtomicUsize::new(0),
+            sample_rate: AtomicU32::new(48_000),
         }
+    }
+
+    /// Copies the newest `out.len()` scope samples into `out`, oldest first.
+    pub fn read_scope(&self, out: &mut [f32]) {
+        let n = out.len().min(SCOPE_LEN);
+        let end = self.scope_pos.load(Relaxed);
+        for (i, v) in out[..n].iter_mut().enumerate() {
+            let at = (end + SCOPE_LEN - n + i) % SCOPE_LEN;
+            *v = f32::from_bits(self.scope[at].load(Relaxed));
+        }
+    }
+
+    fn write_scope(&self, value: f32) {
+        let pos = self.scope_pos.load(Relaxed);
+        self.scope[pos % SCOPE_LEN].store(value.to_bits(), Relaxed);
+        self.scope_pos.store(pos.wrapping_add(1), Relaxed);
     }
 
     pub fn project(&self) -> Arc<Project> {
@@ -359,6 +390,7 @@ impl Engine {
             sr,
         };
         engine.project_changed();
+        engine.shared.sample_rate.store(sr as u32, Relaxed);
         engine
     }
 
@@ -827,6 +859,8 @@ impl Engine {
 
         let mut mix = [0.0; 2];
         let mut send = [0.0; 2];
+        let scoped = self.shared.selected_track.load(Relaxed);
+        let mut scope = 0.0;
         for i in 0..self.track_count() {
             let synth = matches!(self.project.tracks[i].kind, Kind::Synth(_));
             let mut out = 0.0;
@@ -840,6 +874,9 @@ impl Engine {
                     voice.sample_out()
                 };
                 out += sample * voice.gain;
+            }
+            if i == scoped {
+                scope = out;
             }
             mix[0] += out * self.gains[i][0];
             mix[1] += out * self.gains[i][1];
@@ -860,6 +897,9 @@ impl Engine {
             for side in 0..2 {
                 mix[side] += reverb[side] + delay[side];
             }
+        }
+        if self.shared.scope_on.load(Relaxed) {
+            self.shared.write_scope(scope);
         }
         let click = self.click.next_sample();
         mix.map(|m| (m * 0.8 + click).clamp(-1.0, 1.0))
@@ -1317,6 +1357,25 @@ mod tests {
         assert!(tail(1.0, 0.0) > 1.0, "reverb rings on");
         // 3 steps at 120 BPM = 18_000 samples, so echoes at 36k, 54k...
         assert!(tail(0.0, 1.0) > 1.0, "delay echoes");
+    }
+
+    #[test]
+    fn scope_shows_the_selected_track() {
+        let mut rig = Rig::new(quiet_demo());
+        rig.shared.selected_track.store(LEAD, Relaxed);
+        rig.send(Event::Preview {
+            track: LEAD,
+            lane: 0,
+        });
+        rig.run(2_000);
+        let mut seen = [0.0; 512];
+        rig.shared.read_scope(&mut seen);
+        assert!(seen.iter().all(|s| *s == 0.0), "off until turned on");
+
+        rig.shared.scope_on.store(true, Relaxed);
+        rig.run(2_000);
+        rig.shared.read_scope(&mut seen);
+        assert!(seen.iter().any(|s| s.abs() > 0.05), "the lead's wave");
     }
 
     #[test]

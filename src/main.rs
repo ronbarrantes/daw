@@ -27,6 +27,7 @@ use std::time::Duration;
 
 use eframe::egui::{self, Color32, RichText, Sense, Vec2};
 
+use audio::SCOPE_LEN;
 use audio::{Event, Shared};
 use midi::{Midi, Played, Route};
 use project::{
@@ -36,8 +37,8 @@ use project::{
 use synth::{Param, Unit, PARAMS};
 use undo::Undo;
 use widgets::{
-    disclosure_arrow, empty_fill, knob, lit_fill, playhead, port_picker, DRUM_ON, NOTE_HELD,
-    NOTE_NAMES, NOTE_ON,
+    disclosure_arrow, empty_fill, envelope, knob, lit_fill, playhead, port_picker, scope, DRUM_ON,
+    NOTE_HELD, NOTE_NAMES, NOTE_ON, SCOPE_SPANS,
 };
 
 const RECORDING: Color32 = Color32::from_rgb(220, 60, 60);
@@ -274,6 +275,12 @@ struct App {
     timeline: timeline::State,
     /// A piano-roll note being dragged longer or shorter: (lane, its first step).
     note_drag: Option<(usize, usize)>,
+    /// The oscilloscope and envelope drawing in the instrument panel.
+    show_scope: bool,
+    /// Which of `SCOPE_SPANS` the scope shows.
+    scope_span: usize,
+    /// The scope had something to show last frame, so keep it moving.
+    scope_busy: bool,
     /// Waiting for "save changes first?" to be answered.
     confirm: Option<Then>,
     /// Extra tracks picked with Ctrl/Cmd-click, for grouping.
@@ -361,6 +368,9 @@ impl App {
             show_fx: false,
             timeline: timeline::State::default(),
             note_drag: None,
+            show_scope: true,
+            scope_span: 1,
+            scope_busy: false,
             confirm: None,
             picked: Vec::new(),
             selected_group: None,
@@ -606,9 +616,12 @@ impl eframe::App for App {
             egui::SidePanel::right("instrument")
                 .resizable(false)
                 .exact_width(290.0)
-                .show(ctx, |ui| match self.selected_group {
-                    Some(id) => self.group_panel(ui, id),
-                    None => self.instrument_panel(ui),
+                .show(ctx, |ui| {
+                    // Scrolls when the window is short (the scope adds height).
+                    egui::ScrollArea::vertical().show(ui, |ui| match self.selected_group {
+                        Some(id) => self.group_panel(ui, id),
+                        None => self.instrument_panel(ui),
+                    });
                 });
         }
 
@@ -686,8 +699,12 @@ impl eframe::App for App {
                 self.autosave();
             }
         }
-        // Only redraw continuously while playing, to keep CPU low when idle.
-        if playing {
+        // The engine only feeds the scope while it's showing.
+        let scope = self.show_scope && self.view.panel && self.selected_group.is_none();
+        self.shared.scope_on.store(scope, Relaxed);
+        // Only redraw continuously while playing (or the scope has sound
+        // to show), to keep CPU low when idle.
+        if playing || (scope && self.scope_busy) {
             ctx.request_repaint_after(Duration::from_millis(30));
         }
     }
@@ -1274,6 +1291,10 @@ impl App {
                 ui.checkbox(&mut v.piano, "Piano roll  (F7)");
                 ui.checkbox(&mut v.panel, "Instrument panel  (F8)");
                 ui.checkbox(&mut v.others, "Other tracks' notes in piano roll");
+                ui.checkbox(
+                    &mut self.show_scope,
+                    "Scope and envelope (instrument panel)",
+                );
                 ui.separator();
                 ui.label(RichText::new("Focus on one thing").small().weak());
                 if ui.button("Tracks only").clicked() {
@@ -2146,6 +2167,16 @@ impl App {
             .desired_width(200.0);
         changed |= ui.add(name).changed();
         ui.add_space(4.0);
+        if self.show_scope {
+            let mut samples = [0.0_f32; SCOPE_LEN];
+            self.shared.read_scope(&mut samples);
+            self.scope_busy = samples.iter().any(|s| s.abs() > 1e-4);
+            let rate = self.shared.sample_rate.load(Relaxed) as f32;
+            if scope(ui, &samples, rate, SCOPE_SPANS[self.scope_span]) {
+                self.scope_span = (self.scope_span + 1) % SCOPE_SPANS.len();
+            }
+            ui.add_space(4.0);
+        }
 
         ui.horizontal(|ui| {
             // Shown 1-16 like on hardware, stored 0-15; 0 means off.
@@ -2213,6 +2244,15 @@ impl App {
                             changed |= knob(ui, &PARAMS[i], &mut values[i]);
                         }
                     });
+                    if self.show_scope && row[0] == synth::ATTACK {
+                        envelope(
+                            ui,
+                            values[synth::ATTACK],
+                            values[synth::DECAY],
+                            values[synth::SUSTAIN],
+                            values[synth::RELEASE],
+                        );
+                    }
                 }
             }
             Kind::Sampler { sample, pitched } => {

@@ -133,7 +133,10 @@ const SECTIONS: &[(&str, &str)] = &[
          each note pluck.\n\
          • Envelope (ADSR): Attack fades in, Decay falls to the Sustain level \
          while a note is held, Release fades out after.\n\n\
-         Try: Cutoff down, Reso up, Env amt up, short F decay = acid bass.",
+         Try: Cutoff down, Reso up, Env amt up, short F decay = acid bass.\n\n\
+         The green scope at the top of the panel shows the selected track's \
+         wave as you play; click it to show more or less time. The blue \
+         drawing shows the envelope. View menu turns them off.",
     ),
     (
         "Sample tracks",

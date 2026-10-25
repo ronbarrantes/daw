@@ -307,6 +307,12 @@ to reset it. Hover for what each one does.
 
 Try: Cutoff down, Reso up, Env amt up, Decay short → squelchy acid bass.
 
+**Scope:** the green screen at the top of the panel is an oscilloscope of
+the selected track, so you can watch a knob change the wave. A saw is a
+ramp, a square is a square, and the filter rounds off the sharp corners.
+Click it to show more or less time. The blue drawing under the envelope
+knobs shows the note's volume over time. Turn both off in **View**.
+
 ### MIDI
 
 Plug gear in over USB (or a USB-MIDI cable), then press **⟳** to rescan.
