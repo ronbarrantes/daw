@@ -113,18 +113,17 @@ pub type Lane = [Option<Step>; STEPS];
 /// removing the ties after it. Returns whether anything changed.
 pub fn set_note_length(lane: &mut Lane, head: usize, end: usize) -> bool {
     let before = *lane;
-    let mut last = head;
-    for step in head + 1..=end.min(STEPS - 1) {
-        if Step::is_hit(&lane[step]) {
-            break;
-        }
-        last = step;
-    }
-    for step in head + 1..STEPS {
+    // How far it can go: up to `end`, or just before the next note.
+    let room = lane[head + 1..=end.max(head).min(STEPS - 1)]
+        .iter()
+        .take_while(|s| !Step::is_hit(s))
+        .count();
+    let last = head + room;
+    for (step, cell) in lane.iter_mut().enumerate().skip(head + 1) {
         if step <= last {
-            lane[step] = Some(Step::TIE);
-        } else if lane[step].is_some_and(|s| s.tie) {
-            lane[step] = None;
+            *cell = Some(Step::TIE);
+        } else if cell.is_some_and(|s| s.tie) {
+            *cell = None;
         } else {
             break;
         }
