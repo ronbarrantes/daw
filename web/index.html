@@ -28,7 +28,7 @@
     // reload, find, help...). The app still sees the keys.
     window.addEventListener("keydown", (e) => {
       const mod = e.ctrlKey || e.metaKey;
-      const appKey = mod && ["s", "o", "g", "z", "y"].includes(e.key.toLowerCase());
+      const appKey = mod && ["s", "o", "g", "z", "y", "d"].includes(e.key.toLowerCase());
       const fKey = ["F1", "F5", "F6", "F7", "F8", "F9"].includes(e.key);
       if (appKey || fKey) e.preventDefault();
     }, true);

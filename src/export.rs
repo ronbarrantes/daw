@@ -1,8 +1,8 @@
 //! Exporting a song: as a WAV file (the sound, for sharing) or a standard
 //! MIDI file (the notes, for other DAWs and hardware synths).
 //!
-//! Both render the song offline with the real engine. They export the song
-//! row once; if it's empty, the current pattern four times.
+//! Both render the song offline with the real engine. They export the
+//! timeline once; if it's empty, the current pattern four times.
 
 use std::io::Cursor;
 
@@ -12,7 +12,7 @@ use crate::project::Project;
 pub const SAMPLE_RATE: u32 = 48_000;
 /// Seconds of sound kept after the last bar, so notes can ring out.
 const TAIL_SECONDS: f32 = 2.0;
-/// How many times to play the pattern when the song row is empty.
+/// How many times to play the pattern when the timeline is empty.
 const PATTERN_LOOPS: usize = 4;
 /// MIDI ticks per beat.
 const PPQ: u16 = 480;
@@ -229,7 +229,7 @@ mod tests {
 
     #[test]
     fn wav_holds_the_song_plus_a_tail() {
-        // The demo's song row is one bar: 2 seconds at 120 BPM.
+        // The demo timeline is one bar: 2 seconds at 120 BPM.
         let bytes = wav(&Project::demo(), 120.0, 0).unwrap();
         let mut reader = hound::WavReader::new(Cursor::new(bytes)).unwrap();
         let spec = reader.spec();

@@ -11,6 +11,7 @@ mod midi;
 mod project;
 mod sample;
 mod synth;
+mod timeline;
 mod undo;
 mod web;
 mod widgets;
@@ -30,7 +31,7 @@ use audio::{Event, Shared};
 use midi::{Midi, Played, Route};
 use project::{
     Effects, Grid, Kind, Project, Row, Sample, Step, Track, ACCENT, EMPTY_GRID, GHOST, LANES,
-    MAX_RATCHET, MAX_TRACKS, NORMAL, PATTERNS, SONG_SLOTS, STEPS,
+    MAX_RATCHET, MAX_TRACKS, NORMAL, STEPS,
 };
 use synth::{Param, Unit, PARAMS};
 use undo::Undo;
@@ -270,6 +271,7 @@ struct App {
     show_help: bool,
     show_about: bool,
     show_fx: bool,
+    timeline: timeline::State,
     /// Waiting for "save changes first?" to be answered.
     confirm: Option<Then>,
     /// Extra tracks picked with Ctrl/Cmd-click, for grouping.
@@ -355,6 +357,7 @@ impl App {
             show_help: false,
             show_about: false,
             show_fx: false,
+            timeline: timeline::State::default(),
             confirm: None,
             picked: Vec::new(),
             selected_group: None,
@@ -397,10 +400,6 @@ fn key_semitone(key: egui::Key) -> Option<u8> {
     use egui::Key::*;
     let keys = [A, W, S, E, D, F, T, G, Y, H, U, J, K, O, L, P];
     keys.iter().position(|&k| k == key).map(|i| i as u8)
-}
-
-fn pattern_name(p: usize) -> String {
-    char::from(b'A' + p as u8).to_string()
 }
 
 /// Shift-click: a ghost note on an empty or normal step, normal on a ghost.
@@ -497,6 +496,19 @@ fn step_marks(s: &Step) -> String {
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let playing = self.shared.playing.load(Relaxed);
+        // Undo or deleting a pattern can leave the editor pointing past
+        // the last one.
+        let last = self.project.patterns.len() - 1;
+        if self.shared.edit_pattern.load(Relaxed) as usize > last {
+            self.shared.edit_pattern.store(last as u8, Relaxed);
+        }
+        if self
+            .timeline
+            .selected
+            .is_some_and(|i| i >= self.project.clips.len())
+        {
+            self.timeline.selected = None;
+        }
         // Nothing is recorded during the count-in bar.
         let rolling = playing && !self.shared.counting_in.load(Relaxed);
         self.shared.count_in.store(self.recording, Relaxed);
@@ -507,13 +519,14 @@ impl eframe::App for App {
         self.file_shortcuts(ctx);
         if !ctx.wants_keyboard_input() {
             if ctx.input(|i| i.key_pressed(egui::Key::Space)) {
-                self.shared.playing.store(!playing, Relaxed);
+                self.set_playing(!playing);
             }
             if ctx.input(|i| i.key_pressed(egui::Key::F1)) {
                 self.show_help = !self.show_help;
             }
             self.view_keys(ctx);
             self.undo_keys(ctx);
+            self.timeline_keys(ctx);
             if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::G)) {
                 self.group_picked();
             }
@@ -599,9 +612,9 @@ impl eframe::App for App {
         egui::CentralPanel::default().show(ctx, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 if self.view.song {
-                    self.song_row(ui, playing);
+                    self.timeline(ui, playing);
                     ui.add_space(6.0);
-                    self.pattern_row(ui);
+                    self.library_row(ui);
                     ui.add_space(6.0);
                 }
                 let edit = self.shared.edit_pattern.load(Relaxed) as usize;
@@ -1015,7 +1028,7 @@ impl App {
             self.load_error = Some(format!("Can't add {}: {MAX_TRACKS} tracks max", track.name));
             return;
         }
-        self.project.tracks.push(track);
+        self.project.add_track(track);
         self.selected = self.project.tracks.len() - 1;
         self.load_error = None;
         self.dirty = true;
@@ -1183,7 +1196,7 @@ impl App {
                     self.save_as();
                 }
                 ui.separator();
-                // Exports the Song row, or the current pattern four times if it's empty.
+                // Exports the timeline, or the current pattern four times if it's empty.
                 if item(ui, "Export WAV…", "") {
                     self.export(ctx, ExportKind::Wav);
                 }
@@ -1253,7 +1266,7 @@ impl App {
             });
             ui.menu_button("View", |ui| {
                 let v = &mut self.view;
-                ui.checkbox(&mut v.song, "Song and patterns  (F5)");
+                ui.checkbox(&mut v.song, "Timeline and patterns  (F5)");
                 ui.checkbox(&mut v.tracks, "Tracks  (F6)");
                 ui.checkbox(&mut v.piano, "Piano roll  (F7)");
                 ui.checkbox(&mut v.panel, "Instrument panel  (F8)");
@@ -1425,7 +1438,7 @@ impl App {
         ui.horizontal(|ui| {
             let label = if playing { "■ Stop" } else { "▶ Play" };
             if ui.button(label).clicked() {
-                s.playing.store(!playing, Relaxed);
+                self.set_playing(!playing);
             }
             let mut bpm = s.bpm();
             ui.label("BPM");
@@ -1456,12 +1469,15 @@ impl App {
             {
                 s.song_mode.store(false, Relaxed);
             }
-            let song_hint = "Play the song row, bar by bar";
+            let song_hint = "Play the timeline, from the cursor";
             if ui
                 .selectable_label(song, "Song")
                 .on_hover_text(song_hint)
                 .clicked()
+                && !song
             {
+                // Pick up from the cursor rather than bar 1.
+                s.seek.store(self.timeline.cursor, Relaxed);
                 s.song_mode.store(true, Relaxed);
             }
             ui.separator();
@@ -1596,73 +1612,6 @@ impl App {
             let mut ext = s.external_sync.load(Relaxed);
             if ui.checkbox(&mut ext, "Follow MIDI clock").changed() {
                 s.external_sync.store(ext, Relaxed);
-            }
-        });
-    }
-
-    /// The song arrangement: one pattern per bar.
-    fn song_row(&mut self, ui: &mut egui::Ui, playing: bool) {
-        let edit = self.edit_pattern();
-        let song_mode = self.shared.song_mode.load(Relaxed);
-        let pos = self.shared.song_pos.load(Relaxed);
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 2.0;
-            ui.add_sized(
-                [62.0, 20.0],
-                egui::Label::new(RichText::new("Song").strong()),
-            )
-            .on_hover_text(
-                "Click a bar to place the selected pattern.\n\
-                     Click it again or right-click to empty it.",
-            );
-            for bar in 0..SONG_SLOTS {
-                let slot = self.project.song[bar].map(usize::from);
-                let fill = match (slot.is_some(), bar % 4 == 0) {
-                    (true, _) => Color32::from_rgb(70, 120, 70),
-                    (false, true) => Color32::from_gray(60),
-                    (false, false) => Color32::from_gray(45),
-                };
-                let cell = egui::Button::new(slot.map(pattern_name).unwrap_or_default())
-                    .fill(fill)
-                    .stroke(playhead(playing && song_mode && bar == pos))
-                    .min_size(Vec2::new(20.0, 22.0));
-                let resp = ui.add(cell);
-                if resp.secondary_clicked() || (resp.clicked() && slot == Some(edit)) {
-                    self.project.song[bar] = None;
-                    self.dirty = true;
-                } else if resp.clicked() {
-                    self.project.song[bar] = Some(edit as u8);
-                    self.dirty = true;
-                }
-            }
-        });
-    }
-
-    fn pattern_row(&mut self, ui: &mut egui::Ui) {
-        let edit = self.edit_pattern();
-        ui.horizontal(|ui| {
-            ui.add_sized(
-                [60.0, 20.0],
-                egui::Label::new(RichText::new("Pattern").strong()),
-            );
-            for p in 0..PATTERNS {
-                let button = egui::Button::new(pattern_name(p))
-                    .selected(p == edit)
-                    .min_size(Vec2::new(28.0, 22.0));
-                if ui.add(button).on_hover_text("Edit this pattern").clicked() {
-                    self.shared.edit_pattern.store(p as u8, Relaxed);
-                }
-            }
-            ui.separator();
-            if ui.button("Copy").clicked() {
-                self.copy_pattern();
-            }
-            let paste = ui.add_enabled(self.clipboard.is_some(), egui::Button::new("Paste"));
-            if paste.clicked() {
-                self.paste_pattern();
-            }
-            if ui.button("Clear").clicked() {
-                self.clear_pattern();
             }
         });
     }

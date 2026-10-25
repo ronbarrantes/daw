@@ -22,7 +22,7 @@ const SECTIONS: &[(&str, &str)] = &[
          anything would lose them.\n\
          • File > Export WAV… saves the sound to share or post. Export MIDI… \
          saves the notes for other DAWs or hardware synths. Both export the \
-         Song row, or the current pattern four times if the row is empty.",
+         timeline, or the current pattern four times if it's empty.",
     ),
     (
         "Tracks",
@@ -95,13 +95,33 @@ const SECTIONS: &[(&str, &str)] = &[
          higher on beat 1.",
     ),
     (
-        "Patterns and song",
-        "• A-H pick which pattern you're editing. Each holds every track's \
-         steps. Copy, Paste and Clear work on the pattern you're editing.\n\
-         • Pattern mode loops the pattern you're editing.\n\
-         • Song mode plays the Song row left to right, one bar per box. Click \
-         a box to place the selected pattern; click it again or right-click \
-         to empty it.",
+        "Patterns",
+        "The Patterns row is your library. Click one to edit it in the grid \
+         below; each holds every track's steps.\n\n\
+         • + adds a pattern. Right-click one to rename, duplicate or delete \
+         it.\n\
+         • Copy, Paste and Clear work on the pattern you're editing.\n\
+         • Pattern mode (top bar) loops the pattern you're editing, for \
+         jamming.",
+    ),
+    (
+        "Timeline",
+        "The timeline is where a song comes together. Song mode (top bar) \
+         plays it.\n\n\
+         • Drag a pattern from the library onto it, or double-click it to \
+         place the selected pattern.\n\
+         • Drag a clip to move it; drag its edges to trim or stretch it (a \
+         long clip repeats its pattern). Alt-drag makes a copy.\n\
+         • Clips are linked to their pattern: edit the pattern and every \
+         clip of it changes. Right-click a clip and choose Make unique to \
+         give it its own copy.\n\
+         • Double-click a clip to edit its pattern.\n\
+         • Click the ruler to set where playback starts; drag along it to \
+         mark a loop, and turn Loop on or off.\n\
+         • C splits the selected clip at the cursor, Ctrl+D duplicates it, \
+         Delete removes it.\n\
+         • Snap sets what clips line up to; hold Shift for single steps. \
+         Ctrl+scroll or - and + zoom.",
     ),
     (
         "Synth",
@@ -154,7 +174,8 @@ const SECTIONS: &[(&str, &str)] = &[
          Ctrl+O / Ctrl+N — open / new song\n\
          Ctrl+Z / Ctrl+Shift+Z — undo / redo (Ctrl+Y redoes too)\n\
          Ctrl+G — group the picked tracks\n\
-         F5 / F6 / F7 / F8 — show or hide song, tracks, piano roll, panel\n\
+         F5 / F6 / F7 / F8 — show or hide timeline, tracks, piano roll, panel\n\
+         C / Ctrl+D / Delete — split, duplicate, delete the selected clip\n\
          F9 — show everything\n\
          A–P — play notes on the selected track\n\
          Z / X — octave down / up\n\

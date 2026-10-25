@@ -19,7 +19,9 @@ Ron reads in short bursts: keep replies short and plain.
 
 - `src/audio.rs`: the engine. The audio callback must never lock, block or
   allocate; the UI publishes `Arc<Project>` snapshots and sends `Event`s.
-- `src/project.rs`: the song data (tracks, lanes, patterns, groups).
+- `src/project.rs`: the song data (tracks, lanes, the pattern library,
+  timeline clips, groups). Timeline positions are in steps (16ths).
+- `src/timeline.rs`: the timeline and pattern library UI.
 - `src/main.rs`: the UI; `src/widgets.rs` small widgets; `src/help.rs` the
   F1 guide (keep it in step with the README).
 - The web version is the same app built for `wasm32-unknown-unknown`:

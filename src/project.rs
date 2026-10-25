@@ -9,9 +9,12 @@ use std::sync::Arc;
 use crate::{drums, synth};
 
 pub const STEPS: usize = 16;
-pub const PATTERNS: usize = 8;
-/// Song length limit, in bars (one pattern per bar).
-pub const SONG_SLOTS: usize = 32;
+/// Patterns a new song starts with (A-H); more can be added.
+pub const DEFAULT_PATTERNS: usize = 8;
+pub const MAX_PATTERNS: usize = 64;
+/// Timeline positions are in steps (16th notes); this caps a song at
+/// 512 bars, over 15 minutes at 120 BPM.
+pub const MAX_SONG_STEPS: usize = 512 * STEPS;
 pub const MAX_TRACKS: usize = 16;
 /// Pitched samples play at their original pitch on this note (C4).
 pub const SAMPLE_ROOT: u8 = 60;
@@ -114,7 +117,8 @@ pub const EMPTY_GRID: Grid = [[None; STEPS]; LANES];
 pub struct Track {
     pub name: String,
     pub kind: Kind,
-    pub patterns: [Grid; PATTERNS],
+    /// One grid per pattern, in the order of `Project::patterns`.
+    pub patterns: Vec<Grid>,
     pub volume: f32,
     /// Stereo position, -1 (left) to 1 (right).
     pub pan: f32,
@@ -170,7 +174,7 @@ impl Track {
         Self {
             name: name.to_string(),
             kind,
-            patterns: [EMPTY_GRID; PATTERNS],
+            patterns: vec![EMPTY_GRID; DEFAULT_PATTERNS],
             volume: 0.8,
             pan: 0.0,
             reverb: 0.0,
@@ -227,9 +231,43 @@ impl Track {
 
     /// Whether any lane starts a note at this step.
     pub fn hit_at(&self, pattern: usize, step: usize) -> bool {
-        self.patterns[pattern]
-            .iter()
-            .any(|lane| Step::is_hit(&lane[step]))
+        self.patterns
+            .get(pattern)
+            .is_some_and(|grid| grid.iter().any(|lane| Step::is_hit(&lane[step])))
+    }
+}
+
+/// A pattern's name; its notes live in each track's `patterns`.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Pattern {
+    pub name: String,
+}
+
+/// A pattern placed on the timeline. Clips point to their pattern, so
+/// editing the pattern changes every clip of it ("Make unique" gives a
+/// clip its own copy). Positions and lengths are in steps (16th notes).
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Clip {
+    pub pattern: usize,
+    /// Which timeline row it sits on; rows are only for layout.
+    pub row: usize,
+    pub start: usize,
+    pub len: usize,
+    /// Where in the pattern the clip begins, when its start is trimmed.
+    pub offset: usize,
+}
+
+impl Clip {
+    pub fn end(&self) -> usize {
+        self.start + self.len
+    }
+
+    /// The pattern step playing at song step `at`, if the clip covers it.
+    /// A clip longer than its pattern repeats it.
+    pub fn step_at(&self, at: usize) -> Option<usize> {
+        (self.start..self.end())
+            .contains(&at)
+            .then(|| (self.offset + at - self.start) % STEPS)
     }
 }
 
@@ -255,11 +293,22 @@ impl Effects {
     };
 }
 
+/// Patterns A to H, as every new song starts with.
+pub fn default_patterns() -> Vec<Pattern> {
+    (0..DEFAULT_PATTERNS)
+        .map(|i| Pattern {
+            name: char::from(b'A' + i as u8).to_string(),
+        })
+        .collect()
+}
+
 #[derive(Clone)]
 pub struct Project {
     pub tracks: Vec<Track>,
-    /// Pattern index per bar; `None` is a silent bar.
-    pub song: [Option<u8>; SONG_SLOTS],
+    /// The pattern library; every track has a grid for each.
+    pub patterns: Vec<Pattern>,
+    /// The timeline.
+    pub clips: Vec<Clip>,
     /// 0-1: how late every other 16th note plays. 0.66 is a triplet shuffle.
     pub swing: f32,
     pub groups: Vec<Group>,
@@ -270,7 +319,8 @@ impl Project {
     pub fn empty() -> Self {
         Self {
             tracks: Vec::new(),
-            song: [None; SONG_SLOTS],
+            patterns: default_patterns(),
+            clips: Vec::new(),
             swing: 0.0,
             groups: Vec::new(),
             effects: Effects::DEFAULT,
@@ -360,12 +410,111 @@ impl Project {
             .retain(|g| tracks.iter().any(|t| t.group == Some(g.id)));
     }
 
-    /// Bars up to and including the last filled one.
+    /// Steps up to the end of the last clip.
     pub fn song_len(&self) -> usize {
-        self.song
-            .iter()
-            .rposition(Option::is_some)
-            .map_or(0, |b| b + 1)
+        self.clips.iter().map(Clip::end).max().unwrap_or(0)
+    }
+
+    /// Adds a track, giving it a grid for every pattern.
+    pub fn add_track(&mut self, mut track: Track) {
+        track.patterns.resize(self.patterns.len(), EMPTY_GRID);
+        self.tracks.push(track);
+    }
+
+    /// A name not used by any pattern yet: `base`, or `base 2`, `base 3`...
+    fn unused_name(&self, base: &str) -> String {
+        let taken = |n: &str| self.patterns.iter().any(|p| p.name == n);
+        if !taken(base) {
+            return base.to_string();
+        }
+        (2..)
+            .map(|i| format!("{base} {i}"))
+            .find(|n| !taken(n))
+            .expect("some number is free")
+    }
+
+    /// Adds an empty pattern and returns its index, unless the library is full.
+    pub fn new_pattern(&mut self) -> Option<usize> {
+        if self.patterns.len() >= MAX_PATTERNS {
+            return None;
+        }
+        // The next letter, or "P9" style names past Z.
+        let n = self.patterns.len();
+        let base = if n < 26 {
+            char::from(b'A' + n as u8).to_string()
+        } else {
+            format!("P{}", n + 1)
+        };
+        let name = self.unused_name(&base);
+        self.patterns.push(Pattern { name });
+        for t in &mut self.tracks {
+            t.patterns.push(EMPTY_GRID);
+        }
+        Some(self.patterns.len() - 1)
+    }
+
+    /// Copies a pattern (notes and all) and returns the copy's index.
+    pub fn duplicate_pattern(&mut self, p: usize) -> Option<usize> {
+        if p >= self.patterns.len() || self.patterns.len() >= MAX_PATTERNS {
+            return None;
+        }
+        let name = self.unused_name(&self.patterns[p].name);
+        self.patterns.push(Pattern { name });
+        for t in &mut self.tracks {
+            let grid = t.patterns.get(p).copied().unwrap_or(EMPTY_GRID);
+            t.patterns.push(grid);
+        }
+        Some(self.patterns.len() - 1)
+    }
+
+    /// Removes a pattern and its clips. The last pattern can't be removed.
+    pub fn delete_pattern(&mut self, p: usize) {
+        if p >= self.patterns.len() || self.patterns.len() == 1 {
+            return;
+        }
+        self.patterns.remove(p);
+        for t in &mut self.tracks {
+            if p < t.patterns.len() {
+                t.patterns.remove(p);
+            }
+        }
+        self.clips.retain(|c| c.pattern != p);
+        for c in &mut self.clips {
+            if c.pattern > p {
+                c.pattern -= 1;
+            }
+        }
+    }
+
+    /// Gives a clip its own copy of its pattern, so editing it no longer
+    /// changes the other clips. Returns the new pattern.
+    pub fn make_unique(&mut self, clip: usize) -> Option<usize> {
+        let p = self.clips.get(clip)?.pattern;
+        let copy = self.duplicate_pattern(p)?;
+        self.clips[clip].pattern = copy;
+        Some(copy)
+    }
+
+    /// Splits a clip in two at song step `at`. Returns the right half's
+    /// index, or `None` if `at` isn't inside the clip.
+    pub fn split_clip(&mut self, clip: usize, at: usize) -> Option<usize> {
+        let c = *self.clips.get(clip)?;
+        if at <= c.start || at >= c.end() {
+            return None;
+        }
+        self.clips[clip].len = at - c.start;
+        self.clips.push(Clip {
+            start: at,
+            len: c.end() - at,
+            offset: (c.offset + at - c.start) % STEPS,
+            ..c
+        });
+        Some(self.clips.len() - 1)
+    }
+
+    /// How many clips use a pattern.
+    pub fn uses(&self, p: usize) -> usize {
+        self.clips.iter().filter(|c| c.pattern == p).count()
     }
 
     /// Built-in drums and a synth lead, with a beat and a riff in pattern A.
@@ -429,11 +578,16 @@ impl Project {
         }
         tracks.push(pad);
 
-        let mut song = [None; SONG_SLOTS];
-        song[0] = Some(0);
         let mut project = Self {
             tracks,
-            song,
+            patterns: default_patterns(),
+            clips: vec![Clip {
+                pattern: 0,
+                row: 0,
+                start: 0,
+                len: STEPS,
+                offset: 0,
+            }],
             swing: 0.0,
             groups: Vec::new(),
             effects: Effects::DEFAULT,
@@ -487,6 +641,76 @@ mod tests {
                 Row::Track(4),
             ]
         );
+    }
+
+    fn clip(pattern: usize, start: usize, len: usize) -> Clip {
+        Clip {
+            pattern,
+            row: 0,
+            start,
+            len,
+            offset: 0,
+        }
+    }
+
+    #[test]
+    fn clips_repeat_their_pattern_and_can_be_split() {
+        let mut p = Project::demo();
+        p.clips = vec![clip(1, 16, 40)];
+        let c = p.clips[0];
+        assert_eq!(c.step_at(15), None);
+        assert_eq!(c.step_at(16), Some(0));
+        assert_eq!(c.step_at(33), Some(1), "repeats after 16 steps");
+        assert_eq!(c.step_at(56), None, "ends after 40 steps");
+        assert_eq!(p.song_len(), 56);
+
+        let right = p.split_clip(0, 22).unwrap();
+        assert_eq!((p.clips[0].start, p.clips[0].len), (16, 6));
+        let r = p.clips[right];
+        assert_eq!((r.start, r.len, r.offset), (22, 34, 6));
+        assert_eq!(r.step_at(22), Some(6), "carries on where it was split");
+        assert_eq!(p.split_clip(0, 16), None, "not at the very edge");
+    }
+
+    #[test]
+    fn make_unique_copies_the_pattern_for_one_clip() {
+        let mut p = Project::demo();
+        p.clips = vec![clip(0, 0, 16), clip(0, 16, 16)];
+        let copy = p.make_unique(1).unwrap();
+        assert_eq!(p.patterns[copy].name, "A 2");
+        assert_eq!(p.clips[0].pattern, 0, "the other clip stays linked");
+        assert_eq!(p.clips[1].pattern, copy);
+        for t in &p.tracks {
+            assert_eq!(t.patterns.len(), p.patterns.len());
+            assert_eq!(t.patterns[copy], t.patterns[0], "same notes to start");
+        }
+        p.tracks[0].patterns[copy][0][1] = Some(Step::HIT);
+        assert_ne!(p.tracks[0].patterns[copy], p.tracks[0].patterns[0]);
+    }
+
+    #[test]
+    fn deleting_a_pattern_removes_its_clips_and_renumbers() {
+        let mut p = Project::demo();
+        p.clips = vec![clip(0, 0, 16), clip(2, 16, 16), clip(5, 32, 16)];
+        p.delete_pattern(2);
+        assert_eq!(p.patterns.len(), DEFAULT_PATTERNS - 1);
+        assert_eq!(p.patterns[2].name, "D");
+        let patterns: Vec<usize> = p.clips.iter().map(|c| c.pattern).collect();
+        assert_eq!(patterns, [0, 4]);
+        assert!(p
+            .tracks
+            .iter()
+            .all(|t| t.patterns.len() == p.patterns.len()));
+    }
+
+    #[test]
+    fn new_patterns_get_free_names_up_to_the_limit() {
+        let mut p = Project::empty();
+        assert_eq!(p.new_pattern(), Some(8));
+        assert_eq!(p.patterns[8].name, "I");
+        while p.new_pattern().is_some() {}
+        assert_eq!(p.patterns.len(), MAX_PATTERNS);
+        assert_eq!(p.patterns[30].name, "P31");
     }
 
     #[test]
