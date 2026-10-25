@@ -1044,8 +1044,12 @@ impl App {
         }
     }
 
+    /// Briefly plays one lane of a track.
     fn preview(&self, track: usize, lane: usize) {
-        let _ = self.events.try_send(Event::Preview { track, lane });
+        if let Some(t) = self.project.tracks.get(track) {
+            let note = t.note(lane);
+            let _ = self.events.try_send(Event::Preview { track, note });
+        }
     }
 
     /// What the Jam view has open, for exports.
@@ -1818,7 +1822,8 @@ impl App {
                     self.selected = i;
                     self.selected_group = None;
                     self.picked.clear();
-                    let _ = self.events.try_send(Event::Preview { track: i, lane: 0 });
+                    let note = track.note(0);
+                    let _ = self.events.try_send(Event::Preview { track: i, note });
                 }
             }
             resp.context_menu(|ui| {
@@ -2010,6 +2015,7 @@ impl App {
         });
         ui.add_space(4.0);
         ui.spacing_mut().item_spacing.y = 2.0;
+        let base = track.base_note();
         let grid = &mut track.patterns[pattern];
         // Where each step's column is, for working out where a note is
         // being dragged to.
@@ -2018,6 +2024,7 @@ impl App {
         for lane in (0..LANES).rev() {
             let name = NOTE_NAMES[lane];
             let sharp = name.ends_with('#');
+            let note = base + lane as u8;
             ui.horizontal(|ui| {
                 let key_fill = if sharp {
                     Color32::from_gray(25)
@@ -2028,7 +2035,7 @@ impl App {
                     .fill(key_fill)
                     .min_size(Vec2::new(80.0, 17.0));
                 if ui.add(key).clicked() {
-                    let _ = self.events.try_send(Event::Preview { track: i, lane });
+                    let _ = self.events.try_send(Event::Preview { track: i, note });
                 }
                 ui.add_space(52.0); // line up with the steps above
                 for step in 0..STEPS {
@@ -2077,7 +2084,7 @@ impl App {
                             }
                         } else {
                             lane_steps[step] = Some(Step::HIT);
-                            let _ = self.events.try_send(Event::Preview { track: i, lane });
+                            let _ = self.events.try_send(Event::Preview { track: i, note });
                         }
                         self.dirty = true;
                     } else if Step::is_hit(&value) {

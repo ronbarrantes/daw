@@ -6,8 +6,9 @@
 //! like "play this note now" arrive on a channel. Outgoing MIDI is queued
 //! on a bounded channel and written by the MIDI thread.
 //!
-//! Every track has one voice per lane (piano-roll row), so melodic tracks
-//! can play chords. Steps start on MIDI clock ticks, but each hit is
+//! Every track has a pool of voices, so it can play chords and overlapping
+//! notes; a note played again takes over its own voice, and when all are
+//! busy the oldest is stolen. Steps start on MIDI clock ticks, but each hit is
 //! scheduled to the exact sample, so swing, nudge, humanize and ratchets
 //! aren't limited to the clock's resolution.
 //!
@@ -30,9 +31,7 @@ use cpal::{FromSample, SampleFormat, SizedSample};
 
 use crate::fx::{Delay, Reverb};
 use crate::midi::{self, Msg};
-use crate::project::{
-    Block, Kind, Project, Sample, Step, LANES, MAX_TRACKS, NORMAL, SAMPLE_ROOT, STEPS,
-};
+use crate::project::{Block, Kind, Project, Sample, Step, MAX_TRACKS, NORMAL, SAMPLE_ROOT, STEPS};
 use crate::synth::Voice;
 
 /// MIDI clock runs at 24 ticks per beat, so a 16th-note step is 6 ticks.
@@ -41,6 +40,8 @@ const TICKS_PER_STEP: u32 = 6;
 const NONE: u8 = u8::MAX;
 /// `Shared::seek` when there's nowhere to jump to.
 pub const NO_SEEK: usize = usize::MAX;
+/// Voices per track: how many notes it can sound at once.
+const POLYPHONY: usize = 16;
 /// How long a clicked note sounds, in seconds.
 const PREVIEW_SECONDS: f32 = 0.3;
 /// How often the engine checks for a new project and events, in samples.
@@ -68,10 +69,10 @@ const FX_TAIL_SECONDS: f32 = 10.0;
 
 /// Requests from the UI or MIDI in.
 pub enum Event {
-    /// Briefly play one lane of a track, e.g. when clicking a cell.
+    /// Briefly play a note on a track, e.g. when clicking a cell.
     Preview {
         track: usize,
-        lane: usize,
+        note: u8,
     },
     /// Start a note that lasts until `Release`, from the computer keyboard
     /// or a MIDI controller. `note` is a MIDI note number.
@@ -219,8 +220,8 @@ fn velocity_gain(velocity: u8) -> f32 {
     (velocity as f32 / NORMAL as f32).powf(1.5)
 }
 
-/// Playback state for one lane of one track.
-struct LaneVoice {
+/// One of a track's voices: plays one note at a time.
+struct TrackVoice {
     synth: Voice,
     /// The sample being played, if any. Holding the `Arc` keeps it alive
     /// even if the track is deleted mid-note.
@@ -228,16 +229,21 @@ struct LaneVoice {
     pos: f64,
     rate: f64,
     gain: f32,
-    /// Counts notes, so a scheduled note-off only ends the note it belongs to.
+    /// The note it's playing (or last played).
+    note: u8,
+    /// Which note this is, counting every note the engine starts, so a
+    /// scheduled note-off only ends the note it belongs to.
     generation: u32,
+    /// The note is still held (not released yet).
+    on: bool,
     /// MIDI note (and channel) still on.
     held: Option<(u8, u8)>,
-    /// The note a keyboard or controller is holding here, if any; the
-    /// sequencer leaves the lane alone while it's set.
-    live: Option<u8>,
+    /// A keyboard or controller is holding this note; the sequencer leaves
+    /// the note alone while it's set.
+    live: bool,
 }
 
-impl LaneVoice {
+impl TrackVoice {
     fn new(sr: f32) -> Self {
         Self {
             synth: Voice::new(sr),
@@ -245,10 +251,17 @@ impl LaneVoice {
             pos: 0.0,
             rate: 1.0,
             gain: 1.0,
+            note: 0,
             generation: 0,
+            on: false,
             held: None,
-            live: None,
+            live: false,
         }
+    }
+
+    /// Released and silent, so free for a new note.
+    fn is_free(&self) -> bool {
+        !self.on && self.synth.is_idle() && self.sample.is_none()
     }
 
     fn sample_out(&mut self) -> f32 {
@@ -306,13 +319,13 @@ struct Pending {
     /// Samples until it happens.
     at: u32,
     track: usize,
-    lane: usize,
+    note: u8,
     action: Action,
 }
 
 #[derive(Clone, Copy)]
 enum Action {
-    /// Start the lane's note. `gate` is how long it lasts in samples;
+    /// Start the note. `gate` is how long it lasts in samples;
     /// `None` holds it for a tied step to end.
     On { velocity: u8, gate: Option<u32> },
     /// End the note with this generation, if it's still playing.
@@ -324,8 +337,10 @@ struct Engine {
     project: Arc<Project>,
     events: Receiver<Event>,
     midi_out: SyncSender<Msg>,
-    /// `voices[track][lane]`.
-    voices: Vec<Vec<LaneVoice>>,
+    /// `voices[track]` is the track's pool of `POLYPHONY` voices.
+    voices: Vec<Vec<TrackVoice>>,
+    /// The generation the next note gets.
+    next_generation: u32,
     /// Scheduled hits; preallocated so the audio thread never allocates.
     pending: Vec<Pending>,
     /// Clock tick within the bar, 0..TICKS_PER_STEP * STEPS.
@@ -335,8 +350,9 @@ struct Engine {
     samples_per_tick: f32,
     samples_since_tick: u32,
     samples_to_update: u32,
-    /// The clicked note that's sounding (track, lane), and samples until it stops.
-    preview: Option<(usize, usize, u32)>,
+    /// The clicked note that's sounding (track, generation), and samples
+    /// until it stops.
+    preview: Option<(usize, u32, u32)>,
     /// Each track's level after mute, solo and group volume; worked out
     /// once per project change rather than every sample. Left and right,
     /// so pan is included.
@@ -370,7 +386,7 @@ impl Engine {
         sr: f32,
     ) -> Self {
         let voices = (0..MAX_TRACKS)
-            .map(|_| (0..LANES).map(|_| LaneVoice::new(sr)).collect())
+            .map(|_| (0..POLYPHONY).map(|_| TrackVoice::new(sr)).collect())
             .collect();
         let mut engine = Self {
             project: shared.project(),
@@ -378,6 +394,7 @@ impl Engine {
             events,
             midi_out,
             voices,
+            next_generation: 1,
             pending: Vec::with_capacity(MAX_PENDING),
             tick: 0,
             samples_to_next_tick: 0.0,
@@ -424,6 +441,8 @@ impl Engine {
             if let Kind::Synth(values) = &track.kind {
                 for voice in lanes {
                     voice.synth.set_params(values);
+                    // In case the track was a sampler a moment ago.
+                    voice.sample = None;
                 }
             }
         }
@@ -447,36 +466,74 @@ impl Engine {
     }
 
     /// Never allocates: if the queue is full, the hit is dropped.
-    fn schedule(&mut self, at: f32, track: usize, lane: usize, action: Action) {
+    fn schedule(&mut self, at: f32, track: usize, note: u8, action: Action) {
         if self.pending.len() < MAX_PENDING {
             let at = at.max(0.0) as u32;
             self.pending.push(Pending {
                 at,
                 track,
-                lane,
+                note,
                 action,
             });
         }
     }
 
-    /// Starts MIDI note `note` in a track's lane and returns its generation.
-    fn note_on(&mut self, i: usize, lane: usize, note: u8, velocity: u8) -> u32 {
-        self.note_off(i, lane);
+    /// The note a track really plays for `note`: one-shot tracks always
+    /// play (and send) their own note, e.g. 36 for a kick.
+    fn key(&self, i: usize, note: u8) -> u8 {
+        match self.project.tracks.get(i) {
+            Some(t) if !t.is_melodic() => t.midi_note,
+            _ => note,
+        }
+    }
+
+    /// The voice of track `i` holding `note`, if any (and if `live`, only
+    /// one a keyboard or controller is holding).
+    fn holding(&self, i: usize, note: u8, live: bool) -> Option<usize> {
+        self.voices[i]
+            .iter()
+            .position(|v| v.on && v.note == note && (v.live || !live))
+    }
+
+    /// Which voice plays a new note: the one already playing that note (as
+    /// on a drum machine; MIDI can't have a note on twice anyway), else a
+    /// free one, else the oldest released one, else the oldest.
+    fn pick_voice(&self, i: usize, note: u8) -> usize {
+        let voices = &self.voices[i];
+        let age = |v: &TrackVoice| self.next_generation.wrapping_sub(v.generation);
+        let oldest = |released: bool| {
+            (0..voices.len())
+                .filter(|&v| !released || !voices[v].on)
+                .max_by_key(|&v| age(&voices[v]))
+        };
+        voices
+            .iter()
+            .position(|v| v.note == note && !v.is_free())
+            .or_else(|| voices.iter().position(TrackVoice::is_free))
+            .or_else(|| oldest(true))
+            .or_else(|| oldest(false))
+            .unwrap_or(0)
+    }
+
+    /// Starts MIDI note `note` on a track and returns its generation.
+    fn note_on(&mut self, i: usize, note: u8, velocity: u8) -> u32 {
+        let note = self.key(i, note);
+        let v = self.pick_voice(i, note);
+        self.voice_off(i, v);
         let project = self.project.clone();
         let track = &project.tracks[i];
-        // One-shot tracks always send their own note (e.g. 36 for a kick).
-        let midi_note = if track.is_melodic() {
-            note
-        } else {
-            track.midi_note
-        };
         if let Some(ch) = track.midi_channel {
-            self.send(Msg::three(0x90 | ch, midi_note, velocity));
-            self.voices[i][lane].held = Some((midi_note, ch));
+            self.send(Msg::three(0x90 | ch, note, velocity));
+            self.voices[i][v].held = Some((note, ch));
         }
-        let voice = &mut self.voices[i][lane];
+        let generation = self.next_generation;
+        self.next_generation = generation.wrapping_add(1);
+        let voice = &mut self.voices[i][v];
         voice.gain = velocity_gain(velocity);
-        voice.generation = voice.generation.wrapping_add(1);
+        voice.note = note;
+        voice.generation = generation;
+        voice.on = true;
+        voice.live = false;
         match &track.kind {
             Kind::Synth(_) => voice.synth.note_on(note),
             Kind::Sampler { sample, pitched } => {
@@ -490,23 +547,37 @@ impl Engine {
                 voice.sample = Some(sample.clone());
             }
         }
-        voice.generation
+        generation
     }
 
-    /// Ends a lane's note. Samples keep ringing to their end; synths release.
-    fn note_off(&mut self, i: usize, lane: usize) {
-        if let Some((note, ch)) = self.voices[i][lane].held.take() {
+    /// Ends a voice's note. Samples keep ringing to their end; synths release.
+    fn voice_off(&mut self, i: usize, v: usize) {
+        let voice = &mut self.voices[i][v];
+        voice.on = false;
+        voice.live = false;
+        voice.synth.note_off();
+        if let Some((note, ch)) = voice.held.take() {
             self.send(Msg::three(0x80 | ch, note, 0));
         }
-        self.voices[i][lane].synth.note_off();
+    }
+
+    /// Ends the note with this generation, if it's still held and nobody
+    /// is playing it live.
+    fn generation_off(&mut self, i: usize, generation: u32) {
+        let v = self.voices[i]
+            .iter()
+            .position(|v| v.on && !v.live && v.generation == generation);
+        if let Some(v) = v {
+            self.voice_off(i, v);
+        }
     }
 
     fn all_notes_off(&mut self) {
         self.pending.clear();
         for i in 0..MAX_TRACKS {
-            for lane in 0..LANES {
-                if self.voices[i][lane].live.is_none() {
-                    self.note_off(i, lane);
+            for v in 0..POLYPHONY {
+                if !self.voices[i][v].live {
+                    self.voice_off(i, v);
                 }
             }
         }
@@ -524,31 +595,32 @@ impl Engine {
         }
         while let Ok(event) = self.events.try_recv() {
             match event {
-                Event::Preview { track, lane } if track < self.track_count() => {
-                    let lane = lane.min(LANES - 1);
-                    let note = self.project.tracks[track].note(lane);
-                    self.note_on(track, lane, note, NORMAL);
-                    self.preview = Some((track, lane, (PREVIEW_SECONDS * self.sr) as u32));
+                Event::Preview { track, note } if track < self.track_count() => {
+                    if let Some((t, generation, _)) = self.preview.take() {
+                        self.generation_off(t, generation);
+                    }
+                    let generation = self.note_on(track, note, NORMAL);
+                    self.preview = Some((track, generation, (PREVIEW_SECONDS * self.sr) as u32));
                 }
                 Event::Hold {
                     track,
                     note,
                     velocity,
                 } if track < self.track_count() => {
-                    let lane = self.project.tracks[track].lane_for(note);
-                    self.note_on(track, lane, note, velocity);
-                    self.voices[track][lane].live = Some(note);
+                    let generation = self.note_on(track, note, velocity);
+                    if let Some(v) = self.voices[track]
+                        .iter_mut()
+                        .find(|v| v.generation == generation)
+                    {
+                        v.live = true;
+                    }
                 }
                 Event::Release { track, note } if track < MAX_TRACKS => {
-                    // The track may have been deleted; then lane 0 is as good as any.
-                    let lane = self
-                        .project
-                        .tracks
-                        .get(track)
-                        .map_or(0, |t| t.lane_for(note));
-                    if self.voices[track][lane].live == Some(note) {
-                        self.voices[track][lane].live = None;
-                        self.note_off(track, lane);
+                    // The track may have been deleted; then any voice
+                    // holding the note will do.
+                    let note = self.key(track, note);
+                    if let Some(v) = self.holding(track, note, true) {
+                        self.voice_off(track, v);
                     }
                 }
                 _ => {}
@@ -697,16 +769,18 @@ impl Engine {
         let Some(s) = steps[step] else {
             return;
         };
+        let note = track.note(lane);
         let step_len = self.samples_per_tick * TICKS_PER_STEP as f32;
         let next_tied = room > 0 && steps[step + 1].is_some_and(|n| n.tie);
 
         if s.tie {
             // The note was started by an earlier step; end it here unless
             // the tie carries on.
-            if !next_tied {
-                let generation = self.voices[i][lane].generation;
+            let held = self.holding(i, self.key(i, note), false);
+            if let (false, Some(v)) = (next_tied, held) {
+                let generation = self.voices[i][v].generation;
                 let at = start + step_len * GATE;
-                self.schedule(at, i, lane, Action::Off { generation });
+                self.schedule(at, i, note, Action::Off { generation });
             }
             return;
         }
@@ -722,7 +796,7 @@ impl Engine {
             let last = r + 1 == ratchet;
             let gate = (!(last && next_tied)).then_some((slice * GATE) as u32);
             let action = Action::On { velocity, gate };
-            self.schedule(start + r as f32 * slice + late, i, lane, action);
+            self.schedule(start + r as f32 * slice + late, i, note, action);
         }
     }
 
@@ -763,27 +837,21 @@ impl Engine {
         if p.track >= self.track_count() {
             return;
         }
-        let voice = &self.voices[p.track][p.lane];
         match p.action {
             Action::On { velocity, gate } => {
-                if voice.live.is_some() {
-                    return; // you're playing this lane live
+                if self
+                    .holding(p.track, self.key(p.track, p.note), true)
+                    .is_some()
+                {
+                    return; // you're playing this note live
                 }
-                let note = self.project.tracks[p.track].note(p.lane);
-                let generation = self.note_on(p.track, p.lane, note, velocity);
+                let generation = self.note_on(p.track, p.note, velocity);
                 if let Some(gate) = gate {
                     let off = Action::Off { generation };
-                    self.schedule(gate as f32, p.track, p.lane, off);
+                    self.schedule(gate as f32, p.track, p.note, off);
                 }
             }
-            Action::Off { generation } => {
-                let previewing = self
-                    .preview
-                    .is_some_and(|(t, l, _)| t == p.track && l == p.lane);
-                if voice.generation == generation && voice.live.is_none() && !previewing {
-                    self.note_off(p.track, p.lane);
-                }
-            }
+            Action::Off { generation } => self.generation_off(p.track, generation),
         }
     }
 
@@ -893,14 +961,12 @@ impl Engine {
         }
         self.run_pending();
 
-        if let Some((track, lane, left)) = self.preview {
+        if let Some((track, generation, left)) = self.preview {
             if left <= 1 {
                 self.preview = None;
-                if self.voices[track][lane].live.is_none() {
-                    self.note_off(track, lane);
-                }
+                self.generation_off(track, generation);
             } else {
-                self.preview = Some((track, lane, left - 1));
+                self.preview = Some((track, generation, left - 1));
             }
         }
 
@@ -1130,6 +1196,18 @@ mod tests {
             self.midi.try_iter().collect()
         }
 
+        /// The voice of a track that last played `note`.
+        fn voice(&self, track: usize, note: u8) -> &TrackVoice {
+            let voices = &self.engine.voices[track];
+            voices.iter().find(|v| v.note == note).expect("a voice")
+        }
+
+        /// How many of a track's voices are making sound.
+        fn sounding(&self, track: usize) -> usize {
+            let voices = &self.engine.voices[track];
+            voices.iter().filter(|v| !v.is_free()).count()
+        }
+
         /// Plays and returns the sample index of each MIDI note-on for `note`.
         fn note_times(&mut self, samples: usize, note: u8) -> Vec<usize> {
             self.shared.playing.store(true, Relaxed);
@@ -1157,6 +1235,20 @@ mod tests {
 
     fn hit() -> Option<Step> {
         Some(Step::HIT)
+    }
+
+    /// Clicks a track's name: plays its first lane.
+    fn preview(track: usize) -> Event {
+        let note = Project::demo().tracks[track].note(0);
+        Event::Preview { track, note }
+    }
+
+    fn hold(track: usize, note: u8) -> Event {
+        Event::Hold {
+            track,
+            note,
+            velocity: 90,
+        }
     }
 
     #[test]
@@ -1221,9 +1313,49 @@ mod tests {
         for note in [60, 63, 67] {
             assert!(msgs.contains(&Msg::three(0x91, note, 100)), "note {note}");
         }
-        let voices = &rig.engine.voices[PAD];
-        let sounding = voices.iter().filter(|v| !v.synth.is_idle()).count();
-        assert_eq!(sounding, 3, "three voices at once");
+        assert_eq!(rig.sounding(PAD), 3, "three voices at once");
+    }
+
+    #[test]
+    fn notes_an_octave_apart_get_their_own_voices() {
+        // One voice per piano-roll row used to put C3 and C4 on one voice.
+        let mut rig = Rig::new(quiet_demo());
+        for note in [48, 60, 72, 52, 64] {
+            rig.send(hold(LEAD, note));
+        }
+        rig.run(UPDATE_INTERVAL as usize);
+        assert_eq!(rig.sounding(LEAD), 5);
+        let msgs = rig.midi();
+        assert!(!msgs.iter().any(|m| m.bytes()[0] & 0xF0 == 0x80), "no cuts");
+    }
+
+    #[test]
+    fn the_oldest_voice_is_stolen_when_all_are_busy() {
+        let mut project = quiet_demo();
+        project.tracks[LEAD].midi_channel = Some(0);
+        let mut rig = Rig::new(project);
+        for note in 40..40 + POLYPHONY as u8 + 2 {
+            rig.send(hold(LEAD, note));
+        }
+        rig.run(UPDATE_INTERVAL as usize);
+        assert_eq!(rig.sounding(LEAD), POLYPHONY);
+        let offs: Vec<u8> = rig
+            .midi()
+            .iter()
+            .filter(|m| m.bytes()[0] & 0xF0 == 0x80)
+            .map(|m| m.bytes()[1])
+            .collect();
+        assert_eq!(offs, [40, 41], "the first two notes gave way");
+    }
+
+    #[test]
+    fn a_note_played_again_takes_over_its_voice() {
+        let mut rig = Rig::new(quiet_demo());
+        rig.send(preview(LEAD));
+        rig.run(2_000);
+        rig.send(preview(LEAD));
+        rig.run(UPDATE_INTERVAL as usize);
+        assert_eq!(rig.sounding(LEAD), 1, "one C3, played twice");
     }
 
     #[test]
@@ -1346,10 +1478,7 @@ mod tests {
     fn synth_knobs_change_the_sound() {
         let mut rig = Rig::new(quiet_demo());
         let play = |rig: &mut Rig| {
-            rig.send(Event::Preview {
-                track: LEAD,
-                lane: 0,
-            });
+            rig.send(preview(LEAD));
             rig.run(4_800).iter().map(|s| s.abs()).sum::<f32>()
         };
         let before = play(&mut rig);
@@ -1371,20 +1500,14 @@ mod tests {
         let mut project = quiet_demo();
         project.tracks[KICK].muted = true;
         let mut rig = Rig::new(project);
-        rig.send(Event::Preview {
-            track: KICK,
-            lane: 0,
-        });
+        rig.send(preview(KICK));
         assert!(rig.run(4_800).iter().all(|s| *s == 0.0), "muted");
 
         let mut project = quiet_demo();
         project.tracks[LEAD].solo = true;
         rig.shared.publish(Arc::new(project));
         rig.run(48_000);
-        rig.send(Event::Preview {
-            track: KICK,
-            lane: 0,
-        });
+        rig.send(preview(KICK));
         assert!(
             rig.run(4_800).iter().all(|s| *s == 0.0),
             "another track is soloed"
@@ -1438,10 +1561,7 @@ mod tests {
             project.tracks[KICK].reverb = reverb;
             project.tracks[KICK].delay = delay;
             let mut rig = Rig::new(project);
-            rig.send(Event::Preview {
-                track: KICK,
-                lane: 0,
-            });
+            rig.send(preview(KICK));
             let out = rig.run(48_000);
             out[30_000..].iter().map(|s| s.abs()).sum::<f32>()
         };
@@ -1456,10 +1576,7 @@ mod tests {
     fn scope_shows_the_selected_track() {
         let mut rig = Rig::new(quiet_demo());
         rig.shared.selected_track.store(LEAD, Relaxed);
-        rig.send(Event::Preview {
-            track: LEAD,
-            lane: 0,
-        });
+        rig.send(preview(LEAD));
         rig.run(2_000);
         let mut seen = [0.0; 512];
         rig.shared.read_scope(&mut seen);
@@ -1477,10 +1594,7 @@ mod tests {
             let mut project = quiet_demo();
             project.tracks[KICK].pan = pan;
             let mut rig = Rig::new(project);
-            rig.send(Event::Preview {
-                track: KICK,
-                lane: 0,
-            });
+            rig.send(preview(KICK));
             rig.run_stereo(4_800)
                 .iter()
                 .fold([0.0; 2], |[l, r], [a, b]| [l + a.abs(), r + b.abs()])
@@ -1506,14 +1620,20 @@ mod tests {
         project.tracks.push(Track::sampler(sample, true));
         let i = project.tracks.len() - 1;
         let mut rig = Rig::new(project);
-        rig.send(Event::Preview { track: i, lane: 0 });
+        rig.send(Event::Preview {
+            track: i,
+            note: SAMPLE_ROOT,
+        });
         rig.run(1);
-        let rate = rig.engine.voices[i][0].rate;
+        let rate = rig.voice(i, SAMPLE_ROOT).rate;
         assert!((rate - 1.0).abs() < 1e-6, "C4 plays as recorded");
-        rig.send(Event::Preview { track: i, lane: 7 });
+        rig.send(Event::Preview {
+            track: i,
+            note: SAMPLE_ROOT + 7,
+        });
         rig.run(UPDATE_INTERVAL as usize);
         let fifth = 2f64.powf(7.0 / 12.0);
-        let rate = rig.engine.voices[i][7].rate;
+        let rate = rig.voice(i, SAMPLE_ROOT + 7).rate;
         assert!((rate - fifth).abs() < 1e-4, "G4 a fifth up");
     }
 
