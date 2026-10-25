@@ -2,11 +2,12 @@
 //! MIDI file (the notes, for other DAWs and hardware synths).
 //!
 //! Both render the song offline with the real engine. They export the
-//! timeline once; if it's empty, the current pattern four times.
+//! timeline once; if it's empty, the current block's chain, or else the
+//! current pattern four times.
 
 use std::io::Cursor;
 
-use crate::audio;
+use crate::audio::{self, Edit};
 use crate::project::Project;
 
 pub const SAMPLE_RATE: u32 = 48_000;
@@ -20,11 +21,11 @@ const PPQ: u16 = 480;
 const DRUM_CHANNEL: u8 = 9;
 
 /// The song as a 16-bit stereo WAV file.
-pub fn wav(project: &Project, bpm: f32, pattern: usize) -> Result<Vec<u8>, String> {
+pub fn wav(project: &Project, bpm: f32, edit: Edit) -> Result<Vec<u8>, String> {
     let r = audio::render(
         project.clone(),
         bpm,
-        pattern,
+        edit,
         PATTERN_LOOPS,
         SAMPLE_RATE as f32,
         TAIL_SECONDS,
@@ -49,16 +50,9 @@ pub fn wav(project: &Project, bpm: f32, pattern: usize) -> Result<Vec<u8>, Strin
 }
 
 /// The song as a standard MIDI file, one MIDI track per channel.
-pub fn midi(project: &Project, bpm: f32, pattern: usize) -> Vec<u8> {
+pub fn midi(project: &Project, bpm: f32, edit: Edit) -> Vec<u8> {
     let (project, names) = with_channels(project);
-    let r = audio::render(
-        project,
-        bpm,
-        pattern,
-        PATTERN_LOOPS,
-        SAMPLE_RATE as f32,
-        0.0,
-    );
+    let r = audio::render(project, bpm, edit, PATTERN_LOOPS, SAMPLE_RATE as f32, 0.0);
     smf(&r.midi, &names, bpm, SAMPLE_RATE as f32)
 }
 
@@ -182,6 +176,11 @@ fn smf(
 mod tests {
     use super::*;
     use crate::drums;
+
+    const EDIT: Edit = Edit {
+        pattern: 0,
+        block: 0,
+    };
     use crate::project::Track;
 
     /// A note event read back: (tick, status, note, velocity).
@@ -230,7 +229,7 @@ mod tests {
     #[test]
     fn wav_holds_the_song_plus_a_tail() {
         // The demo timeline is one bar: 2 seconds at 120 BPM.
-        let bytes = wav(&Project::demo(), 120.0, 0).unwrap();
+        let bytes = wav(&Project::demo(), 120.0, EDIT).unwrap();
         let mut reader = hound::WavReader::new(Cursor::new(bytes)).unwrap();
         let spec = reader.spec();
         let frames = reader.duration() as f32;
@@ -250,7 +249,7 @@ mod tests {
         let mut project = Project::demo();
         project.tracks[5].midi_channel = None; // the pad gets a free channel
         project.tracks[3].muted = true; // clap: left out
-        let (ppq, tracks) = read_smf(&midi(&project, 120.0, 0));
+        let (ppq, tracks) = read_smf(&midi(&project, 120.0, EDIT));
         assert_eq!(ppq, PPQ);
 
         let on = |name: &str| -> Vec<(u32, u8, u8)> {

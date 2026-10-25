@@ -274,17 +274,55 @@ pub struct Pattern {
     pub name: String,
 }
 
-/// A pattern placed on the timeline. Clips point to their pattern, so
-/// editing the pattern changes every clip of it ("Make unique" gives a
-/// clip its own copy). Positions and lengths are in steps (16th notes).
+/// A block: the unit songs are built from on the timeline. A jam block is
+/// a chain of patterns, one per bar, made in the Jam view (audio blocks
+/// come later).
+#[derive(Clone, PartialEq, Debug)]
+pub struct Block {
+    pub name: String,
+    /// The pattern for each bar; `None` is a silent bar. `CHAIN_SLOTS` long.
+    pub chain: Vec<Option<usize>>,
+}
+
+impl Block {
+    pub fn new(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            chain: vec![None; CHAIN_SLOTS],
+        }
+    }
+
+    /// Bars up to and including the last filled one, at least one.
+    pub fn bars(&self) -> usize {
+        self.chain
+            .iter()
+            .rposition(Option::is_some)
+            .map_or(1, |b| b + 1)
+    }
+
+    /// Length in steps.
+    pub fn len(&self) -> usize {
+        self.bars() * STEPS
+    }
+
+    /// The pattern playing `step` steps into the block, and its step.
+    pub fn at(&self, step: usize) -> (Option<usize>, usize) {
+        let pattern = self.chain.get(step / STEPS).copied().flatten();
+        (pattern, step % STEPS)
+    }
+}
+
+/// A block placed on the timeline. It points to its block, so editing the
+/// block changes every copy of it ("Make unique" gives one its own).
+/// Positions and lengths are in steps (16th notes).
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Clip {
-    pub pattern: usize,
+    pub block: usize,
     /// Which timeline row it sits on; rows are only for layout.
     pub row: usize,
     pub start: usize,
     pub len: usize,
-    /// Where in the pattern the clip begins, when its start is trimmed.
+    /// Where in the block it begins, when its start is trimmed.
     pub offset: usize,
 }
 
@@ -293,12 +331,12 @@ impl Clip {
         self.start + self.len
     }
 
-    /// The pattern step playing at song step `at`, if the clip covers it.
-    /// A clip longer than its pattern repeats it.
-    pub fn step_at(&self, at: usize) -> Option<usize> {
+    /// The step into its block playing at song step `at`, if the clip
+    /// covers it. Stretched past the block's length, it repeats.
+    pub fn step_at(&self, at: usize, block_len: usize) -> Option<usize> {
         (self.start..self.end())
             .contains(&at)
-            .then(|| (self.offset + at - self.start) % STEPS)
+            .then(|| (self.offset + at - self.start) % block_len.max(1))
     }
 }
 
@@ -324,6 +362,21 @@ impl Effects {
     };
 }
 
+/// `base`, or `base 2`, `base 3`... whichever isn't `taken` first.
+fn free_name(base: &str, taken: impl Fn(&str) -> bool) -> String {
+    if !taken(base) {
+        return base.to_string();
+    }
+    (2..)
+        .map(|i| format!("{base} {i}"))
+        .find(|n| !taken(n))
+        .expect("some number is free")
+}
+
+/// Bars in a chain (a jam block).
+pub const CHAIN_SLOTS: usize = 32;
+pub const MAX_BLOCKS: usize = 64;
+
 /// Patterns A to H, as every new song starts with.
 pub fn default_patterns() -> Vec<Pattern> {
     (0..DEFAULT_PATTERNS)
@@ -338,7 +391,9 @@ pub struct Project {
     pub tracks: Vec<Track>,
     /// The pattern library; every track has a grid for each.
     pub patterns: Vec<Pattern>,
-    /// The timeline.
+    /// The block library; there's always at least one.
+    pub blocks: Vec<Block>,
+    /// The timeline: blocks placed in time.
     pub clips: Vec<Clip>,
     /// 0-1: how late every other 16th note plays. 0.66 is a triplet shuffle.
     pub swing: f32,
@@ -351,6 +406,7 @@ impl Project {
         Self {
             tracks: Vec::new(),
             patterns: default_patterns(),
+            blocks: vec![Block::new("Block 1")],
             clips: Vec::new(),
             swing: 0.0,
             groups: Vec::new(),
@@ -454,14 +510,77 @@ impl Project {
 
     /// A name not used by any pattern yet: `base`, or `base 2`, `base 3`...
     fn unused_name(&self, base: &str) -> String {
-        let taken = |n: &str| self.patterns.iter().any(|p| p.name == n);
-        if !taken(base) {
-            return base.to_string();
+        free_name(base, |n| self.patterns.iter().any(|p| p.name == n))
+    }
+
+    fn unused_block_name(&self, base: &str) -> String {
+        free_name(base, |n| self.blocks.iter().any(|b| b.name == n))
+    }
+
+    /// A block's length in steps (one bar if it doesn't exist).
+    pub fn block_len(&self, b: usize) -> usize {
+        self.blocks.get(b).map_or(STEPS, Block::len)
+    }
+
+    /// Adds an empty block and returns it, unless the library is full.
+    pub fn new_block(&mut self) -> Option<usize> {
+        if self.blocks.len() >= MAX_BLOCKS {
+            return None;
         }
-        (2..)
-            .map(|i| format!("{base} {i}"))
-            .find(|n| !taken(n))
-            .expect("some number is free")
+        let name = self.unused_block_name(&format!("Block {}", self.blocks.len() + 1));
+        self.blocks.push(Block::new(&name));
+        Some(self.blocks.len() - 1)
+    }
+
+    /// Copies a block and returns the copy.
+    pub fn duplicate_block(&mut self, b: usize) -> Option<usize> {
+        if b >= self.blocks.len() || self.blocks.len() >= MAX_BLOCKS {
+            return None;
+        }
+        let mut copy = self.blocks[b].clone();
+        copy.name = self.unused_block_name(&copy.name);
+        self.blocks.push(copy);
+        Some(self.blocks.len() - 1)
+    }
+
+    /// Removes a block and its copies on the timeline. The last block
+    /// can't be removed.
+    pub fn delete_block(&mut self, b: usize) {
+        if b >= self.blocks.len() || self.blocks.len() == 1 {
+            return;
+        }
+        self.blocks.remove(b);
+        self.clips.retain(|c| c.block != b);
+        for c in &mut self.clips {
+            if c.block > b {
+                c.block -= 1;
+            }
+        }
+    }
+
+    /// After block `b` changed length from `old_len`, makes the copies
+    /// that played it exactly once follow the new length. Copies that were
+    /// stretched or trimmed keep theirs.
+    pub fn fit_clips(&mut self, b: usize, old_len: usize) {
+        let new_len = self.block_len(b);
+        for c in &mut self.clips {
+            if c.block == b && c.offset == 0 && c.len == old_len {
+                c.len = new_len.min(MAX_SONG_STEPS - c.start);
+            }
+        }
+    }
+
+    /// How many times a block is on the timeline.
+    pub fn block_uses(&self, b: usize) -> usize {
+        self.clips.iter().filter(|c| c.block == b).count()
+    }
+
+    /// How many blocks use a pattern.
+    pub fn pattern_uses(&self, p: usize) -> usize {
+        self.blocks
+            .iter()
+            .filter(|b| b.chain.contains(&Some(p)))
+            .count()
     }
 
     /// Adds an empty pattern and returns its index, unless the library is full.
@@ -498,7 +617,8 @@ impl Project {
         Some(self.patterns.len() - 1)
     }
 
-    /// Removes a pattern and its clips. The last pattern can't be removed.
+    /// Removes a pattern, emptying the bars that played it. The last
+    /// pattern can't be removed.
     pub fn delete_pattern(&mut self, p: usize) {
         if p >= self.patterns.len() || self.patterns.len() == 1 {
             return;
@@ -509,20 +629,21 @@ impl Project {
                 t.patterns.remove(p);
             }
         }
-        self.clips.retain(|c| c.pattern != p);
-        for c in &mut self.clips {
-            if c.pattern > p {
-                c.pattern -= 1;
-            }
+        for slot in self.blocks.iter_mut().flat_map(|b| b.chain.iter_mut()) {
+            *slot = match *slot {
+                Some(q) if q == p => None,
+                Some(q) if q > p => Some(q - 1),
+                other => other,
+            };
         }
     }
 
-    /// Gives a clip its own copy of its pattern, so editing it no longer
-    /// changes the other clips. Returns the new pattern.
+    /// Gives a placed block its own copy, so editing it no longer changes
+    /// the other copies. Returns the new block.
     pub fn make_unique(&mut self, clip: usize) -> Option<usize> {
-        let p = self.clips.get(clip)?.pattern;
-        let copy = self.duplicate_pattern(p)?;
-        self.clips[clip].pattern = copy;
+        let b = self.clips.get(clip)?.block;
+        let copy = self.duplicate_block(b)?;
+        self.clips[clip].block = copy;
         Some(copy)
     }
 
@@ -534,18 +655,14 @@ impl Project {
             return None;
         }
         self.clips[clip].len = at - c.start;
+        let block_len = self.block_len(c.block);
         self.clips.push(Clip {
             start: at,
             len: c.end() - at,
-            offset: (c.offset + at - c.start) % STEPS,
+            offset: (c.offset + at - c.start) % block_len,
             ..c
         });
         Some(self.clips.len() - 1)
-    }
-
-    /// How many clips use a pattern.
-    pub fn uses(&self, p: usize) -> usize {
-        self.clips.iter().filter(|c| c.pattern == p).count()
     }
 
     /// Built-in drums and a synth lead, with a beat and a riff in pattern A.
@@ -612,8 +729,16 @@ impl Project {
         let mut project = Self {
             tracks,
             patterns: default_patterns(),
+            blocks: vec![Block {
+                chain: {
+                    let mut chain = vec![None; CHAIN_SLOTS];
+                    chain[0] = Some(0);
+                    chain
+                },
+                ..Block::new("Intro")
+            }],
             clips: vec![Clip {
-                pattern: 0,
+                block: 0,
                 row: 0,
                 start: 0,
                 len: STEPS,
@@ -674,9 +799,9 @@ mod tests {
         );
     }
 
-    fn clip(pattern: usize, start: usize, len: usize) -> Clip {
+    fn clip(block: usize, start: usize, len: usize) -> Clip {
         Clip {
-            pattern,
+            block,
             row: 0,
             start,
             len,
@@ -684,54 +809,94 @@ mod tests {
         }
     }
 
+    /// A block chaining these patterns, one per bar.
+    fn block(name: &str, chain: &[Option<usize>]) -> Block {
+        let mut b = Block::new(name);
+        b.chain[..chain.len()].copy_from_slice(chain);
+        b
+    }
+
     #[test]
-    fn clips_repeat_their_pattern_and_can_be_split() {
+    fn blocks_chain_patterns_bar_by_bar() {
+        let b = block("Verse", &[Some(0), None, Some(2)]);
+        assert_eq!(b.bars(), 3);
+        assert_eq!(b.len(), 48);
+        assert_eq!(b.at(5), (Some(0), 5));
+        assert_eq!(b.at(20), (None, 4), "a silent bar");
+        assert_eq!(b.at(35), (Some(2), 3));
+        assert_eq!(Block::new("Empty").bars(), 1, "at least one bar");
+    }
+
+    #[test]
+    fn clips_repeat_their_block_and_can_be_split() {
         let mut p = Project::demo();
-        p.clips = vec![clip(1, 16, 40)];
+        p.blocks = vec![block("Two bars", &[Some(0), Some(1)])];
+        p.clips = vec![clip(0, 16, 80)];
         let c = p.clips[0];
-        assert_eq!(c.step_at(15), None);
-        assert_eq!(c.step_at(16), Some(0));
-        assert_eq!(c.step_at(33), Some(1), "repeats after 16 steps");
-        assert_eq!(c.step_at(56), None, "ends after 40 steps");
-        assert_eq!(p.song_len(), 56);
+        assert_eq!(c.step_at(15, 32), None);
+        assert_eq!(c.step_at(16, 32), Some(0));
+        assert_eq!(
+            c.step_at(49, 32),
+            Some(1),
+            "repeats after the block's 32 steps"
+        );
+        assert_eq!(c.step_at(96, 32), None, "ends after 80 steps");
+        assert_eq!(p.song_len(), 96);
 
         let right = p.split_clip(0, 22).unwrap();
         assert_eq!((p.clips[0].start, p.clips[0].len), (16, 6));
         let r = p.clips[right];
-        assert_eq!((r.start, r.len, r.offset), (22, 34, 6));
-        assert_eq!(r.step_at(22), Some(6), "carries on where it was split");
+        assert_eq!((r.start, r.len, r.offset), (22, 74, 6));
+        assert_eq!(r.step_at(22, 32), Some(6), "carries on where it was split");
         assert_eq!(p.split_clip(0, 16), None, "not at the very edge");
     }
 
     #[test]
-    fn make_unique_copies_the_pattern_for_one_clip() {
+    fn whole_copies_follow_their_block_s_length() {
         let mut p = Project::demo();
-        p.clips = vec![clip(0, 0, 16), clip(0, 16, 16)];
-        let copy = p.make_unique(1).unwrap();
-        assert_eq!(p.patterns[copy].name, "A 2");
-        assert_eq!(p.clips[0].pattern, 0, "the other clip stays linked");
-        assert_eq!(p.clips[1].pattern, copy);
-        for t in &p.tracks {
-            assert_eq!(t.patterns.len(), p.patterns.len());
-            assert_eq!(t.patterns[copy], t.patterns[0], "same notes to start");
-        }
-        p.tracks[0].patterns[copy][0][1] = Some(Step::HIT);
-        assert_ne!(p.tracks[0].patterns[copy], p.tracks[0].patterns[0]);
+        p.clips = vec![clip(0, 0, 16), clip(0, 32, 40)];
+        p.blocks[0].chain[2] = Some(1);
+        p.fit_clips(0, 16);
+        assert_eq!(p.clips[0].len, 48, "a whole copy grows with the block");
+        assert_eq!(p.clips[1].len, 40, "a stretched one stays as it was");
     }
 
     #[test]
-    fn deleting_a_pattern_removes_its_clips_and_renumbers() {
+    fn make_unique_copies_the_block_for_one_copy() {
         let mut p = Project::demo();
-        p.clips = vec![clip(0, 0, 16), clip(2, 16, 16), clip(5, 32, 16)];
+        p.clips = vec![clip(0, 0, 16), clip(0, 16, 16)];
+        let copy = p.make_unique(1).unwrap();
+        assert_eq!(p.blocks[copy].name, "Intro 2");
+        assert_eq!(p.blocks[copy].chain, p.blocks[0].chain);
+        assert_eq!(p.clips[0].block, 0, "the other copy stays linked");
+        assert_eq!(p.clips[1].block, copy);
+        p.blocks[copy].chain[1] = Some(3);
+        assert_ne!(p.blocks[copy].chain, p.blocks[0].chain);
+    }
+
+    #[test]
+    fn deleting_blocks_and_patterns_tidies_up() {
+        let mut p = Project::demo();
+        p.blocks = vec![
+            block("A", &[Some(0)]),
+            block("B", &[Some(2), Some(5)]),
+            block("C", &[Some(5)]),
+        ];
+        p.clips = vec![clip(0, 0, 16), clip(1, 16, 16), clip(2, 32, 16)];
+        p.delete_block(1);
+        let blocks: Vec<usize> = p.clips.iter().map(|c| c.block).collect();
+        assert_eq!(blocks, [0, 1], "its copies go, the rest renumber");
+
         p.delete_pattern(2);
         assert_eq!(p.patterns.len(), DEFAULT_PATTERNS - 1);
         assert_eq!(p.patterns[2].name, "D");
-        let patterns: Vec<usize> = p.clips.iter().map(|c| c.pattern).collect();
-        assert_eq!(patterns, [0, 4]);
+        assert_eq!(p.blocks[1].chain[0], Some(4), "pattern 5 is now 4");
         assert!(p
             .tracks
             .iter()
             .all(|t| t.patterns.len() == p.patterns.len()));
+        assert_eq!(p.pattern_uses(4), 1);
+        assert_eq!(p.block_uses(0), 1);
     }
 
     #[test]

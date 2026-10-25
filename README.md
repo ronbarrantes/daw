@@ -157,8 +157,8 @@ and editable by hand, plus `samples/*.wav` for any loaded samples.
 - **File → Export MIDI…** saves the notes as a standard MIDI file for other
   DAWs or hardware synths. Each MIDI channel becomes its own track; drums
   go on channel 10, and synths without a channel get a free one.
-- Both export the **timeline**, or the current pattern four times if it's
-  empty. Muted tracks are left out.
+- Both export the **timeline**; if it's empty, the current block's chain,
+  or else the current pattern four times. Muted tracks are left out.
 
 ### Tracks
 
@@ -258,41 +258,66 @@ A S D F G H J K L         ← white keys (A = C)
 On Arch, the **+ Sample…** file picker needs `xdg-desktop-portal` and
 `xdg-desktop-portal-gtk`. Drag and drop always works.
 
-### Patterns
+### Jam and Arrange
 
-The **Patterns** row is your library, like components in Figma. Click a
-pattern to edit it in the grid below; each holds every track's steps.
+The app has two halves, picked with the **Jam** and **Arrange** tabs at the
+top left:
+
+- **Jam** is the groovebox: make patterns, chain them into blocks, shape
+  sounds. It's the home screen.
+- **Arrange** is the timeline, where blocks are put together into a song.
+  Later it will also hold audio (vocals, guitars) and recording.
+
+The units, from small to big: **pattern** (one bar of steps), **chain**
+(patterns bar by bar), **block** (a chain you can place on the timeline;
+like a clip in other DAWs), **song** (blocks on the timeline).
+
+### Patterns (Jam)
+
+The **Patterns** row is your pattern library. Click a pattern to edit it in
+the grid below; each holds every track's steps.
 
 - **+** adds a pattern (up to 64). Right-click one to **rename**,
   **duplicate** or **delete** it.
 - **Copy** / **Paste** / **Clear** work on the pattern you're editing.
-- **Pattern** mode (top bar) loops the pattern you're editing: the
-  groovebox, for jamming.
+- **Pattern** mode (top bar) loops the pattern you're editing.
 
-### Timeline
+### Chains and blocks (Jam)
 
-The timeline is where a song comes together. **Song** mode (top bar) plays it.
+The **Chain** row shows the block you're editing, one square per bar.
 
-- **Drag a pattern** from the library onto the timeline, or **double-click**
-  the timeline to place the selected pattern. Rows are just for layout:
-  clips on different rows play together, so a drums pattern and a bass
-  pattern can overlap.
-- **Drag** a clip to move it; drag its **edges** to trim or stretch it. A
-  clip longer than its pattern repeats it. **Alt-drag** makes a copy.
-- Clips are **linked** to their pattern, like Figma instances: edit the
-  pattern and every clip of it changes. Right-click a clip and choose **Make
-  unique** to give it its own copy (*A* becomes *A 2*). Clips of the pattern
-  you're editing are drawn brighter.
-- **Double-click** a clip to edit its pattern.
+- Click a square to put the selected pattern in that bar; click it again
+  (or right-click) to empty it.
+- **Chain** mode (top bar) plays the chain bar by bar, round and round.
+- Pick another block from the drop-down, **+** starts an empty one, and
+  **Save as new block** copies this chain into a new block to keep working
+  on. Right-click the drop-down to rename, duplicate or delete the block.
+
+### Timeline (Arrange)
+
+Arrange plays the timeline, from the cursor.
+
+- **Drag a block** from the **Blocks** drawer onto the timeline, or
+  **double-click** the timeline to place the current block. Rows are just
+  for layout: blocks on different rows play together.
+- **Drag** a block to move it; drag its **edges** to trim or stretch it. A
+  block stretched past its length repeats. **Alt-drag** makes a copy.
+- Blocks on the timeline are **linked**, like Figma instances: edit the
+  block in Jam and every copy changes (a copy that plays it once through
+  grows or shrinks with it). Right-click a copy and choose **Make unique**
+  to give it its own block. Copies of the block you're editing are brighter.
+- **Double-click** a block (on the timeline or in the drawer) to edit it in
+  Jam.
 - Click the **ruler** to set where playback starts; drag along it to mark a
   **loop**, and toggle **Loop** on or off.
-- **C** splits the selected clip at the cursor (like Premiere's razor),
+- **C** splits the selected block at the cursor (like Premiere's razor),
   **Ctrl+D** duplicates it, **Delete** removes it.
-- **Snap** sets what clips line up to (bar, beat or step); hold **Shift**
+- **Snap** sets what blocks line up to (bar, beat or step); hold **Shift**
   while dragging for single steps. **Ctrl+scroll** or **-** / **+** zoom.
 
-Songs saved before v0.12 open with their Song row turned into clips. Songs
-saved now need v0.12 or later to open.
+Songs from v0.12 and v0.13 open with each pattern on the timeline turned
+into a one-bar block; older songs' Song row becomes a block called *Song*.
+Songs saved now need v0.14 or later to open.
 
 ### Synth
 
@@ -344,14 +369,14 @@ Done:
 - ~~Export to WAV and MIDI~~
 - ~~Pan, reverb and delay, metronome, undo~~
 - ~~Web version, Windows build~~
-- ~~Timeline with linked pattern clips and a pattern library~~
+- ~~Timeline, pattern library, Jam and Arrange views with chains and blocks~~
 
 Next:
 
-1. Sections: a group of patterns (say a chorus) used like one clip
-2. Audio clips on the timeline: vocals and full tracks, with trim, split,
+1. Audio blocks on the timeline: vocals and full tracks, with trim, split,
    fades and clip volume
-3. Recording audio onto the timeline
+2. Recording audio onto the timeline
+3. Record a jam (pattern and chain changes) straight into the timeline
 4. Time signatures: 3/4, 6/8, 5/4, 13/8 and others, and pattern lengths
    other than 16 steps
 5. Clip overrides: mute a track, transpose or change the volume of one clip
