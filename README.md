@@ -4,6 +4,9 @@ A tiny, lightweight DAW in Rust: synth and sample tracks, 8 patterns you can
 arrange into a song, and MIDI for hardware like the M-VAVE FM-1 and Roland
 AIRA Compacts.
 
+**Try it in your browser: [ronbarrantes.github.io/daw](https://ronbarrantes.github.io/daw/)**,
+or install it below for the best performance.
+
 ## Install on Mac (Apple Silicon)
 
 1. Download **[daw-macos-arm64.app.zip](https://github.com/ronbarrantes/daw/releases/latest/download/daw-macos-arm64.app.zip)**
