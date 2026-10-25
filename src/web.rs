@@ -194,6 +194,25 @@ mod browser {
         }
     }
 
+    /// If the app crashes, says so on the page (and in the console) with
+    /// the reason, instead of leaving a frozen picture of the app.
+    pub fn show_crashes() {
+        std::panic::set_hook(Box::new(|info| {
+            let message = format!(
+                "daw {} stopped working:\n\n{info}\n\nReload the page to start again.",
+                env!("CARGO_PKG_VERSION")
+            );
+            web_sys::console::error_1(&message.clone().into());
+            let status = web_sys::window()
+                .and_then(|w| w.document())
+                .and_then(|d| d.get_element_by_id("status"));
+            if let Some(status) = status {
+                status.set_text_content(Some(&message));
+                let _ = status.set_attribute("class", "crashed");
+            }
+        }));
+    }
+
     /// The canvas the app draws on, from `web/index.html`.
     pub fn canvas() -> web_sys::HtmlCanvasElement {
         web_sys::window()
