@@ -6,12 +6,15 @@
 //! to make a song. Each placed block points to its block, like a Figma
 //! instance: edit the block and every copy changes. "Make unique" gives one
 //! copy its own block. Time is in steps (16ths).
+//!
+//! MIDI blocks are made here too (+ MIDI in the drawer) and open in the
+//! note editor below (see `notes`).
 
 use std::sync::atomic::Ordering::Relaxed;
 
 use eframe::egui::{self, Align2, Color32, CursorIcon, FontId, Pos2, Rect, Sense, Stroke, Vec2};
 
-use crate::project::{Clip, CHAIN_SLOTS, MAX_BLOCKS, MAX_PATTERNS, MAX_SONG_STEPS, STEPS};
+use crate::project::{Clip, CHAIN_SLOTS, MAX_BLOCKS, MAX_PATTERNS, MAX_SONG_STEPS, PPS, STEPS};
 use crate::widgets::playhead;
 use crate::{App, Tab};
 
@@ -286,16 +289,22 @@ impl App {
         self.shared.playing.store(on, Relaxed);
     }
 
-    /// The block shown in the Jam view.
+    /// The block shown in the Jam view: always a chain block.
     pub fn edit_block(&self) -> usize {
-        self.shared
-            .edit_block
-            .load(Relaxed)
-            .min(self.project.blocks.len() - 1)
+        let b = self.shared.edit_block.load(Relaxed);
+        match self.project.blocks.get(b) {
+            Some(block) if !block.is_midi() => b,
+            _ => self.project.first_chain_block(),
+        }
     }
 
-    /// Opens a block in the Jam view to edit its chain.
+    /// Opens a block to edit: a chain in the Jam view, or a MIDI block's
+    /// notes in the note editor.
     fn open_block(&mut self, b: usize) {
+        if self.project.blocks[b].is_midi() {
+            self.edit_notes(b);
+            return;
+        }
         self.shared.edit_block.store(b, Relaxed);
         self.shared.chain_mode.store(true, Relaxed);
         if let Some(p) = self.project.blocks[b].chain.iter().flatten().next() {
@@ -326,7 +335,8 @@ impl App {
                 .selected_text(self.project.blocks[b].name.clone())
                 .width(110.0)
                 .show_ui(ui, |ui| {
-                    for (i, block) in self.project.blocks.iter().enumerate() {
+                    let chains = self.project.blocks.iter().enumerate();
+                    for (i, block) in chains.filter(|(_, b)| !b.is_midi()) {
                         if ui.selectable_label(i == b, &block.name).clicked() {
                             self.shared.edit_block.store(i, Relaxed);
                         }
@@ -400,13 +410,21 @@ impl App {
             self.dirty = true;
         }
         ui.separator();
-        if ui.button("Edit in Jam").clicked() {
+        let midi = self.project.blocks[b].is_midi();
+        if ui
+            .button(if midi { "Edit notes" } else { "Edit in Jam" })
+            .clicked()
+        {
             self.open_block(b);
             ui.close_menu();
         }
         if ui.button("Duplicate").clicked() {
             if let Some(copy) = self.project.duplicate_block(b) {
-                self.shared.edit_block.store(copy, Relaxed);
+                if midi {
+                    self.edit_notes(copy);
+                } else {
+                    self.shared.edit_block.store(copy, Relaxed);
+                }
                 self.dirty = true;
             }
             ui.close_menu();
@@ -419,11 +437,18 @@ impl App {
             ),
         };
         if ui
-            .add_enabled(self.project.blocks.len() > 1, egui::Button::new(label))
+            .add_enabled(self.project.can_delete_block(b), egui::Button::new(label))
+            .on_disabled_hover_text("The Jam view needs at least one chain block")
             .clicked()
         {
             self.project.delete_block(b);
             self.timeline.selected = None;
+            self.notes.open = match self.notes.open {
+                Some(o) if o == b => None,
+                Some(o) if o > b => Some(o - 1),
+                other => other,
+            };
+            self.notes.deselect();
             self.dirty = true;
             ui.close_menu();
         }
@@ -440,15 +465,23 @@ impl App {
                 egui::Label::new(egui::RichText::new("Blocks").strong()),
             )
             .on_hover_text(
-                "Drag a block onto the timeline. Double-click one to edit it in Jam.\n\
-                 Blocks are made in Jam's Chain row (they're like clips in other DAWs).",
+                "Drag a block onto the timeline. Double-click one to edit it.\n\
+                 Chain blocks are made in Jam's Chain row; + MIDI makes a MIDI\n\
+                 block, free notes for one track (they're like clips in other DAWs).",
             );
+            let open = self.open_notes();
             for b in 0..self.project.blocks.len() {
                 let block = &self.project.blocks[b];
-                let fill = block_color(b).gamma_multiply(if b == edit { 1.0 } else { 0.6 });
+                let current = if block.is_midi() {
+                    open == Some(b)
+                } else {
+                    b == edit
+                };
+                let fill = block_color(b).gamma_multiply(if current { 1.0 } else { 0.6 });
                 let text = format!(
-                    "{}  ({} bar{})",
+                    "{}  ({}{} bar{})",
                     block.name,
+                    if block.is_midi() { "MIDI, " } else { "" },
                     block.bars(),
                     if block.bars() == 1 { "" } else { "s" }
                 );
@@ -462,7 +495,8 @@ impl App {
                     n => format!("On the timeline {n} times"),
                 };
                 let resp = ui.add(button).on_hover_text(hint);
-                if resp.double_clicked() {
+                let midi = self.project.blocks[b].is_midi();
+                if resp.double_clicked() || (resp.clicked() && midi) {
                     self.open_block(b);
                 } else if resp.clicked() {
                     self.shared.edit_block.store(b, Relaxed);
@@ -496,6 +530,23 @@ impl App {
                 if let Some(new) = self.project.new_block() {
                     self.dirty = true;
                     self.open_block(new);
+                }
+            }
+            if ui
+                .add_enabled(
+                    self.project.blocks.len() < MAX_BLOCKS,
+                    egui::Button::new("+ MIDI"),
+                )
+                .on_hover_text(
+                    "New MIDI block for the selected track: free notes,\n\
+                     any pitch and length, edited below",
+                )
+                .clicked()
+            {
+                let track = (self.selected < self.project.tracks.len()).then_some(self.selected);
+                if let Some(new) = self.project.new_midi_block(track) {
+                    self.dirty = true;
+                    self.edit_notes(new);
                 }
             }
         });
@@ -725,6 +776,13 @@ impl App {
                     }
                 } else {
                     self.timeline.selected = self.clip_at(rect, pos).map(|(i, _)| i);
+                    // A MIDI block opens in the note editor right away.
+                    if let Some(i) = self.timeline.selected {
+                        let b = self.project.clips[i].block;
+                        if self.project.blocks[b].is_midi() {
+                            self.edit_notes(b);
+                        }
+                    }
                 }
             }
         }
@@ -781,7 +839,11 @@ impl App {
         let c = self.project.clips[i];
         let name = self.project.blocks[c.block].name.clone();
         ui.label(egui::RichText::new(&name).strong());
-        if ui.button("Edit in Jam").clicked() {
+        let midi = self.project.blocks[c.block].is_midi();
+        if ui
+            .button(if midi { "Edit notes" } else { "Edit in Jam" })
+            .clicked()
+        {
             self.open_block(c.block);
             ui.close_menu();
         }
@@ -923,7 +985,7 @@ impl App {
                 continue;
             }
             let base = block_color(c.block);
-            let fill = if c.block == edit {
+            let fill = if c.block == edit || self.open_notes() == Some(c.block) {
                 base
             } else {
                 base.gamma_multiply(0.6)
@@ -942,6 +1004,9 @@ impl App {
                     Stroke::new(1.5_f32, Color32::from_black_alpha(110)),
                 );
                 repeat += len;
+            }
+            if let Some(m) = &self.project.blocks[c.block].midi {
+                paint_clip_notes(&painter, r, rect.left(), zoom, c, &m.notes, len);
             }
             let selected = self.timeline.selected == Some(i);
             let stroke = if selected {
@@ -982,6 +1047,48 @@ impl App {
             color,
             Stroke::NONE,
         ));
+    }
+}
+
+/// A MIDI block's notes in miniature inside its clip, so it's clear
+/// what's where. `left` is where step 0 is.
+fn paint_clip_notes(
+    painter: &egui::Painter,
+    r: Rect,
+    left: f32,
+    zoom: f32,
+    c: &Clip,
+    notes: &[crate::project::Note],
+    len: usize,
+) {
+    let (Some(low), Some(high)) = (
+        notes.iter().map(|n| n.pitch).min(),
+        notes.iter().map(|n| n.pitch).max(),
+    ) else {
+        return;
+    };
+    let span = (high - low).max(12) as f32;
+    let inner = r.shrink2(Vec2::new(0.0, 3.0));
+    let painter = painter.with_clip_rect(r.intersect(painter.clip_rect()));
+    let color = Color32::from_white_alpha(90);
+    // Each time the block repeats within the clip.
+    let mut origin = c.start as f32 - c.offset as f32;
+    let mut drawn = 0;
+    while origin < c.end() as f32 && drawn < 4000 {
+        for n in notes {
+            let x0 = left + (origin + n.start as f32 / PPS as f32) * zoom;
+            let x1 = left + (origin + n.end() as f32 / PPS as f32) * zoom;
+            if n.start as usize >= len * PPS as usize || x1 < r.left() || x0 > r.right() {
+                continue;
+            }
+            let y = inner.bottom() - (n.pitch - low) as f32 / span * inner.height();
+            painter.line_segment(
+                [Pos2::new(x0, y), Pos2::new(x1.max(x0 + 1.0), y)],
+                Stroke::new(2.0_f32, color),
+            );
+            drawn += 1;
+        }
+        origin += len as f32;
     }
 }
 

@@ -274,14 +274,70 @@ pub struct Pattern {
     pub name: String,
 }
 
+/// Note positions in MIDI blocks are in 240ths of a step: 960 per beat,
+/// as in most DAWs, with room for triplets.
+pub const PPS: u32 = 240;
+/// Most notes a MIDI block holds.
+pub const MAX_NOTES: usize = 20_000;
+
+/// One note in a MIDI block: any pitch, any length.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Note {
+    /// Where it starts, in `PPS`ths of a step from the block's start.
+    pub start: u32,
+    /// How long it lasts, in `PPS`ths of a step.
+    pub len: u32,
+    /// MIDI note number, 60 = C4.
+    pub pitch: u8,
+    /// 1-127.
+    pub velocity: u8,
+}
+
+impl Note {
+    pub fn end(&self) -> u32 {
+        self.start + self.len
+    }
+}
+
+/// What's in a MIDI block: free notes, played by one track.
+#[derive(Clone, PartialEq, Debug)]
+pub struct MidiPart {
+    /// The track that plays it; `None` if that track was deleted.
+    pub track: Option<usize>,
+    /// In no particular order.
+    pub notes: Vec<Note>,
+    /// Length in steps, at least one.
+    pub len: usize,
+}
+
+impl MidiPart {
+    /// Makes the part long enough for its notes, in whole bars. Returns
+    /// whether it grew.
+    pub fn fit_notes(&mut self) -> bool {
+        let end = self.notes.iter().map(Note::end).max().unwrap_or(0);
+        let bars = (end as usize).div_ceil(PPS as usize * STEPS);
+        let len = (bars * STEPS).min(MAX_SONG_STEPS);
+        if len > self.len {
+            self.len = len;
+            true
+        } else {
+            false
+        }
+    }
+}
+
 /// A block: the unit songs are built from on the timeline. A jam block is
-/// a chain of patterns, one per bar, made in the Jam view (audio blocks
-/// come later).
+/// a chain of patterns, one per bar, made in the Jam view. A MIDI block is
+/// a list of free notes for one track, made in Arrange (audio blocks come
+/// later).
 #[derive(Clone, PartialEq, Debug)]
 pub struct Block {
     pub name: String,
-    /// The pattern for each bar; `None` is a silent bar. `CHAIN_SLOTS` long.
+    /// The pattern for each bar; `None` is a silent bar. `CHAIN_SLOTS` long
+    /// (and all `None` in a MIDI block).
     pub chain: Vec<Option<usize>>,
+    /// The notes, if it's a MIDI block.
+    pub midi: Option<MidiPart>,
 }
 
 impl Block {
@@ -289,11 +345,32 @@ impl Block {
         Self {
             name: name.to_string(),
             chain: vec![None; CHAIN_SLOTS],
+            midi: None,
         }
     }
 
-    /// Bars up to and including the last filled one, at least one.
+    /// An empty MIDI block for a track.
+    pub fn new_midi(name: &str, track: Option<usize>, bars: usize) -> Self {
+        Self {
+            midi: Some(MidiPart {
+                track,
+                notes: Vec::new(),
+                len: bars.max(1) * STEPS,
+            }),
+            ..Self::new(name)
+        }
+    }
+
+    pub fn is_midi(&self) -> bool {
+        self.midi.is_some()
+    }
+
+    /// Bars up to and including the last filled one, at least one. A MIDI
+    /// block counts a part-filled last bar too.
     pub fn bars(&self) -> usize {
+        if let Some(m) = &self.midi {
+            return m.len.div_ceil(STEPS).max(1);
+        }
         self.chain
             .iter()
             .rposition(Option::is_some)
@@ -302,7 +379,10 @@ impl Block {
 
     /// Length in steps.
     pub fn len(&self) -> usize {
-        self.bars() * STEPS
+        match &self.midi {
+            Some(m) => m.len.max(1),
+            None => self.bars() * STEPS,
+        }
     }
 
     /// The pattern playing `step` steps into the block, and its step.
@@ -508,6 +588,43 @@ impl Project {
         self.tracks.push(track);
     }
 
+    /// Removes a track. MIDI blocks it played keep their notes but go
+    /// silent until another track is picked.
+    pub fn remove_track(&mut self, i: usize) {
+        if i >= self.tracks.len() {
+            return;
+        }
+        self.tracks.remove(i);
+        self.prune_groups();
+        for m in self.blocks.iter_mut().filter_map(|b| b.midi.as_mut()) {
+            m.track = match m.track {
+                Some(t) if t == i => None,
+                Some(t) if t > i => Some(t - 1),
+                other => other,
+            };
+        }
+    }
+
+    /// Adds an empty one-bar MIDI block for a track and returns it, unless
+    /// the library is full.
+    pub fn new_midi_block(&mut self, track: Option<usize>) -> Option<usize> {
+        if self.blocks.len() >= MAX_BLOCKS {
+            return None;
+        }
+        let base = match track.and_then(|t| self.tracks.get(t)) {
+            Some(t) => format!("{} notes", t.name),
+            None => "Notes".to_string(),
+        };
+        let name = self.unused_block_name(&base);
+        self.blocks.push(Block::new_midi(&name, track, 1));
+        Some(self.blocks.len() - 1)
+    }
+
+    /// The first chain block, which the Jam view falls back to.
+    pub fn first_chain_block(&self) -> usize {
+        self.blocks.iter().position(|b| !b.is_midi()).unwrap_or(0)
+    }
+
     /// A name not used by any pattern yet: `base`, or `base 2`, `base 3`...
     fn unused_name(&self, base: &str) -> String {
         free_name(base, |n| self.patterns.iter().any(|p| p.name == n))
@@ -543,10 +660,19 @@ impl Project {
         Some(self.blocks.len() - 1)
     }
 
-    /// Removes a block and its copies on the timeline. The last block
-    /// can't be removed.
+    /// Whether a block can be deleted: there must always be a chain block
+    /// left for the Jam view.
+    pub fn can_delete_block(&self, b: usize) -> bool {
+        let chains = self.blocks.iter().filter(|b| !b.is_midi()).count();
+        self.blocks
+            .get(b)
+            .is_some_and(|block| block.is_midi() || chains > 1)
+    }
+
+    /// Removes a block and its copies on the timeline. The last chain
+    /// block can't be removed.
     pub fn delete_block(&mut self, b: usize) {
-        if b >= self.blocks.len() || self.blocks.len() == 1 {
+        if !self.can_delete_block(b) {
             return;
         }
         self.blocks.remove(b);
@@ -929,6 +1055,43 @@ mod tests {
         assert_eq!(lane[10], None);
         assert!(!set_note_length(&mut lane, 2, 8), "no change");
         assert_eq!(note_head(&lane, 0), None);
+    }
+
+    #[test]
+    fn midi_blocks_have_free_lengths_and_follow_track_deletes() {
+        let mut p = Project::demo();
+        let b = p.new_midi_block(Some(LEAD)).unwrap();
+        assert_eq!(p.blocks[b].name, "Lead notes");
+        assert_eq!(p.block_len(b), STEPS);
+        let m = p.blocks[b].midi.as_mut().unwrap();
+        m.notes.push(Note {
+            start: 20 * PPS,
+            len: PPS * 3 / 2,
+            pitch: 64,
+            velocity: 100,
+        });
+        assert!(m.fit_notes(), "grows to two bars for a note in bar 2");
+        assert_eq!(p.blocks[b].len(), 2 * STEPS);
+        assert_eq!(p.blocks[b].bars(), 2);
+
+        p.remove_track(0);
+        assert_eq!(p.blocks[b].midi.as_ref().unwrap().track, Some(LEAD - 1));
+        p.remove_track(LEAD - 1);
+        assert_eq!(p.blocks[b].midi.as_ref().unwrap().track, None, "silent");
+        assert_eq!(p.blocks[b].midi.as_ref().unwrap().notes.len(), 1);
+    }
+
+    #[test]
+    fn the_last_chain_block_stays() {
+        let mut p = Project::demo();
+        let b = p.new_midi_block(None).unwrap();
+        assert!(!p.can_delete_block(0), "Jam needs a chain block");
+        assert!(p.can_delete_block(b));
+        p.delete_block(0);
+        assert_eq!(p.blocks.len(), 2);
+        assert_eq!(p.first_chain_block(), 0);
+        p.delete_block(b);
+        assert_eq!(p.blocks.len(), 1);
     }
 
     #[test]

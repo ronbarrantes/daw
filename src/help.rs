@@ -104,7 +104,9 @@ const SECTIONS: &[(&str, &str)] = &[
          and sounds. Arrange is the timeline, where blocks become a song.\n\n\
          The units: a pattern is one bar of steps; a chain plays patterns \
          bar by bar; a block is a chain you can place on the timeline (like \
-         a clip in other DAWs); a song is blocks on the timeline.",
+         a clip in other DAWs); a song is blocks on the timeline. A MIDI \
+         block is the other kind of block: free notes for one track, made \
+         in Arrange.",
     ),
     (
         "Patterns and chains (Jam)",
@@ -136,6 +138,23 @@ const SECTIONS: &[(&str, &str)] = &[
          Delete removes it.\n\
          • Snap sets what blocks line up to; hold Shift for single steps. \
          Ctrl+scroll or - and + zoom.",
+    ),
+    (
+        "MIDI blocks (Arrange)",
+        "Free notes for one track: any pitch, any length, starting anywhere.\n\n\
+         • + MIDI in the Blocks drawer makes one for the selected track. \
+         Click a MIDI block to open its notes below the timeline.\n\
+         • Plays picks the track; Bars sets the length (drawing past the end \
+         makes it longer).\n\
+         • Click to add a note, drag it to move, drag its end to make it \
+         longer or shorter, right-click to delete.\n\
+         • Drag empty space to select; Shift-click adds or removes one; \
+         Alt-drag copies. Ctrl+A selects all, Delete deletes, Ctrl+D \
+         duplicates, arrows move (Shift: octave or bar), Esc deselects.\n\
+         • Snap: 1/4 to 1/32, 1/8 and 1/16 triplets, or Off. Hold Shift \
+         while dragging to go off the grid.\n\
+         • Velocity sets how loud the selected notes (or new ones) are.\n\
+         • Scroll to move around; Ctrl+scroll or - and + zoom.",
     ),
     (
         "Synth",
@@ -194,6 +213,8 @@ const SECTIONS: &[(&str, &str)] = &[
          F5 / F6 / F7 / F8 — show or hide chain, tracks, piano roll, panel\n\
          C / Ctrl+D / Delete — split, duplicate, delete the selected block \
          (Arrange)\n\
+         Ctrl+A / Ctrl+D / Delete / arrows — select all, duplicate, delete, \
+         move notes (MIDI block)\n\
          F9 — show everything\n\
          A–P — play notes on the selected track\n\
          Z / X — octave down / up\n\
