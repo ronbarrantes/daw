@@ -1,7 +1,6 @@
 //! Loads audio files (WAV, MP3, FLAC, OGG) into memory as mono samples.
 
-use std::fs::File;
-use std::io::ErrorKind;
+use std::io::{Cursor, ErrorKind};
 use std::path::Path;
 
 use symphonia::core::audio::SampleBuffer;
@@ -19,12 +18,22 @@ const MAX_SECONDS: f32 = 300.0;
 
 pub const EXTENSIONS: [&str; 5] = ["wav", "mp3", "flac", "ogg", "aiff"];
 
+/// Reads and decodes an audio file from disk.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn load(path: &Path) -> Result<Sample, String> {
+    let file_name = path.file_name().unwrap_or_default().to_string_lossy();
+    let bytes = std::fs::read(path).map_err(|e| format!("{file_name}: {e}"))?;
+    decode(&file_name, bytes)
+}
+
+/// Decodes an audio file's contents. `file_name` names the sample and
+/// hints at the format.
+pub fn decode(file_name: &str, bytes: Vec<u8>) -> Result<Sample, String> {
+    let path = Path::new(file_name);
     let name = path
         .file_stem()
         .map_or("Sample".into(), |s| s.to_string_lossy().into_owned());
-    let file = File::open(path).map_err(|e| format!("{name}: {e}"))?;
-    let stream = MediaSourceStream::new(Box::new(file), Default::default());
+    let stream = MediaSourceStream::new(Box::new(Cursor::new(bytes)), Default::default());
     let mut hint = Hint::new();
     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
         hint.with_extension(ext);

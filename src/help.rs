@@ -136,6 +136,16 @@ const SECTIONS: &[(&str, &str)] = &[
          start/stop.",
     ),
     (
+        "In a browser",
+        "The web version works like the desktop app, except:\n\n\
+         • Sound starts on your first click or key press.\n\
+         • Save downloads the .daw file; Open… uploads one. Exports download \
+         too.\n\
+         • Your song is kept in the browser, so it's back next visit.\n\
+         • MIDI gear works in Chrome and Edge only.\n\
+         • Ctrl+N opens a browser window; use File > New song.",
+    ),
+    (
         "Shortcuts",
         "Space — play / stop\n\
          Ctrl+S / Ctrl+Shift+S — save / save as (Cmd on Mac)\n\

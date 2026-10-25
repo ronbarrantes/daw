@@ -9,6 +9,7 @@
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::mpsc::{Receiver, Sender, SyncSender};
 use std::sync::{Arc, Mutex};
+#[cfg(not(target_arch = "wasm32"))]
 use std::thread;
 
 use midir::{Ignore, MidiInput, MidiInputConnection, MidiOutput, MidiOutputConnection};
@@ -105,6 +106,9 @@ pub struct Midi {
     pub in_ports: Vec<String>,
     pub out_name: Option<String>,
     pub error: Option<String>,
+    /// Outgoing messages, sent each frame (the web version has no threads).
+    #[cfg(target_arch = "wasm32")]
+    queue: Receiver<Msg>,
 }
 
 impl Midi {
@@ -115,14 +119,18 @@ impl Midi {
         queue: Receiver<Msg>,
     ) -> Self {
         let out: OutSlot = Arc::default();
-        let slot = out.clone();
-        thread::spawn(move || {
-            for msg in queue {
-                if let Some(conn) = slot.lock().unwrap().as_mut() {
-                    let _ = conn.send(msg.bytes());
+        // The web version has no threads; `send_queued` runs every frame.
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let slot = out.clone();
+            thread::spawn(move || {
+                for msg in queue {
+                    if let Some(conn) = slot.lock().unwrap().as_mut() {
+                        let _ = conn.send(msg.bytes());
+                    }
                 }
-            }
-        });
+            });
+        }
         let mut midi = Self {
             shared,
             events,
@@ -133,9 +141,22 @@ impl Midi {
             in_ports: Vec::new(),
             out_name: None,
             error: None,
+            #[cfg(target_arch = "wasm32")]
+            queue,
         };
         midi.refresh();
         midi
+    }
+
+    /// Sends what the engine queued for MIDI out.
+    #[cfg(target_arch = "wasm32")]
+    pub fn send_queued(&self) {
+        let mut slot = self.out.lock().unwrap();
+        for msg in self.queue.try_iter() {
+            if let Some(conn) = slot.as_mut() {
+                let _ = conn.send(msg.bytes());
+            }
+        }
     }
 
     /// Re-scans for devices, e.g. after plugging something in.

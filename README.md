@@ -36,6 +36,30 @@ you only need `alsa-lib`, which any desktop already has.
 - **Hyprland:** the window class is `daw`, e.g.
   `windowrulev2 = float, class:^(daw)$`
 
+## Use it in a browser
+
+**[ronbarrantes.github.io/daw](https://ronbarrantes.github.io/daw/)** runs
+the same app in Chrome, Edge, Firefox or Safari, nothing to install. It's
+updated with every merge to `main`.
+
+It works like the desktop app, with a few differences:
+
+- **Sound starts on your first click or key press** (browsers require it).
+- **Save** (Ctrl+S) downloads the `.daw` file; **Open…** uploads one. The
+  same files open in the desktop app and vice versa.
+- **Export WAV / MIDI** download the file.
+- Your song is **kept in the browser** and is back when you return, even
+  without saving. Songs with long samples may be too big for that (about
+  5 MB); then use Save.
+- **MIDI gear** works in Chrome and Edge (they'll ask for permission).
+  Firefox and Safari don't support MIDI.
+- Ctrl+N opens a new browser window instead; use **File → New song**.
+- On the 2012 MacBook Air, the desktop app runs much better.
+
+To build it yourself: `rustup target add wasm32-unknown-unknown`,
+`cargo install wasm-bindgen-cli` (the version in `Cargo.lock`), then
+`./web/build.sh` and serve `web/dist`, e.g. `python3 -m http.server -d web/dist`.
+
 ## Other downloads
 
 The links above get the newest numbered version. Every merge to `main` also
@@ -248,8 +272,9 @@ Plug gear in over USB (or a USB-MIDI cable), then press **⟳** to rescan.
 9. ~~Save and load songs~~
 10. ~~Export to WAV and MIDI~~
 11. Sample editor: chop, trim, ADSR, fades, reverse
-12. Mixer and effects
+12. ~~Pan, reverb and delay~~ (a full mixer to come)
 13. Recording
 14. Freesound.org sample browser
+15. ~~Web version~~
 
 See [docs/WORKFLOW.md](docs/WORKFLOW.md) for how changes get pushed, merged and released.

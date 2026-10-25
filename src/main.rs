@@ -9,6 +9,7 @@ mod project;
 mod sample;
 mod synth;
 mod undo;
+mod web;
 mod widgets;
 
 use std::collections::VecDeque;
@@ -16,6 +17,7 @@ use std::path::PathBuf;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::mpsc::{channel, sync_channel, Receiver, Sender, SyncSender};
 use std::sync::Arc;
+#[cfg(not(target_arch = "wasm32"))]
 use std::thread;
 use std::time::Duration;
 
@@ -124,6 +126,7 @@ const HUMANIZE: Param = Param {
     unit: Unit::Percent,
 };
 
+#[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result<()> {
     // Reopen the song from last time, or start with the demo.
     let last = file::last_song().and_then(|path| Some((file::open(&path).ok()?, path)));
@@ -131,18 +134,6 @@ fn main() -> eframe::Result<()> {
         Some((song, path)) => (song.project, Some(path), song.bpm),
         None => (Project::demo(), None, 120.0),
     };
-    let snapshot = Arc::new(project.clone());
-    let shared = Arc::new(Shared::new(snapshot.clone()));
-    let (events, events_rx) = sync_channel(256);
-    let (midi_tx, midi_rx) = sync_channel(1024);
-    let (played_tx, played) = channel();
-    let midi = Midi::new(shared.clone(), events.clone(), played_tx, midi_rx);
-    // Held until the window closes; dropping the stream stops audio.
-    let stream = audio::start(shared.clone(), events_rx, midi_tx);
-    let audio_error = stream.as_ref().err().cloned();
-    let (load_tx, load_rx) = channel();
-    let (export_tx, export_rx) = channel();
-    shared.set_bpm(bpm);
 
     // Sized to fit the 1366x768 screen of an 11" MacBook Air.
     let mut viewport = egui::ViewportBuilder::default()
@@ -157,45 +148,36 @@ fn main() -> eframe::Result<()> {
         viewport,
         ..Default::default()
     };
-    let selected = first_melodic(&project);
-    let undo = Undo::new(project.clone());
-    let app = App {
-        shared,
-        project,
-        history: VecDeque::from([snapshot]),
-        undo,
-        dirty: false,
-        events,
-        midi,
-        audio_error,
-        clipboard: None,
-        selected,
-        load_tx,
-        load_rx,
-        loading: 0,
-        load_error: None,
-        recording: false,
-        held_key: None,
-        show_help: false,
-        show_about: false,
-        show_fx: false,
-        confirm: None,
-        picked: Vec::new(),
-        selected_group: None,
-        view: View::ALL,
-        played,
-        show_midi_inputs: false,
-        file: path,
-        modified: false,
-        saved_bpm: bpm,
-        may_close: false,
-        title: String::new(),
-        export_tx,
-        export_rx,
-        exporting: false,
-        notice: None,
+    eframe::run_native(
+        "daw",
+        options,
+        Box::new(move |_cc| Ok(Box::new(App::new(project, path, bpm)))),
+    )
+}
+
+/// The web version: draws on the page's canvas (see `web/index.html`).
+#[cfg(target_arch = "wasm32")]
+fn main() {
+    // Reopen the song kept from last visit, or start with the demo.
+    let kept = web::stored_song()
+        .and_then(|(name, bytes)| Some((file::from_bytes(&name, bytes).ok()?, name)));
+    let (project, path, bpm) = match kept {
+        Some((song, name)) => {
+            let path = (!name.is_empty()).then(|| PathBuf::from(name));
+            (song.project, path, song.bpm)
+        }
+        None => (Project::demo(), None, 120.0),
     };
-    eframe::run_native("daw", options, Box::new(|_cc| Ok(Box::new(app))))
+    wasm_bindgen_futures::spawn_local(async move {
+        eframe::WebRunner::new()
+            .start(
+                web::canvas(),
+                eframe::WebOptions::default(),
+                Box::new(move |_cc| Ok(Box::new(App::new(project, path, bpm)))),
+            )
+            .await
+            .expect("couldn't start daw");
+    });
 }
 
 /// Which parts of the window are showing.
@@ -232,8 +214,16 @@ enum TrackAction {
 enum Then {
     NewSong,
     Demo,
-    Open(PathBuf),
+    Open(Opened),
     Quit,
+}
+
+/// A song file that's been read in, ready to open.
+#[derive(Clone)]
+struct Opened {
+    /// Where it came from; on the web, just its name.
+    path: PathBuf,
+    bytes: Vec<u8>,
 }
 
 /// The track to select in a newly opened song: the first melodic one, so
@@ -262,6 +252,8 @@ struct App {
     clipboard: Option<Vec<Grid>>,
     /// Track shown in the side panel and piano roll.
     selected: usize,
+    /// Samples decoded on background threads (the desktop app only).
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     load_tx: Sender<Result<Sample, String>>,
     load_rx: Receiver<Result<Sample, String>>,
     /// Files still being decoded.
@@ -295,11 +287,97 @@ struct App {
     /// The window title last set.
     title: String,
     /// Finished exports: a message to show, or an error.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     export_tx: Sender<Result<String, String>>,
     export_rx: Receiver<Result<String, String>>,
     exporting: bool,
     /// A short success message, e.g. "Exported song.wav".
     notice: Option<String>,
+    /// Kept so sound keeps playing; dropping it stops audio. (The web
+    /// version keeps it with the handler that starts it on first click.)
+    #[cfg(not(target_arch = "wasm32"))]
+    _stream: Option<cpal::Stream>,
+    /// Songs and samples picked in the browser's file dialog.
+    #[cfg(target_arch = "wasm32")]
+    inbox_tx: Sender<web::Picked>,
+    #[cfg(target_arch = "wasm32")]
+    inbox_rx: Receiver<web::Picked>,
+    /// Counts published changes, so autosave knows when there's news.
+    #[cfg(target_arch = "wasm32")]
+    edits: u64,
+    /// What autosave last kept: the edit count and tempo.
+    #[cfg(target_arch = "wasm32")]
+    autosaved: (u64, f32),
+}
+
+impl App {
+    fn new(project: Project, path: Option<PathBuf>, bpm: f32) -> Self {
+        let snapshot = Arc::new(project.clone());
+        let shared = Arc::new(Shared::new(snapshot.clone()));
+        let (events, events_rx) = sync_channel(256);
+        let (midi_tx, midi_rx) = sync_channel(1024);
+        let (played_tx, played) = channel();
+        let midi = Midi::new(shared.clone(), events.clone(), played_tx, midi_rx);
+        let stream = audio::start(shared.clone(), events_rx, midi_tx);
+        let audio_error = stream.as_ref().err().cloned();
+        #[cfg(target_arch = "wasm32")]
+        if let Ok(stream) = stream {
+            web::play_on_first_input(stream);
+        }
+        let (load_tx, load_rx) = channel();
+        let (export_tx, export_rx) = channel();
+        #[cfg(target_arch = "wasm32")]
+        let (inbox_tx, inbox_rx) = channel();
+        shared.set_bpm(bpm);
+        let selected = first_melodic(&project);
+        let undo = Undo::new(project.clone());
+        App {
+            shared,
+            project,
+            history: VecDeque::from([snapshot]),
+            undo,
+            dirty: false,
+            events,
+            midi,
+            audio_error,
+            clipboard: None,
+            selected,
+            load_tx,
+            load_rx,
+            loading: 0,
+            load_error: None,
+            recording: false,
+            held_key: None,
+            show_help: false,
+            show_about: false,
+            show_fx: false,
+            confirm: None,
+            picked: Vec::new(),
+            selected_group: None,
+            view: View::ALL,
+            played,
+            show_midi_inputs: false,
+            file: path,
+            modified: false,
+            saved_bpm: bpm,
+            may_close: false,
+            title: String::new(),
+            export_tx,
+            export_rx,
+            exporting: false,
+            notice: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            _stream: stream.ok(),
+            #[cfg(target_arch = "wasm32")]
+            inbox_tx,
+            #[cfg(target_arch = "wasm32")]
+            inbox_rx,
+            #[cfg(target_arch = "wasm32")]
+            edits: 0,
+            #[cfg(target_arch = "wasm32")]
+            autosaved: (0, bpm),
+        }
+    }
 }
 
 /// What File > Export writes.
@@ -458,15 +536,27 @@ impl eframe::App for App {
                 Err(e) => self.load_error = Some(e),
             }
         }
-        let dropped: Vec<PathBuf> = ctx.input(|i| {
-            i.raw
-                .dropped_files
-                .iter()
-                .filter_map(|f| f.path.clone())
-                .collect()
-        });
-        for path in dropped {
-            self.load_file(ctx, path);
+        // Desktop drops come as paths; browser drops as the file's bytes.
+        let dropped: Vec<egui::DroppedFile> = ctx.input(|i| i.raw.dropped_files.clone());
+        for f in dropped {
+            #[cfg(not(target_arch = "wasm32"))]
+            if let Some(path) = f.path {
+                self.load_file(ctx, path);
+                continue;
+            }
+            if let Some(bytes) = f.bytes {
+                self.load_bytes(&f.name, bytes.to_vec());
+            }
+        }
+        #[cfg(target_arch = "wasm32")]
+        while let Ok(picked) = self.inbox_rx.try_recv() {
+            match picked {
+                web::Picked::Song(name, bytes) => {
+                    let path = PathBuf::from(name);
+                    self.request(ctx, Then::Open(Opened { path, bytes }));
+                }
+                web::Picked::Sample(name, bytes) => self.load_bytes(&name, bytes),
+            }
         }
 
         egui::TopBottomPanel::top("menu").show(ctx, |ui| self.menu_bar(ui, ctx));
@@ -567,6 +657,15 @@ impl eframe::App for App {
             self.undo.settle(&self.project);
         }
         self.update_title(ctx);
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.midi.send_queued();
+            // Autosave once a change is finished (not mid-drag).
+            let news = self.autosaved != (self.edits, self.shared.bpm());
+            if news && !ctx.input(|i| i.pointer.any_down()) {
+                self.autosave();
+            }
+        }
         // Only redraw continuously while playing, to keep CPU low when idle.
         if playing {
             ctx.request_repaint_after(Duration::from_millis(30));
@@ -584,6 +683,10 @@ impl App {
         }
         self.dirty = false;
         self.modified = true;
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.edits += 1;
+        }
     }
 
     /// Ctrl+Z undoes; Ctrl+Shift+Z or Ctrl+Y redoes (Cmd on Mac).
@@ -646,6 +749,8 @@ impl App {
         let dot = if self.unsaved() { "• " } else { "" };
         let title = format!("{dot}{} - daw", self.song_name());
         if title != self.title {
+            #[cfg(target_arch = "wasm32")]
+            web::set_title(&title);
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
             self.title = title;
         }
@@ -682,13 +787,17 @@ impl App {
         match then {
             Then::NewSong => self.replace_song(Project::empty(), None, 120.0),
             Then::Demo => self.replace_song(Project::demo(), None, 120.0),
-            Then::Open(path) => match file::open(&path) {
-                Ok(song) => {
-                    file::remember(&path);
-                    self.replace_song(song.project, Some(path), song.bpm);
+            Then::Open(Opened { path, bytes }) => {
+                let name = path.file_name().unwrap_or_default().to_string_lossy();
+                match file::from_bytes(&name, bytes) {
+                    Ok(song) => {
+                        #[cfg(not(target_arch = "wasm32"))]
+                        file::remember(&path);
+                        self.replace_song(song.project, Some(path), song.bpm);
+                    }
+                    Err(e) => self.load_error = Some(e),
                 }
-                Err(e) => self.load_error = Some(e),
-            },
+            }
             Then::Quit => {
                 self.may_close = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -712,13 +821,23 @@ impl App {
         self.load_error = None;
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn open_dialog(&mut self, ctx: &egui::Context) {
         let picked = rfd::FileDialog::new()
             .add_filter("daw song", &[file::EXTENSION])
             .pick_file();
         if let Some(path) = picked {
-            self.request(ctx, Then::Open(path));
+            match std::fs::read(&path) {
+                Ok(bytes) => self.request(ctx, Then::Open(Opened { path, bytes })),
+                Err(e) => self.load_error = Some(format!("Couldn't open the song: {e}")),
+            }
         }
+    }
+
+    /// The browser's picker answers later, through `inbox`.
+    #[cfg(target_arch = "wasm32")]
+    fn open_dialog(&mut self, ctx: &egui::Context) {
+        web::pick(ctx, self.inbox_tx.clone(), true);
     }
 
     /// Saves to the current file, or asks where. Returns false if cancelled
@@ -730,6 +849,7 @@ impl App {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn save_as(&mut self) -> bool {
         let picked = rfd::FileDialog::new()
             .add_filter("daw song", &[file::EXTENSION])
@@ -741,8 +861,16 @@ impl App {
         }
     }
 
+    /// Browsers decide where downloads go, so this just names the file.
+    #[cfg(target_arch = "wasm32")]
+    fn save_as(&mut self) -> bool {
+        let name = format!("{}.{}", self.song_name(), file::EXTENSION);
+        self.write_song(PathBuf::from(name))
+    }
+
     /// Asks where to export, then renders on a background thread so the
     /// app stays responsive.
+    #[cfg(not(target_arch = "wasm32"))]
     fn export(&mut self, ctx: &egui::Context, kind: ExportKind) {
         let (label, ext) = match kind {
             ExportKind::Wav => ("WAV audio", "wav"),
@@ -762,16 +890,41 @@ impl App {
         self.exporting = true;
         self.notice = None;
         thread::spawn(move || {
-            let result = match kind {
-                ExportKind::Wav => export::wav(&path, &project, bpm, pattern),
-                ExportKind::Midi => export::midi(&path, &project, bpm, pattern),
+            let bytes = match kind {
+                ExportKind::Wav => export::wav(&project, bpm, pattern),
+                ExportKind::Midi => Ok(export::midi(&project, bpm, pattern)),
             };
+            let result = bytes.and_then(|bytes| {
+                std::fs::write(&path, bytes).map_err(|e| format!("Couldn't export: {e}"))
+            });
             let name = path.file_name().unwrap_or_default().to_string_lossy();
             let _ = tx.send(result.map(|()| format!("Exported {name}")));
             ctx.request_repaint();
         });
     }
 
+    /// Renders right away (browsers have no background threads here) and
+    /// downloads the result.
+    #[cfg(target_arch = "wasm32")]
+    fn export(&mut self, _ctx: &egui::Context, kind: ExportKind) {
+        let bpm = self.shared.bpm();
+        let pattern = self.edit_pattern();
+        let (bytes, ext, mime) = match kind {
+            ExportKind::Wav => (export::wav(&self.project, bpm, pattern), "wav", "audio/wav"),
+            ExportKind::Midi => (
+                Ok(export::midi(&self.project, bpm, pattern)),
+                "mid",
+                "audio/midi",
+            ),
+        };
+        let name = format!("{}.{ext}", self.song_name());
+        match bytes.and_then(|bytes| web::download(&name, &bytes, mime)) {
+            Ok(()) => self.notice = Some(format!("Exported {name}")),
+            Err(e) => self.load_error = Some(e),
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     fn write_song(&mut self, path: PathBuf) -> bool {
         let bpm = self.shared.bpm();
         match file::save(&path, &self.project, bpm) {
@@ -787,6 +940,47 @@ impl App {
                 self.load_error = Some(e);
                 false
             }
+        }
+    }
+
+    /// Downloads the song, and keeps it in the browser for next visit.
+    #[cfg(target_arch = "wasm32")]
+    fn write_song(&mut self, path: PathBuf) -> bool {
+        let bpm = self.shared.bpm();
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        let saved = file::to_bytes(&self.project, bpm)
+            .and_then(|bytes| web::download(&name, &bytes, "application/zip"));
+        match saved {
+            Ok(()) => {
+                self.file = Some(path);
+                self.modified = false;
+                self.saved_bpm = bpm;
+                self.load_error = None;
+                self.autosave();
+                true
+            }
+            Err(e) => {
+                self.load_error = Some(e);
+                false
+            }
+        }
+    }
+
+    /// Keeps the song in the browser, so it's back after a reload or next
+    /// visit. Runs a moment after each change.
+    #[cfg(target_arch = "wasm32")]
+    fn autosave(&mut self) {
+        let bpm = self.shared.bpm();
+        self.autosaved = (self.edits, bpm);
+        let name = self
+            .file
+            .as_ref()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let kept =
+            file::to_bytes(&self.project, bpm).and_then(|bytes| web::store_song(&name, &bytes));
+        if let Err(e) = kept {
+            self.load_error = Some(e);
         }
     }
 
@@ -893,6 +1087,7 @@ impl App {
     }
 
     /// Opens the file picker and loads the chosen audio files.
+    #[cfg(not(target_arch = "wasm32"))]
     fn pick_samples(&mut self, ctx: &egui::Context) {
         let picked = rfd::FileDialog::new()
             .add_filter("Audio", &sample::EXTENSIONS)
@@ -902,7 +1097,22 @@ impl App {
         }
     }
 
+    #[cfg(target_arch = "wasm32")]
+    fn pick_samples(&mut self, ctx: &egui::Context) {
+        web::pick(ctx, self.inbox_tx.clone(), false);
+    }
+
+    /// Decodes audio that's already in memory, e.g. dropped in a browser.
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    fn load_bytes(&mut self, name: &str, bytes: Vec<u8>) {
+        match sample::decode(name, bytes) {
+            Ok(sample) => self.add_track(Track::sampler(Arc::new(sample), false)),
+            Err(e) => self.load_error = Some(e),
+        }
+    }
+
     /// Decodes a file on a background thread so the UI doesn't freeze.
+    #[cfg(not(target_arch = "wasm32"))]
     fn load_file(&mut self, ctx: &egui::Context, path: PathBuf) {
         self.loading += 1;
         let tx = self.load_tx.clone();
@@ -963,6 +1173,8 @@ impl App {
                 if item(ui, "Save", "Ctrl+S") {
                     self.save();
                 }
+                // In a browser, Save downloads the song, so Save as is the same.
+                #[cfg(not(target_arch = "wasm32"))]
                 if item(ui, "Save as…", "Ctrl+Shift+S") {
                     self.save_as();
                 }
@@ -978,9 +1190,12 @@ impl App {
                 if item(ui, "Load demo song", "") {
                     self.request(ctx, Then::Demo);
                 }
-                ui.separator();
-                if ui.button("Quit").clicked() {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    ui.separator();
+                    if ui.button("Quit").clicked() {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
                 }
             });
             ui.menu_button("Edit", |ui| {

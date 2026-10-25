@@ -4,8 +4,7 @@
 //! Both render the song offline with the real engine. They export the song
 //! row once; if it's empty, the current pattern four times.
 
-use std::fs;
-use std::path::Path;
+use std::io::Cursor;
 
 use crate::audio;
 use crate::project::Project;
@@ -20,8 +19,8 @@ const PPQ: u16 = 480;
 /// General MIDI's drum channel (channel 10, counting from 1).
 const DRUM_CHANNEL: u8 = 9;
 
-/// Writes the song as a 16-bit stereo WAV file.
-pub fn wav(path: &Path, project: &Project, bpm: f32, pattern: usize) -> Result<(), String> {
+/// The song as a 16-bit stereo WAV file.
+pub fn wav(project: &Project, bpm: f32, pattern: usize) -> Result<Vec<u8>, String> {
     let r = audio::render(
         project.clone(),
         bpm,
@@ -37,18 +36,20 @@ pub fn wav(path: &Path, project: &Project, bpm: f32, pattern: usize) -> Result<(
         sample_format: hound::SampleFormat::Int,
     };
     let err = |e: hound::Error| format!("Couldn't export: {e}");
-    let mut wav = hound::WavWriter::create(path, spec).map_err(err)?;
+    let mut bytes = Cursor::new(Vec::new());
+    let mut wav = hound::WavWriter::new(&mut bytes, spec).map_err(err)?;
     for frame in r.audio {
         for s in frame {
             let v = (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
             wav.write_sample(v).map_err(err)?;
         }
     }
-    wav.finalize().map_err(err)
+    wav.finalize().map_err(err)?;
+    Ok(bytes.into_inner())
 }
 
-/// Writes the song as a standard MIDI file, one MIDI track per channel.
-pub fn midi(path: &Path, project: &Project, bpm: f32, pattern: usize) -> Result<(), String> {
+/// The song as a standard MIDI file, one MIDI track per channel.
+pub fn midi(project: &Project, bpm: f32, pattern: usize) -> Vec<u8> {
     let (project, names) = with_channels(project);
     let r = audio::render(
         project,
@@ -58,8 +59,7 @@ pub fn midi(path: &Path, project: &Project, bpm: f32, pattern: usize) -> Result<
         SAMPLE_RATE as f32,
         0.0,
     );
-    let bytes = smf(&r.midi, &names, bpm, SAMPLE_RATE as f32);
-    fs::write(path, bytes).map_err(|e| format!("Couldn't export: {e}"))
+    smf(&r.midi, &names, bpm, SAMPLE_RATE as f32)
 }
 
 /// A copy of the project where every audible track sends MIDI, plus the
@@ -184,10 +184,6 @@ mod tests {
     use crate::drums;
     use crate::project::Track;
 
-    fn temp(name: &str) -> std::path::PathBuf {
-        std::env::temp_dir().join(format!("daw-export-{}-{name}", std::process::id()))
-    }
-
     /// A note event read back: (tick, status, note, velocity).
     type Event = (u32, u8, u8, u8);
 
@@ -233,10 +229,9 @@ mod tests {
 
     #[test]
     fn wav_holds_the_song_plus_a_tail() {
-        let path = temp("song.wav");
         // The demo's song row is one bar: 2 seconds at 120 BPM.
-        wav(&path, &Project::demo(), 120.0, 0).unwrap();
-        let mut reader = hound::WavReader::open(&path).unwrap();
+        let bytes = wav(&Project::demo(), 120.0, 0).unwrap();
+        let mut reader = hound::WavReader::new(Cursor::new(bytes)).unwrap();
         let spec = reader.spec();
         let frames = reader.duration() as f32;
         let loudest = reader
@@ -244,7 +239,6 @@ mod tests {
             .map(|s| s.unwrap().unsigned_abs())
             .max()
             .unwrap();
-        fs::remove_file(&path).unwrap();
         assert_eq!((spec.channels, spec.sample_rate), (2, SAMPLE_RATE));
         let seconds = frames / SAMPLE_RATE as f32;
         assert!((seconds - (2.0 + TAIL_SECONDS)).abs() < 0.01, "{seconds} s");
@@ -253,13 +247,10 @@ mod tests {
 
     #[test]
     fn midi_has_every_note_on_its_channel() {
-        let path = temp("song.mid");
         let mut project = Project::demo();
         project.tracks[5].midi_channel = None; // the pad gets a free channel
         project.tracks[3].muted = true; // clap: left out
-        midi(&path, &project, 120.0, 0).unwrap();
-        let (ppq, tracks) = read_smf(&fs::read(&path).unwrap());
-        fs::remove_file(&path).unwrap();
+        let (ppq, tracks) = read_smf(&midi(&project, 120.0, 0));
         assert_eq!(ppq, PPQ);
 
         let on = |name: &str| -> Vec<(u32, u8, u8)> {
