@@ -373,16 +373,24 @@ Done:
 
 Next:
 
-1. Audio blocks on the timeline: vocals and full tracks, with trim, split,
+1. **MIDI blocks:** a third kind of block, a free-length list of notes
+   (any pitch, any length, exact timing and velocity) placed on the
+   timeline and played by any track. Comes with real polyphony (a pool of
+   voices per track instead of one per note name) and a full multi-octave
+   piano roll to draw, move and resize notes, with triplet grids.
+2. Import .mid files as MIDI blocks (say, sheet music turned into MIDI)
+3. Record a take from a MIDI keyboard or the computer keys into a MIDI block
+4. Audio blocks on the timeline: vocals and full tracks, with trim, split,
    fades and clip volume
-2. Recording audio onto the timeline
-3. Record a jam (pattern and chain changes) straight into the timeline
-4. Time signatures: 3/4, 6/8, 5/4, 13/8 and others, and pattern lengths
+5. Sampled instruments (SoundFont / SFZ), for real piano and other sounds
+6. Recording audio onto the timeline
+7. Record a jam (pattern and chain changes) straight into the timeline
+8. Time signatures: 3/4, 6/8, 5/4, 13/8 and others, and pattern lengths
    other than 16 steps
-5. Clip overrides: mute a track, transpose or change the volume of one clip
-   without unlinking it
-6. Sample editor: chop, trim, ADSR, fades, reverse
-7. A full mixer
-8. Freesound.org sample browser
+9. Clip overrides: mute a track, transpose or change the volume of one
+   block without unlinking it
+10. Sample editor: chop, trim, ADSR, fades, reverse
+11. A full mixer
+12. Freesound.org sample browser
 
 See [docs/WORKFLOW.md](docs/WORKFLOW.md) for how changes get pushed, merged and released.
