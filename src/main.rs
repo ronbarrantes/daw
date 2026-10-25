@@ -27,17 +27,18 @@ use std::time::Duration;
 
 use eframe::egui::{self, Color32, RichText, Sense, Vec2};
 
+use audio::SCOPE_LEN;
 use audio::{Event, Shared};
 use midi::{Midi, Played, Route};
 use project::{
-    Effects, Grid, Kind, Project, Row, Sample, Step, Track, ACCENT, EMPTY_GRID, GHOST, LANES,
-    MAX_RATCHET, MAX_TRACKS, NORMAL, STEPS,
+    note_head, set_note_length, Effects, Grid, Kind, Project, Row, Sample, Step, Track, ACCENT,
+    EMPTY_GRID, GHOST, LANES, MAX_RATCHET, MAX_TRACKS, NORMAL, STEPS,
 };
 use synth::{Param, Unit, PARAMS};
 use undo::Undo;
 use widgets::{
-    disclosure_arrow, empty_fill, knob, lit_fill, playhead, port_picker, DRUM_ON, NOTE_HELD,
-    NOTE_NAMES, NOTE_ON,
+    disclosure_arrow, empty_fill, envelope, knob, lit_fill, playhead, port_picker, scope, DRUM_ON,
+    NOTE_HELD, NOTE_NAMES, NOTE_ON, SCOPE_SPANS,
 };
 
 const RECORDING: Color32 = Color32::from_rgb(220, 60, 60);
@@ -272,6 +273,14 @@ struct App {
     show_about: bool,
     show_fx: bool,
     timeline: timeline::State,
+    /// A piano-roll note being dragged longer or shorter: (lane, its first step).
+    note_drag: Option<(usize, usize)>,
+    /// The oscilloscope and envelope drawing in the instrument panel.
+    show_scope: bool,
+    /// Which of `SCOPE_SPANS` the scope shows.
+    scope_span: usize,
+    /// The scope had something to show last frame, so keep it moving.
+    scope_busy: bool,
     /// Waiting for "save changes first?" to be answered.
     confirm: Option<Then>,
     /// Extra tracks picked with Ctrl/Cmd-click, for grouping.
@@ -358,6 +367,10 @@ impl App {
             show_about: false,
             show_fx: false,
             timeline: timeline::State::default(),
+            note_drag: None,
+            show_scope: true,
+            scope_span: 1,
+            scope_busy: false,
             confirm: None,
             picked: Vec::new(),
             selected_group: None,
@@ -603,9 +616,12 @@ impl eframe::App for App {
             egui::SidePanel::right("instrument")
                 .resizable(false)
                 .exact_width(290.0)
-                .show(ctx, |ui| match self.selected_group {
-                    Some(id) => self.group_panel(ui, id),
-                    None => self.instrument_panel(ui),
+                .show(ctx, |ui| {
+                    // Scrolls when the window is short (the scope adds height).
+                    egui::ScrollArea::vertical().show(ui, |ui| match self.selected_group {
+                        Some(id) => self.group_panel(ui, id),
+                        None => self.instrument_panel(ui),
+                    });
                 });
         }
 
@@ -683,8 +699,12 @@ impl eframe::App for App {
                 self.autosave();
             }
         }
-        // Only redraw continuously while playing, to keep CPU low when idle.
-        if playing {
+        // The engine only feeds the scope while it's showing.
+        let scope = self.show_scope && self.view.panel && self.selected_group.is_none();
+        self.shared.scope_on.store(scope, Relaxed);
+        // Only redraw continuously while playing (or the scope has sound
+        // to show), to keep CPU low when idle.
+        if playing || (scope && self.scope_busy) {
             ctx.request_repaint_after(Duration::from_millis(30));
         }
     }
@@ -1271,6 +1291,10 @@ impl App {
                 ui.checkbox(&mut v.piano, "Piano roll  (F7)");
                 ui.checkbox(&mut v.panel, "Instrument panel  (F8)");
                 ui.checkbox(&mut v.others, "Other tracks' notes in piano roll");
+                ui.checkbox(
+                    &mut self.show_scope,
+                    "Scope and envelope (instrument panel)",
+                );
                 ui.separator();
                 ui.label(RichText::new("Focus on one thing").small().weak());
                 if ui.button("Tracks only").clicked() {
@@ -1929,11 +1953,14 @@ impl App {
             {
                 self.dirty = true;
             }
-            ui.weak("Click: add/remove · several per column = chord · right-click after a note: hold · right-click a note: groove");
+            ui.weak("Click: add/remove · drag a note sideways: longer/shorter · several per column = chord · right-click a note: groove");
         });
         ui.add_space(4.0);
         ui.spacing_mut().item_spacing.y = 2.0;
         let grid = &mut track.patterns[pattern];
+        // Where each step's column is, for working out where a note is
+        // being dragged to.
+        let mut columns = [0.0_f32; STEPS];
         // Highest note on top, like a piano.
         for lane in (0..LANES).rev() {
             let name = NOTE_NAMES[lane];
@@ -1966,9 +1993,20 @@ impl App {
                     let cell = egui::Button::new(RichText::new(text).small().color(Color32::BLACK))
                         .fill(fill)
                         .stroke(playhead(current == Some(step)))
-                        .min_size(Vec2::new(28.0, 17.0));
+                        .min_size(Vec2::new(28.0, 17.0))
+                        .sense(Sense::click_and_drag());
                     let resp = ui.add(cell);
+                    columns[step] = resp.rect.center().x;
                     let lane_steps = &mut grid[lane];
+                    if value.is_some() {
+                        if resp.hovered() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+                        }
+                        if resp.drag_started() {
+                            // Drag any part of a note to change its length.
+                            self.note_drag = note_head(lane_steps, step).map(|head| (lane, head));
+                        }
+                    }
                     if resp.clicked() {
                         if ui.input(|i| i.modifiers.shift) {
                             if !Step::is_hit(&value) {
@@ -2004,6 +2042,28 @@ impl App {
                     }
                 }
             });
+        }
+        if let Some((lane, head)) = self.note_drag {
+            let pointer =
+                ui.input(|i| i.pointer.primary_down().then_some(i.pointer.interact_pos()));
+            match pointer {
+                Some(Some(pos)) => {
+                    // The column nearest the pointer, but never before the note.
+                    let end = (0..STEPS)
+                        .min_by(|&a, &b| {
+                            (columns[a] - pos.x)
+                                .abs()
+                                .total_cmp(&(columns[b] - pos.x).abs())
+                        })
+                        .unwrap_or(head)
+                        .max(head);
+                    if set_note_length(&mut grid[lane], head, end) {
+                        self.dirty = true;
+                    }
+                }
+                Some(None) => {}
+                None => self.note_drag = None,
+            }
         }
     }
 
@@ -2107,6 +2167,16 @@ impl App {
             .desired_width(200.0);
         changed |= ui.add(name).changed();
         ui.add_space(4.0);
+        if self.show_scope {
+            let mut samples = [0.0_f32; SCOPE_LEN];
+            self.shared.read_scope(&mut samples);
+            self.scope_busy = samples.iter().any(|s| s.abs() > 1e-4);
+            let rate = self.shared.sample_rate.load(Relaxed) as f32;
+            if scope(ui, &samples, rate, SCOPE_SPANS[self.scope_span]) {
+                self.scope_span = (self.scope_span + 1) % SCOPE_SPANS.len();
+            }
+            ui.add_space(4.0);
+        }
 
         ui.horizontal(|ui| {
             // Shown 1-16 like on hardware, stored 0-15; 0 means off.
@@ -2174,6 +2244,15 @@ impl App {
                             changed |= knob(ui, &PARAMS[i], &mut values[i]);
                         }
                     });
+                    if self.show_scope && row[0] == synth::ATTACK {
+                        envelope(
+                            ui,
+                            values[synth::ATTACK],
+                            values[synth::DECAY],
+                            values[synth::SUSTAIN],
+                            values[synth::RELEASE],
+                        );
+                    }
                 }
             }
             Kind::Sampler { sample, pitched } => {

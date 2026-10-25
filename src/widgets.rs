@@ -202,3 +202,108 @@ pub fn knob(ui: &mut egui::Ui, p: &Param, value: &mut f32) -> bool {
     });
     changed
 }
+
+/// How much time the scope shows, in milliseconds; click the scope to cycle.
+pub const SCOPE_SPANS: [f32; 4] = [5.0, 10.0, 20.0, 50.0];
+
+/// An oscilloscope: draws `samples` (oldest first) like a scope triggered
+/// on a rising edge, so a steady note stands still. Returns true if clicked.
+pub fn scope(ui: &mut egui::Ui, samples: &[f32], sample_rate: f32, span_ms: f32) -> bool {
+    let size = Vec2::new(ui.available_width().min(270.0), 80.0);
+    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+    let painter = ui.painter_at(rect);
+    painter.rect_filled(rect, 4.0, Color32::from_rgb(12, 20, 16));
+    let grid = Stroke::new(1.0_f32, Color32::from_rgb(28, 48, 36));
+    for i in 1..10 {
+        let x = rect.left() + rect.width() * i as f32 / 10.0;
+        painter.line_segment(
+            [Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())],
+            grid,
+        );
+    }
+    for i in 1..4 {
+        let y = rect.top() + rect.height() * i as f32 / 4.0;
+        painter.line_segment(
+            [Pos2::new(rect.left(), y), Pos2::new(rect.right(), y)],
+            grid,
+        );
+    }
+
+    let window = ((span_ms / 1000.0 * sample_rate) as usize).clamp(16, samples.len());
+    // Trigger: the newest rising zero crossing that still leaves a full
+    // window after it.
+    let latest = samples.len() - window;
+    let start = (1..=latest)
+        .rev()
+        .find(|&i| samples[i - 1] < 0.0 && samples[i] >= 0.0)
+        .unwrap_or(latest);
+    let shown = &samples[start..start + window];
+    let peak = shown.iter().fold(0.0_f32, |m, s| m.max(s.abs()));
+    // Quiet sounds are scaled up so their shape is still visible.
+    let scale = if peak > 0.0 {
+        0.9 / peak.max(0.25)
+    } else {
+        1.0
+    };
+    let points: Vec<Pos2> = shown
+        .iter()
+        .enumerate()
+        .map(|(i, s)| {
+            let x = rect.left() + rect.width() * i as f32 / (window - 1) as f32;
+            let y = rect.center().y - s * scale * rect.height() / 2.0;
+            Pos2::new(x, y.clamp(rect.top(), rect.bottom()))
+        })
+        .collect();
+    painter.add(egui::Shape::line(
+        points,
+        Stroke::new(1.5_f32, Color32::from_rgb(90, 255, 140)),
+    ));
+    painter.text(
+        rect.right_bottom() - Vec2::new(4.0, 2.0),
+        egui::Align2::RIGHT_BOTTOM,
+        format!("{span_ms:.0} ms"),
+        egui::FontId::proportional(10.0),
+        Color32::from_rgb(90, 160, 110),
+    );
+    resp.on_hover_text("The selected track's sound, like an oscilloscope.\nClick to change how much time it shows.")
+        .clicked()
+}
+
+/// The shape of an ADSR envelope: up over the attack, down to the sustain
+/// level over the decay, held while the note is, then down over the release.
+pub fn envelope(ui: &mut egui::Ui, attack: f32, decay: f32, sustain: f32, release: f32) {
+    let size = Vec2::new(ui.available_width().min(270.0), 46.0);
+    let (rect, resp) = ui.allocate_exact_size(size, Sense::hover());
+    let painter = ui.painter_at(rect);
+    painter.rect_filled(rect, 4.0, Color32::from_gray(28));
+    // Times are drawn on a square-root scale so short and long both fit;
+    // the held part gets a fixed width.
+    let held = 0.6;
+    let widths = [attack.sqrt(), decay.sqrt(), held, release.sqrt()];
+    let total: f32 = widths.iter().sum();
+    let inner = rect.shrink(4.0);
+    let x = |t: f32| inner.left() + inner.width() * t / total;
+    let y = |level: f32| inner.bottom() - inner.height() * level;
+    let mut t = 0.0;
+    let mut points = vec![Pos2::new(x(0.0), y(0.0))];
+    for (w, level) in widths.iter().zip([1.0, sustain, sustain, 0.0]) {
+        t += w;
+        points.push(Pos2::new(x(t), y(level)));
+    }
+    painter.add(egui::Shape::line(points, Stroke::new(1.5_f32, NOTE_ON)));
+    for (label, at) in [
+        ("A", widths[0] / 2.0),
+        ("D", widths[0] + widths[1] / 2.0),
+        ("S", widths[0] + widths[1] + held / 2.0),
+        ("R", total - widths[3] / 2.0),
+    ] {
+        painter.text(
+            Pos2::new(x(at), inner.bottom()),
+            egui::Align2::CENTER_BOTTOM,
+            label,
+            egui::FontId::proportional(9.0),
+            Color32::from_gray(140),
+        );
+    }
+    resp.on_hover_text("The volume over one note: Attack, Decay, Sustain, Release");
+}

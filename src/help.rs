@@ -76,7 +76,8 @@ const SECTIONS: &[(&str, &str)] = &[
         "Piano roll",
         "• Click a cell to add a note; click it again to remove it. Several \
          notes in one column make a chord.\n\
-         • Right-click the cell after a note to hold it longer (darker blue).\n\
+         • Drag a note sideways to make it longer or shorter (the held part \
+         is darker blue).\n\
          • Right-click a note itself for its velocity, chance, ratchet and \
          nudge; shift-click for a ghost note.\n\
          • Octave moves the whole roll up or down.\n\
@@ -132,7 +133,10 @@ const SECTIONS: &[(&str, &str)] = &[
          each note pluck.\n\
          • Envelope (ADSR): Attack fades in, Decay falls to the Sustain level \
          while a note is held, Release fades out after.\n\n\
-         Try: Cutoff down, Reso up, Env amt up, short F decay = acid bass.",
+         Try: Cutoff down, Reso up, Env amt up, short F decay = acid bass.\n\n\
+         The green scope at the top of the panel shows the selected track's \
+         wave as you play; click it to show more or less time. The blue \
+         drawing shows the envelope. View menu turns them off.",
     ),
     (
         "Sample tracks",

@@ -226,8 +226,9 @@ All of this goes out over MIDI too, with velocity.
 
 - Click a cell to add a note; click it again to remove it. Several notes in
   one column make a **chord**.
-- **Right-click** the cell after a note to hold that note longer (shown in a
-  darker blue). Longer notes let the synth's **Sustain** and **Release** be heard.
+- **Drag a note sideways** to make it longer or shorter (the held part is a
+  darker blue). Longer notes let the synth's **Sustain** and **Release** be
+  heard. Right-clicking the cell after a note holds it one step longer too.
 - **Right-click** a note for its groove settings; **shift-click** for a ghost note.
 - Other tracks' notes show faintly behind, to help line parts up (View menu
   to turn off).
@@ -305,6 +306,12 @@ to reset it. Hover for what each one does.
   **Sustain** level while the note is held, **Release** fades out after.
 
 Try: Cutoff down, Reso up, Env amt up, Decay short → squelchy acid bass.
+
+**Scope:** the green screen at the top of the panel is an oscilloscope of
+the selected track, so you can watch a knob change the wave. A saw is a
+ramp, a square is a square, and the filter rounds off the sharp corners.
+Click it to show more or less time. The blue drawing under the envelope
+knobs shows the note's volume over time. Turn both off in **View**.
 
 ### MIDI
 
