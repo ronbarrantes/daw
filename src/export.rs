@@ -38,11 +38,11 @@ pub fn wav(path: &Path, project: &Project, bpm: f32, pattern: usize) -> Result<(
     };
     let err = |e: hound::Error| format!("Couldn't export: {e}");
     let mut wav = hound::WavWriter::create(path, spec).map_err(err)?;
-    for s in r.audio {
-        let v = (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
-        // The mix is mono; write it to both sides.
-        wav.write_sample(v).map_err(err)?;
-        wav.write_sample(v).map_err(err)?;
+    for frame in r.audio {
+        for s in frame {
+            let v = (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
+            wav.write_sample(v).map_err(err)?;
+        }
     }
     wav.finalize().map_err(err)
 }

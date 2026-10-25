@@ -10,6 +10,8 @@
 //! can play chords. Steps start on MIDI clock ticks, but each hit is
 //! scheduled to the exact sample, so swing, nudge, humanize and ratchets
 //! aren't limited to the clock's resolution.
+//!
+//! The mix is stereo: each track is panned with an equal-power law.
 
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, AtomicUsize, Ordering::Relaxed};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
@@ -121,6 +123,14 @@ impl Shared {
     }
 }
 
+/// Left and right gains for a pan position (-1 to 1). Equal power, scaled
+/// so the centre is unity on both sides, like the old mono mix.
+fn pan_gains(pan: f32) -> [f32; 2] {
+    let angle = (pan.clamp(-1.0, 1.0) + 1.0) * std::f32::consts::FRAC_PI_4;
+    let s = std::f32::consts::SQRT_2;
+    [angle.cos() * s, angle.sin() * s]
+}
+
 /// Loudness for a MIDI velocity; 100 is unity, so ghost notes (40) are
 /// about a quarter as loud and accents (127) about 40% louder.
 fn velocity_gain(velocity: u8) -> f32 {
@@ -211,8 +221,9 @@ struct Engine {
     /// The clicked note that's sounding (track, lane), and samples until it stops.
     preview: Option<(usize, usize, u32)>,
     /// Each track's level after mute, solo and group volume; worked out
-    /// once per project change rather than every sample.
-    gains: [f32; MAX_TRACKS],
+    /// once per project change rather than every sample. Left and right,
+    /// so pan is included.
+    gains: [[f32; 2]; MAX_TRACKS],
     /// Pattern playing in this bar; `None` is a silent song bar.
     pattern: Option<usize>,
     song_pos: usize,
@@ -248,7 +259,7 @@ impl Engine {
             samples_since_tick: 0,
             samples_to_update: 0,
             preview: None,
-            gains: [0.0; MAX_TRACKS],
+            gains: [[0.0; 2]; MAX_TRACKS],
             pattern: Some(0),
             song_pos: 0,
             restart_song: true,
@@ -266,10 +277,9 @@ impl Engine {
     fn project_changed(&mut self) {
         let project = self.project.clone();
         for i in 0..MAX_TRACKS {
-            self.gains[i] = if i < project.tracks.len() {
-                project.gain(i)
-            } else {
-                0.0
+            self.gains[i] = match project.tracks.get(i) {
+                Some(t) => pan_gains(t.pan).map(|g| g * project.gain(i)),
+                None => [0.0; 2],
             };
         }
         for (lanes, track) in self.voices.iter_mut().zip(&project.tracks) {
@@ -564,7 +574,8 @@ impl Engine {
         self.tick = (self.tick + 1) % (TICKS_PER_STEP * STEPS as u32);
     }
 
-    fn next_sample(&mut self) -> f32 {
+    /// The next stereo frame, left and right.
+    fn next_sample(&mut self) -> [f32; 2] {
         if self.samples_to_update == 0 {
             self.update();
             self.samples_to_update = UPDATE_INTERVAL;
@@ -629,7 +640,7 @@ impl Engine {
             }
         }
 
-        let mut mix = 0.0;
+        let mut mix = [0.0; 2];
         for i in 0..self.track_count() {
             let synth = matches!(self.project.tracks[i].kind, Kind::Synth(_));
             let mut out = 0.0;
@@ -644,9 +655,10 @@ impl Engine {
                 };
                 out += sample * voice.gain;
             }
-            mix += out * self.gains[i];
+            mix[0] += out * self.gains[i][0];
+            mix[1] += out * self.gains[i][1];
         }
-        (mix * 0.8).clamp(-1.0, 1.0)
+        mix.map(|m| (m * 0.8).clamp(-1.0, 1.0))
     }
 }
 
@@ -674,10 +686,10 @@ pub fn start(
     Ok(stream)
 }
 
-/// What an offline render made: the audio, and the MIDI the engine sent,
-/// each message with the sample it went out on.
+/// What an offline render made: the audio (left and right), and the MIDI
+/// the engine sent, each message with the sample it went out on.
 pub struct Rendered {
-    pub audio: Vec<f32>,
+    pub audio: Vec<[f32; 2]>,
     pub midi: Vec<(usize, Msg)>,
 }
 
@@ -731,8 +743,16 @@ fn build<T: SizedSample + FromSample<f32>>(
             config,
             move |data: &mut [T], _| {
                 for frame in data.chunks_mut(channels) {
-                    let s = T::from_sample(engine.next_sample());
-                    frame.fill(s);
+                    let [l, r] = engine.next_sample();
+                    match frame {
+                        [mono] => *mono = T::from_sample((l + r) * 0.5),
+                        [left, right, rest @ ..] => {
+                            *left = T::from_sample(l);
+                            *right = T::from_sample(r);
+                            rest.fill(T::EQUILIBRIUM);
+                        }
+                        [] => {}
+                    }
                 }
             },
             |e| eprintln!("audio error: {e}"),
@@ -776,7 +796,15 @@ mod tests {
             }
         }
 
+        /// Plays and returns the mix folded to mono.
         fn run(&mut self, samples: usize) -> Vec<f32> {
+            self.run_stereo(samples)
+                .iter()
+                .map(|[l, r]| (l + r) * 0.5)
+                .collect()
+        }
+
+        fn run_stereo(&mut self, samples: usize) -> Vec<[f32; 2]> {
             (0..samples).map(|_| self.engine.next_sample()).collect()
         }
 
@@ -954,6 +982,28 @@ mod tests {
             rig.run(4_800).iter().all(|s| *s == 0.0),
             "another track is soloed"
         );
+    }
+
+    #[test]
+    fn pan_moves_a_track_left_or_right() {
+        let loudness = |pan: f32| {
+            let mut project = quiet_demo();
+            project.tracks[KICK].pan = pan;
+            let mut rig = Rig::new(project);
+            rig.send(Event::Preview {
+                track: KICK,
+                lane: 0,
+            });
+            rig.run_stereo(4_800)
+                .iter()
+                .fold([0.0; 2], |[l, r], [a, b]| [l + a.abs(), r + b.abs()])
+        };
+        let [l, r] = loudness(0.0);
+        assert!(l > 1.0 && (l - r).abs() < 1e-3, "centre: {l} {r}");
+        let [l, r] = loudness(-1.0);
+        assert!(l > 1.0 && r < 1e-3, "hard left: {l} {r}");
+        let [l, r] = loudness(0.5);
+        assert!(r > l * 2.0, "right of centre: {l} {r}");
     }
 
     #[test]

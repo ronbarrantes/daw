@@ -120,6 +120,9 @@ fn format_value(p: &Param, v: f32) -> String {
         Unit::Hz => format!("{v:.0} Hz"),
         Unit::Seconds if v < 1.0 => format!("{:.0} ms", v * 1000.0),
         Unit::Seconds => format!("{v:.2} s"),
+        Unit::Pan if v.abs() < 0.005 => "C".into(),
+        Unit::Pan if v < 0.0 => format!("L{:.0}", -v * 100.0),
+        Unit::Pan => format!("R{:.0}", v * 100.0),
     }
 }
 
@@ -136,6 +139,7 @@ fn hint(p: &Param) -> &'static str {
         "Sustain" => "Volume while a note is held",
         "Release" => "Fade-out time after a note ends",
         "Volume" => "Track level",
+        "Pan" => "Left or right in the stereo mix",
         "Humanize" => "Random small changes to each hit's timing and loudness",
         _ => "",
     }

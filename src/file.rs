@@ -82,6 +82,9 @@ struct TrackFile {
     notes: Vec<Note>,
     #[serde(default = "default_volume")]
     volume: f32,
+    /// -1 (left) to 1 (right).
+    #[serde(default)]
+    pan: f32,
     #[serde(default)]
     muted: bool,
     #[serde(default)]
@@ -238,6 +241,7 @@ fn write_zip(path: &Path, project: &Project, bpm: f32) -> Result<(), String> {
             instrument,
             notes: notes_of(t),
             volume: t.volume,
+            pan: t.pan,
             muted: t.muted,
             solo: t.solo,
             humanize: t.humanize,
@@ -400,6 +404,7 @@ fn read_zip(path: &Path) -> Result<Song, String> {
             }
         }
         track.volume = t.volume.clamp(0.0, 1.0);
+        track.pan = t.pan.clamp(-1.0, 1.0);
         track.muted = t.muted;
         track.solo = t.solo;
         track.humanize = t.humanize.clamp(0.0, 1.0);
@@ -506,6 +511,7 @@ mod tests {
         }
         project.groups[0].collapsed = true;
         project.groups[0].volume = 0.5;
+        project.tracks[5].pan = -0.3;
         // A loaded sample, used by two tracks.
         let tone = Arc::new(Sample {
             name: "tone".into(),
@@ -537,6 +543,7 @@ mod tests {
             assert_eq!(a.patterns, b.patterns, "{}", a.name);
             assert_eq!(a.midi_channel, b.midi_channel);
             assert_eq!(a.group, b.group);
+            assert_eq!(a.pan, b.pan);
         }
         let Kind::Synth(v) = &p.tracks[4].kind else {
             panic!("lead is a synth")

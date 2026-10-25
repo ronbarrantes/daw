@@ -111,6 +111,8 @@ soloed tracks so you can hear a part on its own.
 - **+ Synth** adds a synth track. **+ Sample…** loads WAV, MP3, FLAC or OGG
   files as sample tracks, or just drop files onto the window.
 - Rename a track by editing its name at the top of the right panel.
+- **Mix** (right panel): **Volume**, **Pan** (left or right in the stereo
+  mix; double-click to centre) and **Humanize**.
 
 ### Groups
 
@@ -191,7 +193,7 @@ On Arch, the **+ Sample…** file picker needs `xdg-desktop-portal` and
 Select a synth track to see its knobs. Drag a knob up or down; double-click
 to reset it. Hover for what each one does.
 
-- **Sound:** **Wave** saw → square. **Detune** thickens. **Volume**.
+- **Sound:** **Wave** saw → square. **Detune** thickens.
 - **Filter:** **Cutoff** and **Reso** set the tone; **Env amt** and
   **F decay** make each note "pluck" by opening the filter and closing it.
 - **Envelope (ADSR):** **Attack** fades in, **Decay** falls to the

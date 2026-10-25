@@ -20,6 +20,8 @@ pub enum Unit {
     Percent,
     Hz,
     Seconds,
+    /// -1 to 1, shown as L50, C or R50.
+    Pan,
 }
 
 pub const WAVE: usize = 0;

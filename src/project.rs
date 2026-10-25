@@ -116,6 +116,8 @@ pub struct Track {
     pub kind: Kind,
     pub patterns: [Grid; PATTERNS],
     pub volume: f32,
+    /// Stereo position, -1 (left) to 1 (right).
+    pub pan: f32,
     pub muted: bool,
     /// When any track is soloed, only soloed tracks are heard.
     pub solo: bool,
@@ -167,6 +169,7 @@ impl Track {
             kind,
             patterns: [EMPTY_GRID; PATTERNS],
             volume: 0.8,
+            pan: 0.0,
             muted: false,
             solo: false,
             humanize: 0.0,
