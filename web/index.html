@@ -12,6 +12,12 @@
       position: absolute; inset: 0; display: flex; align-items: center;
       justify-content: center; color: #aaa; font: 16px system-ui, sans-serif;
     }
+    #status.hidden { display: none; }
+    #status.crashed {
+      display: flex; background: rgba(20, 20, 20, 0.92); color: #f88;
+      white-space: pre-wrap; padding: 40px; text-align: left;
+      font: 14px ui-monospace, monospace;
+    }
   </style>
 </head>
 <body>
@@ -30,7 +36,8 @@
   <script type="module">
     import init from "./daw.js";
     const status = document.getElementById("status");
-    init().then(() => status.remove()).catch((e) => {
+    // Hidden rather than removed: it shows the reason if daw crashes.
+    init().then(() => { if (!status.classList.contains("crashed")) status.className = "hidden"; }).catch((e) => {
       status.textContent = "daw couldn't start in this browser: " + e;
       console.error(e);
     });

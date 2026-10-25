@@ -158,6 +158,7 @@ fn main() -> eframe::Result<()> {
 /// The web version: draws on the page's canvas (see `web/index.html`).
 #[cfg(target_arch = "wasm32")]
 fn main() {
+    web::show_crashes();
     // Reopen the song kept from last visit, or start with the demo.
     let kept = web::stored_song()
         .and_then(|(name, bytes)| Some((file::from_bytes(&name, bytes).ok()?, name)));
