@@ -137,7 +137,8 @@ const SECTIONS: &[(&str, &str)] = &[
     ),
     (
         "In a browser",
-        "The web version works like the desktop app, except:\n\n\
+        "The web version works like the desktop app (in Chrome or Edge; \
+         Safari isn't supported), except:\n\n\
          • Sound starts on your first click or key press.\n\
          • Save downloads the .daw file; Open… uploads one. Exports download \
          too.\n\

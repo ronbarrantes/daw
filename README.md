@@ -4,8 +4,30 @@ A tiny, lightweight DAW in Rust: synth and sample tracks, 8 patterns you can
 arrange into a song, and MIDI for hardware like the M-VAVE FM-1 and Roland
 AIRA Compacts.
 
-**Try it in your browser: [ronbarrantes.github.io/daw](https://ronbarrantes.github.io/daw/)**,
-or install it below for the best performance.
+## Download
+
+| Windows | Mac (Apple Silicon) | Linux |
+| --- | --- | --- |
+| **[daw-windows-x86_64.zip](https://github.com/ronbarrantes/daw/releases/latest/download/daw-windows-x86_64.zip)** | **[daw-macos-arm64.app.zip](https://github.com/ronbarrantes/daw/releases/latest/download/daw-macos-arm64.app.zip)** | **[daw-linux-x86_64.tar.gz](https://github.com/ronbarrantes/daw/releases/latest/download/daw-linux-x86_64.tar.gz)** |
+
+Install steps for each are below. Or [build it yourself](#build-it-yourself).
+
+> **No install? Try the [web version](https://ronbarrantes.github.io/daw/).**
+> It's the full app in your browser, best in Chrome or Edge. Safari isn't
+> supported. [More about it below](#use-it-in-a-browser).
+
+## Install on Windows
+
+1. Download **[daw-windows-x86_64.zip](https://github.com/ronbarrantes/daw/releases/latest/download/daw-windows-x86_64.zip)**.
+2. Right-click it, choose **Extract All…**, then **Extract**.
+3. In the new **daw** folder, double-click **daw.exe**.
+4. The first time, Windows may say **"Windows protected your PC"**, because
+   the app isn't signed with a paid developer certificate. Click **More
+   info**, then **Run anyway**. You only need to do this once per update.
+
+To keep it handy, right-click **daw.exe** and choose **Pin to Start** (or
+**Show more options → Send to → Desktop** for a shortcut). To update,
+download the new zip and replace the folder.
 
 ## Install on Mac (Apple Silicon)
 
@@ -39,30 +61,6 @@ you only need `alsa-lib`, which any desktop already has.
 - **Hyprland:** the window class is `daw`, e.g.
   `windowrulev2 = float, class:^(daw)$`
 
-## Use it in a browser
-
-**[ronbarrantes.github.io/daw](https://ronbarrantes.github.io/daw/)** runs
-the same app in Chrome, Edge, Firefox or Safari, nothing to install. It's
-updated with every merge to `main`.
-
-It works like the desktop app, with a few differences:
-
-- **Sound starts on your first click or key press** (browsers require it).
-- **Save** (Ctrl+S) downloads the `.daw` file; **Open…** uploads one. The
-  same files open in the desktop app and vice versa.
-- **Export WAV / MIDI** download the file.
-- Your song is **kept in the browser** and is back when you return, even
-  without saving. Songs with long samples may be too big for that (about
-  5 MB); then use Save.
-- **MIDI gear** works in Chrome and Edge (they'll ask for permission).
-  Firefox and Safari don't support MIDI.
-- Ctrl+N opens a new browser window instead; use **File → New song**.
-- On the 2012 MacBook Air, the desktop app runs much better.
-
-To build it yourself: `rustup target add wasm32-unknown-unknown`,
-`cargo install wasm-bindgen-cli` (the version in `Cargo.lock`), then
-`./web/build.sh` and serve `web/dist`, e.g. `python3 -m http.server -d web/dist`.
-
 ## Other downloads
 
 The links above get the newest numbered version. Every merge to `main` also
@@ -89,6 +87,12 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 Then open a new terminal.
 
+**Windows**
+
+Install [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
+with **Desktop development with C++**, then [rustup](https://rustup.rs).
+Use Git Bash or PowerShell for the commands below.
+
 ### Run
 
 ```sh
@@ -98,6 +102,30 @@ cargo run --release
 ```
 
 The first build takes a few minutes. After that it's fast.
+
+## Use it in a browser
+
+**[ronbarrantes.github.io/daw](https://ronbarrantes.github.io/daw/)** runs
+the same app in your browser, nothing to install. It's updated with every
+merge to `main`. Use **Chrome or Edge** (Firefox should work too).
+**Safari isn't supported.**
+
+It works like the desktop app, with a few differences:
+
+- **Sound starts on your first click or key press** (browsers require it).
+- **Save** (Ctrl+S) downloads the `.daw` file; **Open…** uploads one. The
+  same files open in the desktop app and vice versa.
+- **Export WAV / MIDI** download the file.
+- Your song is **kept in the browser** and is back when you return, even
+  without saving. Songs with long samples may be too big for that (about
+  5 MB); then use Save.
+- **MIDI gear** works in Chrome and Edge (they'll ask for permission).
+- Ctrl+N opens a new browser window instead; use **File → New song**.
+- On older or slower computers, the downloadable app runs much better.
+
+To build it yourself: `rustup target add wasm32-unknown-unknown`,
+`cargo install wasm-bindgen-cli` (the version in `Cargo.lock`), then
+`./web/build.sh` and serve `web/dist`, e.g. `python3 -m http.server -d web/dist`.
 
 ## Use
 
