@@ -5,7 +5,8 @@ use eframe::egui::{self, RichText};
 const SECTIONS: &[(&str, &str)] = &[
     (
         "Getting started",
-        "Press Space (or ▶ Play) to start and stop.\n\n\
+        "Press Space (or ▶ Play) to start and stop. Ctrl+Z (Cmd+Z on Mac) \
+         undoes and Ctrl+Shift+Z redoes, also in the Edit menu.\n\n\
          Each row is a track. Click its steps to make a beat, click a track's \
          name to select it, and use the panel on the right to shape its sound. \
          Synth tracks also get a piano roll below the rows.",
@@ -139,6 +140,7 @@ const SECTIONS: &[(&str, &str)] = &[
         "Space — play / stop\n\
          Ctrl+S / Ctrl+Shift+S — save / save as (Cmd on Mac)\n\
          Ctrl+O / Ctrl+N — open / new song\n\
+         Ctrl+Z / Ctrl+Shift+Z — undo / redo (Ctrl+Y redoes too)\n\
          Ctrl+G — group the picked tracks\n\
          F5 / F6 / F7 / F8 — show or hide song, tracks, piano roll, panel\n\
          F9 — show everything\n\

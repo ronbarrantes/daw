@@ -77,6 +77,8 @@ The first build takes a few minutes. After that it's fast.
 Press **F1** (or **Help → How to use**) for the built-in guide.
 
 - **Space** or **▶ Play** starts and stops. Drag **BPM** to change the tempo.
+- **Ctrl+Z** (Cmd+Z on Mac) undoes; **Ctrl+Shift+Z** or **Ctrl+Y** redoes.
+  Also in the **Edit** menu. A whole knob drag is one step.
 
 ### Saving songs
 
