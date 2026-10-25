@@ -12,6 +12,9 @@
 //! aren't limited to the clock's resolution.
 //!
 //! The mix is stereo: each track is panned with an equal-power law.
+//!
+//! The metronome clicks on every beat. With a count-in requested, Play
+//! first clicks one bar before the sequencer and MIDI Start begin.
 
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, AtomicUsize, Ordering::Relaxed};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
@@ -40,6 +43,15 @@ const MAX_PENDING: usize = 512;
 const HUMANIZE_TIMING: f32 = 0.12;
 /// ...and up to this much velocity either way.
 const HUMANIZE_VELOCITY: f32 = 30.0;
+/// MIDI clock ticks in a beat and in a bar of 4/4.
+const TICKS_PER_BEAT: u32 = 24;
+const TICKS_PER_BAR: u32 = TICKS_PER_STEP * STEPS as u32;
+/// Metronome click pitches: higher on the first beat of the bar.
+const CLICK_HIGH: f32 = 1_600.0;
+const CLICK_LOW: f32 = 1_000.0;
+const CLICK_LEVEL: f32 = 0.35;
+/// How fast a click fades, in seconds to fall to about a third.
+const CLICK_DECAY: f32 = 0.015;
 
 /// Requests from the UI or MIDI in.
 pub enum Event {
@@ -83,6 +95,12 @@ pub struct Shared {
     pub ext_ticks: AtomicU32,
     /// Set when MIDI in receives Start, so the engine rewinds to step 1.
     pub ext_start: AtomicBool,
+    /// Click on every beat while playing.
+    pub metronome: AtomicBool,
+    /// Click one bar before playback starts (used while recording).
+    pub count_in: AtomicBool,
+    /// The count-in bar is playing; the sequencer hasn't started yet.
+    pub counting_in: AtomicBool,
 }
 
 impl Shared {
@@ -100,6 +118,9 @@ impl Shared {
             external_sync: AtomicBool::new(false),
             ext_ticks: AtomicU32::new(0),
             ext_start: AtomicBool::new(false),
+            metronome: AtomicBool::new(false),
+            count_in: AtomicBool::new(false),
+            counting_in: AtomicBool::new(false),
         }
     }
 
@@ -183,6 +204,41 @@ impl LaneVoice {
     }
 }
 
+/// The metronome's sound: a short sine blip.
+struct Click {
+    phase: f32,
+    step: f32,
+    level: f32,
+    fade: f32,
+}
+
+impl Click {
+    fn new(sr: f32) -> Self {
+        Self {
+            phase: 0.0,
+            step: 0.0,
+            level: 0.0,
+            fade: (-1.0 / (CLICK_DECAY * sr)).exp(),
+        }
+    }
+
+    fn trigger(&mut self, freq: f32, sr: f32) {
+        self.phase = 0.0;
+        self.step = freq / sr * std::f32::consts::TAU;
+        self.level = CLICK_LEVEL;
+    }
+
+    fn next_sample(&mut self) -> f32 {
+        if self.level < 1e-4 {
+            return 0.0;
+        }
+        let out = self.phase.sin() * self.level;
+        self.phase = (self.phase + self.step) % std::f32::consts::TAU;
+        self.level *= self.fade;
+        out
+    }
+}
+
 /// Something the sequencer will do a few samples from now.
 #[derive(Clone, Copy)]
 struct Pending {
@@ -231,6 +287,9 @@ struct Engine {
     restart_song: bool,
     was_song_mode: bool,
     was_playing: bool,
+    click: Click,
+    /// Clock ticks of count-in still to go; 0 when not counting in.
+    count_in: u32,
     /// xorshift state for chance and humanize.
     rng: u32,
     sr: f32,
@@ -265,6 +324,8 @@ impl Engine {
             restart_song: true,
             was_song_mode: false,
             was_playing: false,
+            click: Click::new(sr),
+            count_in: 0,
             rng: 0x2545_f491,
             sr,
         };
@@ -564,14 +625,25 @@ impl Engine {
         }
     }
 
+    /// Clicks if `tick` (within the bar) starts a beat.
+    fn click_on(&mut self, tick: u32) {
+        if tick.is_multiple_of(TICKS_PER_BEAT) {
+            let freq = if tick == 0 { CLICK_HIGH } else { CLICK_LOW };
+            self.click.trigger(freq, self.sr);
+        }
+    }
+
     fn on_tick(&mut self) {
+        if self.shared.metronome.load(Relaxed) {
+            self.click_on(self.tick);
+        }
         if self.tick.is_multiple_of(TICKS_PER_STEP) {
             let step = (self.tick / TICKS_PER_STEP) as usize;
             self.choose_pattern(step);
             self.shared.current_step.store(step, Relaxed);
             self.schedule_hits(step);
         }
-        self.tick = (self.tick + 1) % (TICKS_PER_STEP * STEPS as u32);
+        self.tick = (self.tick + 1) % TICKS_PER_BAR;
     }
 
     /// The next stereo frame, left and right.
@@ -590,11 +662,19 @@ impl Engine {
                 self.tick = 0;
                 self.samples_to_next_tick = 0.0;
                 self.restart_song = true;
+                // Another device's clock can't wait for a count-in.
+                if !external && self.shared.count_in.load(Relaxed) {
+                    self.count_in = TICKS_PER_BAR;
+                    self.shared.counting_in.store(true, Relaxed);
+                }
             } else {
                 self.all_notes_off();
+                self.count_in = 0;
+                self.shared.counting_in.store(false, Relaxed);
             }
-            // When following another device, it owns Start/Stop.
-            if !external {
+            // When following another device, it owns Start/Stop. After a
+            // count-in, Start goes out when the count-in ends.
+            if !external && self.count_in == 0 {
                 self.send(Msg::one(if playing { midi::START } else { midi::STOP }));
             }
             self.was_playing = playing;
@@ -621,8 +701,18 @@ impl Engine {
         } else if playing {
             self.samples_per_tick = self.sr * 60.0 / self.shared.bpm() / 24.0;
             if self.samples_to_next_tick <= 0.0 {
-                self.send(Msg::one(midi::CLOCK));
-                self.on_tick();
+                if self.count_in > 0 {
+                    self.click_on(TICKS_PER_BAR - self.count_in);
+                    self.count_in -= 1;
+                    if self.count_in == 0 {
+                        // Like MIDI itself: the clock after Start is beat 1.
+                        self.shared.counting_in.store(false, Relaxed);
+                        self.send(Msg::one(midi::START));
+                    }
+                } else {
+                    self.send(Msg::one(midi::CLOCK));
+                    self.on_tick();
+                }
                 self.samples_to_next_tick += self.samples_per_tick;
             }
             self.samples_to_next_tick -= 1.0;
@@ -658,7 +748,8 @@ impl Engine {
             mix[0] += out * self.gains[i][0];
             mix[1] += out * self.gains[i][1];
         }
-        mix.map(|m| (m * 0.8).clamp(-1.0, 1.0))
+        let click = self.click.next_sample();
+        mix.map(|m| (m * 0.8 + click).clamp(-1.0, 1.0))
     }
 }
 
@@ -981,6 +1072,45 @@ mod tests {
         assert!(
             rig.run(4_800).iter().all(|s| *s == 0.0),
             "another track is soloed"
+        );
+    }
+
+    #[test]
+    fn metronome_clicks_on_every_beat() {
+        let mut rig = Rig::new(quiet_demo());
+        rig.shared.metronome.store(true, Relaxed);
+        rig.shared.playing.store(true, Relaxed);
+        // Two beats at 120 BPM; a click starts each one.
+        let out = rig.run(STEP * 8);
+        let loud = |range: std::ops::Range<usize>| out[range].iter().any(|s| s.abs() > 0.1);
+        assert!(loud(0..200), "beat 1");
+        assert!(!loud(STEP * 2..STEP * 3), "quiet between beats");
+        assert!(loud(STEP * 4..STEP * 4 + 200), "beat 2");
+
+        let mut rig = Rig::new(quiet_demo());
+        rig.shared.playing.store(true, Relaxed);
+        assert!(rig.run(STEP * 8).iter().all(|s| *s == 0.0), "off");
+    }
+
+    #[test]
+    fn count_in_waits_a_bar_before_playing() {
+        let mut project = quiet_demo();
+        project.tracks[KICK].patterns[0][0][0] = hit();
+        let mut rig = Rig::new(project);
+        rig.shared.count_in.store(true, Relaxed);
+        let times = rig.note_times(STEP * STEPS + 10, drums::NOTES[0]);
+        assert_eq!(times, [STEP * STEPS], "the kick waits one bar");
+        assert!(!rig.shared.counting_in.load(Relaxed));
+
+        let mut rig = Rig::new(quiet_demo());
+        rig.shared.count_in.store(true, Relaxed);
+        rig.shared.playing.store(true, Relaxed);
+        let out = rig.run(STEP * 4 + 200);
+        assert!(rig.shared.counting_in.load(Relaxed));
+        assert!(out[..200].iter().any(|s| s.abs() > 0.1), "clicks");
+        assert!(
+            !rig.midi().iter().any(|m| m.bytes() == [midi::START]),
+            "no Start until the count-in ends"
         );
     }
 

@@ -359,6 +359,9 @@ fn step_marks(s: &Step) -> String {
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let playing = self.shared.playing.load(Relaxed);
+        // Nothing is recorded during the count-in bar.
+        let rolling = playing && !self.shared.counting_in.load(Relaxed);
+        self.shared.count_in.store(self.recording, Relaxed);
         if ctx.input(|i| i.viewport().close_requested()) && !self.may_close && self.unsaved() {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.confirm = Some(Then::Quit);
@@ -375,7 +378,7 @@ impl eframe::App for App {
             if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::G)) {
                 self.group_picked();
             }
-            self.computer_keyboard(ctx, playing);
+            self.computer_keyboard(ctx, rolling);
         }
         self.shared.selected_track.store(self.selected, Relaxed);
         while let Ok(result) = self.export_rx.try_recv() {
@@ -386,7 +389,7 @@ impl eframe::App for App {
             }
         }
         while let Ok(p) = self.played.try_recv() {
-            if self.recording && playing {
+            if self.recording && rolling {
                 self.record(p.track, p.note, p.velocity);
             }
         }
@@ -1128,12 +1131,26 @@ impl App {
             } else {
                 Color32::GRAY
             };
-            let rec =
-                egui::Button::new(RichText::new("⏺ Rec").color(rec_color)).selected(self.recording);
+            let rec_label = if s.counting_in.load(Relaxed) {
+                "⏺ Count-in"
+            } else {
+                "⏺ Rec"
+            };
+            let rec = egui::Button::new(RichText::new(rec_label).color(rec_color))
+                .selected(self.recording);
             let rec_hint = "While playing, notes you play on the keyboard\n\
-                            are written into the selected track";
+                            are written into the selected track.\n\
+                            Play counts in one bar first.";
             if ui.add(rec).on_hover_text(rec_hint).clicked() {
                 self.recording = !self.recording;
+            }
+            let metronome = s.metronome.load(Relaxed);
+            if ui
+                .selectable_label(metronome, "Click")
+                .on_hover_text("Metronome: a click on every beat")
+                .clicked()
+            {
+                s.metronome.store(!metronome, Relaxed);
             }
             ui.separator();
             ui.weak("Space = play · A–K = notes · Z/X = octave · F1 = help");
@@ -1142,7 +1159,8 @@ impl App {
 
     /// Plays the selected track from the computer keyboard, like a MIDI
     /// keyboard, and records into the pattern when Rec is on.
-    fn computer_keyboard(&mut self, ctx: &egui::Context, playing: bool) {
+    /// `rolling`: playing and past any count-in, so Rec writes notes.
+    fn computer_keyboard(&mut self, ctx: &egui::Context, rolling: bool) {
         let Some(track) = self.project.tracks.get_mut(self.selected) else {
             return;
         };
@@ -1192,7 +1210,7 @@ impl App {
                             note,
                             velocity: NORMAL,
                         });
-                        if self.recording && playing {
+                        if self.recording && rolling {
                             to_record.push(note);
                         }
                     } else if let Some((_, t, note)) = self.held_key.filter(|&(k, _, _)| k == key) {

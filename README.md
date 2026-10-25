@@ -168,7 +168,10 @@ A S D F G H J K L         ← white keys (A = C)
 
 - **Z** / **X** move down or up an octave.
 - Turn on **⏺ Rec** and press Play: notes you play are written into the
-  pattern at the step that's playing.
+  pattern at the step that's playing. Play first clicks one bar (the
+  count-in) so you can come in on time.
+- **Click** (top bar) turns on the metronome: a click on every beat, higher
+  on beat 1.
 
 ### Sample tracks
 

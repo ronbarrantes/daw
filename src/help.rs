@@ -85,7 +85,10 @@ const SECTIONS: &[(&str, &str)] = &[
           W E   T Y U   O P    <- black keys\n\
          A S D F G H J K L     <- white keys (A = C)\n\n\
          Z and X change octave. Turn on ⏺ Rec and press Play to write what \
-         you play into the pattern.",
+         you play into the pattern. With Rec on, Play clicks one bar first \
+         (the count-in) so you can come in on time.\n\n\
+         Click (top bar) turns the metronome on: a click on every beat, \
+         higher on beat 1.",
     ),
     (
         "Patterns and song",
