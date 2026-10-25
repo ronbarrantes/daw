@@ -30,7 +30,10 @@ const SECTIONS: &[(&str, &str)] = &[
          • M mutes a track. S solos it: when any track is soloed, only soloed \
          tracks play. Use solo to hear one part on its own.\n\
          • Mix (right panel): Volume, Pan (left or right; double-click for \
-         centre) and Humanize.\n\
+         centre), and Reverb and Delay: how much of the track goes to the \
+         shared effects.\n\
+         • FX (top bar) sets up the effects: reverb Size and Tone, delay \
+         Time (in 16th notes; 3/16 is a classic) and Feedback (more echoes).\n\
          • Rename a track at the top of the right panel; Delete track is at the \
          bottom.",
     ),
@@ -103,7 +106,7 @@ const SECTIONS: &[(&str, &str)] = &[
         "Synth",
         "Drag a knob up or down; double-click to reset it; hover to see what \
          it does.\n\n\
-         • Sound: Wave (saw to square), Detune (thicker).\n\
+         • Sound: Wave (saw to square), Detune (thicker), Humanize.\n\
          • Filter: Cutoff and Reso set the tone; Env amt and F decay make \
          each note pluck.\n\
          • Envelope (ADSR): Attack fades in, Decay falls to the Sustain level \

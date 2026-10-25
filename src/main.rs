@@ -2,6 +2,7 @@ mod audio;
 mod drums;
 mod export;
 mod file;
+mod fx;
 mod help;
 mod midi;
 mod project;
@@ -22,8 +23,8 @@ use eframe::egui::{self, Color32, RichText, Sense, Vec2};
 use audio::{Event, Shared};
 use midi::{Midi, Played, Route};
 use project::{
-    Grid, Kind, Project, Row, Sample, Step, Track, ACCENT, EMPTY_GRID, GHOST, LANES, MAX_RATCHET,
-    MAX_TRACKS, NORMAL, PATTERNS, SONG_SLOTS, STEPS,
+    Effects, Grid, Kind, Project, Row, Sample, Step, Track, ACCENT, EMPTY_GRID, GHOST, LANES,
+    MAX_RATCHET, MAX_TRACKS, NORMAL, PATTERNS, SONG_SLOTS, STEPS,
 };
 use synth::{Param, Unit, PARAMS};
 use widgets::{
@@ -63,6 +64,53 @@ const PAN: Param = Param {
     default: 0.0,
     log: false,
     unit: Unit::Pan,
+};
+
+const REVERB_SEND: Param = Param {
+    name: "Reverb",
+    min: 0.0,
+    max: 1.0,
+    default: 0.0,
+    log: false,
+    unit: Unit::Percent,
+};
+
+const DELAY_SEND: Param = Param {
+    name: "Delay",
+    ..REVERB_SEND
+};
+
+const REVERB_SIZE: Param = Param {
+    name: "Size",
+    min: 0.0,
+    max: 1.0,
+    default: Effects::DEFAULT.reverb_size,
+    log: false,
+    unit: Unit::Percent,
+};
+
+const REVERB_TONE: Param = Param {
+    name: "Tone",
+    default: Effects::DEFAULT.reverb_tone,
+    ..REVERB_SIZE
+};
+
+const DELAY_TIME: Param = Param {
+    name: "Time",
+    min: 1.0,
+    max: 8.0,
+    default: Effects::DEFAULT.delay_steps,
+    log: false,
+    unit: Unit::Steps,
+};
+
+const DELAY_FEEDBACK: Param = Param {
+    name: "Feedback",
+    min: 0.0,
+    max: 0.9,
+    default: Effects::DEFAULT.delay_feedback,
+    log: false,
+    unit: Unit::Percent,
 };
 
 const HUMANIZE: Param = Param {
@@ -126,6 +174,7 @@ fn main() -> eframe::Result<()> {
         held_key: None,
         show_help: false,
         show_about: false,
+        show_fx: false,
         confirm: None,
         picked: Vec::new(),
         selected_group: None,
@@ -218,6 +267,7 @@ struct App {
     held_key: Option<(egui::Key, usize, u8)>,
     show_help: bool,
     show_about: bool,
+    show_fx: bool,
     /// Waiting for "save changes first?" to be answered.
     confirm: Option<Then>,
     /// Extra tracks picked with Ctrl/Cmd-click, for grouping.
@@ -496,6 +546,7 @@ impl eframe::App for App {
 
         help::guide(ctx, &mut self.show_help);
         help::about(ctx, &mut self.show_about);
+        self.fx_window(ctx);
         self.confirm_dialog(ctx);
         self.midi_inputs_window(ctx);
 
@@ -1152,6 +1203,13 @@ impl App {
             {
                 s.metronome.store(!metronome, Relaxed);
             }
+            if ui
+                .selectable_label(self.show_fx, "FX")
+                .on_hover_text("Reverb and delay settings")
+                .clicked()
+            {
+                self.show_fx = !self.show_fx;
+            }
             ui.separator();
             ui.weak("Space = play · A–K = notes · Z/X = octave · F1 = help");
         });
@@ -1712,6 +1770,44 @@ impl App {
         }
     }
 
+    /// The shared reverb and delay. Tracks send to them with their Reverb
+    /// and Delay knobs.
+    fn fx_window(&mut self, ctx: &egui::Context) {
+        let mut open = self.show_fx;
+        let fx = &mut self.project.effects;
+        let mut changed = false;
+        egui::Window::new("Effects")
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .show(ctx, |ui| {
+                ui.weak("Each track's Reverb and Delay knobs send to these.");
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    ui.vertical(|ui| {
+                        ui.label(RichText::new("Reverb").small().strong());
+                        ui.horizontal(|ui| {
+                            changed |= knob(ui, &REVERB_SIZE, &mut fx.reverb_size);
+                            changed |= knob(ui, &REVERB_TONE, &mut fx.reverb_tone);
+                        });
+                    });
+                    ui.separator();
+                    ui.vertical(|ui| {
+                        ui.label(RichText::new("Delay").small().strong());
+                        ui.horizontal(|ui| {
+                            changed |= knob(ui, &DELAY_TIME, &mut fx.delay_steps);
+                            changed |= knob(ui, &DELAY_FEEDBACK, &mut fx.delay_feedback);
+                        });
+                    });
+                });
+            });
+        self.show_fx = open;
+        if changed {
+            fx.delay_steps = fx.delay_steps.round();
+            self.dirty = true;
+        }
+    }
+
     /// Settings for the selected group.
     fn group_panel(&mut self, ui: &mut egui::Ui, id: u32) {
         ui.add_space(4.0);
@@ -1816,6 +1912,7 @@ impl App {
                     for i in [synth::WAVE, synth::DETUNE] {
                         changed |= knob(ui, &PARAMS[i], &mut values[i]);
                     }
+                    changed |= knob(ui, &HUMANIZE, &mut track.humanize);
                 });
                 let sections: [(&str, [usize; 4]); 2] = [
                     (
@@ -1852,6 +1949,8 @@ impl App {
                     .checkbox(pitched, "Pitched")
                     .on_hover_text(hint)
                     .changed();
+                ui.add_space(6.0);
+                changed |= knob(ui, &HUMANIZE, &mut track.humanize);
             }
         }
         ui.add_space(6.0);
@@ -1859,7 +1958,8 @@ impl App {
         ui.horizontal(|ui| {
             changed |= knob(ui, &TRACK_VOLUME, &mut track.volume);
             changed |= knob(ui, &PAN, &mut track.pan);
-            changed |= knob(ui, &HUMANIZE, &mut track.humanize);
+            changed |= knob(ui, &REVERB_SEND, &mut track.reverb);
+            changed |= knob(ui, &DELAY_SEND, &mut track.delay);
         });
         if changed {
             self.dirty = true;

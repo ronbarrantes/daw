@@ -13,6 +13,9 @@
 //!
 //! The mix is stereo: each track is panned with an equal-power law.
 //!
+//! Tracks also send to a shared reverb and delay (see `fx`), which run
+//! only while something is feeding them or their tail is still ringing.
+//!
 //! The metronome clicks on every beat. With a count-in requested, Play
 //! first clicks one bar before the sequencer and MIDI Start begin.
 
@@ -23,6 +26,7 @@ use std::sync::{Arc, Mutex};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SampleFormat, SizedSample};
 
+use crate::fx::{Delay, Reverb};
 use crate::midi::{self, Msg};
 use crate::project::{Kind, Project, Sample, Step, LANES, MAX_TRACKS, NORMAL, SAMPLE_ROOT, STEPS};
 use crate::synth::Voice;
@@ -52,6 +56,9 @@ const CLICK_LOW: f32 = 1_000.0;
 const CLICK_LEVEL: f32 = 0.35;
 /// How fast a click fades, in seconds to fall to about a third.
 const CLICK_DECAY: f32 = 0.015;
+/// The effects keep running this long after their input goes quiet, so
+/// long reverb tails and echoes can finish.
+const FX_TAIL_SECONDS: f32 = 10.0;
 
 /// Requests from the UI or MIDI in.
 pub enum Event {
@@ -280,6 +287,12 @@ struct Engine {
     /// once per project change rather than every sample. Left and right,
     /// so pan is included.
     gains: [[f32; 2]; MAX_TRACKS],
+    /// Each track's reverb and delay send levels, after its gain.
+    sends: [[f32; 2]; MAX_TRACKS],
+    reverb: Reverb,
+    delay: Delay,
+    /// Samples since anything was sent to the effects.
+    fx_quiet: u32,
     /// Pattern playing in this bar; `None` is a silent song bar.
     pattern: Option<usize>,
     song_pos: usize,
@@ -319,6 +332,10 @@ impl Engine {
             samples_to_update: 0,
             preview: None,
             gains: [[0.0; 2]; MAX_TRACKS],
+            sends: [[0.0; 2]; MAX_TRACKS],
+            reverb: Reverb::new(sr),
+            delay: Delay::new(sr),
+            fx_quiet: u32::MAX,
             pattern: Some(0),
             song_pos: 0,
             restart_song: true,
@@ -338,9 +355,15 @@ impl Engine {
     fn project_changed(&mut self) {
         let project = self.project.clone();
         for i in 0..MAX_TRACKS {
-            self.gains[i] = match project.tracks.get(i) {
-                Some(t) => pan_gains(t.pan).map(|g| g * project.gain(i)),
-                None => [0.0; 2],
+            (self.gains[i], self.sends[i]) = match project.tracks.get(i) {
+                Some(t) => {
+                    let gain = project.gain(i);
+                    (
+                        pan_gains(t.pan).map(|g| g * gain),
+                        [t.reverb * gain, t.delay * gain],
+                    )
+                }
+                None => ([0.0; 2], [0.0; 2]),
             };
         }
         for (lanes, track) in self.voices.iter_mut().zip(&project.tracks) {
@@ -731,6 +754,7 @@ impl Engine {
         }
 
         let mut mix = [0.0; 2];
+        let mut send = [0.0; 2];
         for i in 0..self.track_count() {
             let synth = matches!(self.project.tracks[i].kind, Kind::Synth(_));
             let mut out = 0.0;
@@ -747,6 +771,23 @@ impl Engine {
             }
             mix[0] += out * self.gains[i][0];
             mix[1] += out * self.gains[i][1];
+            send[0] += out * self.sends[i][0];
+            send[1] += out * self.sends[i][1];
+        }
+        if send != [0.0; 2] {
+            self.fx_quiet = 0;
+        } else {
+            self.fx_quiet = self.fx_quiet.saturating_add(1);
+        }
+        if (self.fx_quiet as f32) < FX_TAIL_SECONDS * self.sr {
+            let fx = self.project.effects;
+            let reverb = self.reverb.process(send[0], fx.reverb_size, fx.reverb_tone);
+            let step = self.samples_per_tick * TICKS_PER_STEP as f32;
+            let time = (fx.delay_steps.round() * step) as usize;
+            let delay = self.delay.process(send[1], time, fx.delay_feedback);
+            for side in 0..2 {
+                mix[side] += reverb[side] + delay[side];
+            }
         }
         let click = self.click.next_sample();
         mix.map(|m| (m * 0.8 + click).clamp(-1.0, 1.0))
@@ -1112,6 +1153,28 @@ mod tests {
             !rig.midi().iter().any(|m| m.bytes() == [midi::START]),
             "no Start until the count-in ends"
         );
+    }
+
+    #[test]
+    fn sends_feed_the_reverb_and_delay() {
+        // How loud a kick's tail is, well after the dry hit has ended.
+        let tail = |reverb: f32, delay: f32| {
+            let mut project = quiet_demo();
+            project.tracks[KICK].reverb = reverb;
+            project.tracks[KICK].delay = delay;
+            let mut rig = Rig::new(project);
+            rig.send(Event::Preview {
+                track: KICK,
+                lane: 0,
+            });
+            let out = rig.run(48_000);
+            out[30_000..].iter().map(|s| s.abs()).sum::<f32>()
+        };
+        let dry = tail(0.0, 0.0);
+        assert!(dry < 1e-3, "no sends, no tail: {dry}");
+        assert!(tail(1.0, 0.0) > 1.0, "reverb rings on");
+        // 3 steps at 120 BPM = 18_000 samples, so echoes at 36k, 54k...
+        assert!(tail(0.0, 1.0) > 1.0, "delay echoes");
     }
 
     #[test]

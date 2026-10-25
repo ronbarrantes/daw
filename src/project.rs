@@ -118,6 +118,9 @@ pub struct Track {
     pub volume: f32,
     /// Stereo position, -1 (left) to 1 (right).
     pub pan: f32,
+    /// How much goes to the shared reverb and delay, 0-1.
+    pub reverb: f32,
+    pub delay: f32,
     pub muted: bool,
     /// When any track is soloed, only soloed tracks are heard.
     pub solo: bool,
@@ -170,6 +173,8 @@ impl Track {
             patterns: [EMPTY_GRID; PATTERNS],
             volume: 0.8,
             pan: 0.0,
+            reverb: 0.0,
+            delay: 0.0,
             muted: false,
             solo: false,
             humanize: 0.0,
@@ -228,6 +233,28 @@ impl Track {
     }
 }
 
+/// Settings for the shared reverb and delay.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Effects {
+    /// 0-1: how long the reverb rings.
+    pub reverb_size: f32,
+    /// 0-1: muffled to bright.
+    pub reverb_tone: f32,
+    /// Delay time in 16th-note steps, 1-8.
+    pub delay_steps: f32,
+    /// 0-0.9: how much each echo repeats.
+    pub delay_feedback: f32,
+}
+
+impl Effects {
+    pub const DEFAULT: Effects = Effects {
+        reverb_size: 0.5,
+        reverb_tone: 0.5,
+        delay_steps: 3.0,
+        delay_feedback: 0.35,
+    };
+}
+
 #[derive(Clone)]
 pub struct Project {
     pub tracks: Vec<Track>,
@@ -236,6 +263,7 @@ pub struct Project {
     /// 0-1: how late every other 16th note plays. 0.66 is a triplet shuffle.
     pub swing: f32,
     pub groups: Vec<Group>,
+    pub effects: Effects,
 }
 
 impl Project {
@@ -245,6 +273,7 @@ impl Project {
             song: [None; SONG_SLOTS],
             swing: 0.0,
             groups: Vec::new(),
+            effects: Effects::DEFAULT,
         }
     }
 
@@ -379,6 +408,7 @@ impl Project {
         let mut pad = Track::synth("Pad");
         pad.midi_channel = Some(1);
         pad.volume = 0.5;
+        pad.reverb = 0.35;
         pad.octave = 4;
         if let Kind::Synth(v) = &mut pad.kind {
             v[synth::WAVE] = 0.3;
@@ -406,6 +436,7 @@ impl Project {
             song,
             swing: 0.0,
             groups: Vec::new(),
+            effects: Effects::DEFAULT,
         };
         project.new_group(&[0, 1, 2, 3], "Drums");
         project

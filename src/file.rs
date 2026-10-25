@@ -24,8 +24,8 @@ use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
 use crate::drums;
 use crate::project::{
-    builtin_drums, Group, Kind, Project, Sample, Step, Track, EMPTY_GRID, LANES, MAX_TRACKS,
-    NORMAL, PATTERNS, SONG_SLOTS, STEPS,
+    builtin_drums, Effects, Group, Kind, Project, Sample, Step, Track, EMPTY_GRID, LANES,
+    MAX_TRACKS, NORMAL, PATTERNS, SONG_SLOTS, STEPS,
 };
 use crate::synth;
 
@@ -57,7 +57,32 @@ struct SongFile {
     #[serde(default)]
     groups: Vec<GroupFile>,
     #[serde(default)]
+    effects: EffectsFile,
+    #[serde(default)]
     tracks: Vec<TrackFile>,
+}
+
+/// The shared reverb and delay. Missing values get the defaults.
+#[derive(Serialize, Deserialize)]
+#[serde(default)]
+struct EffectsFile {
+    reverb_size: f32,
+    reverb_tone: f32,
+    /// In 16th-note steps.
+    delay_steps: f32,
+    delay_feedback: f32,
+}
+
+impl Default for EffectsFile {
+    fn default() -> Self {
+        let e = Effects::DEFAULT;
+        Self {
+            reverb_size: e.reverb_size,
+            reverb_tone: e.reverb_tone,
+            delay_steps: e.delay_steps,
+            delay_feedback: e.delay_feedback,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -85,6 +110,11 @@ struct TrackFile {
     /// -1 (left) to 1 (right).
     #[serde(default)]
     pan: f32,
+    /// Reverb and delay send levels, 0-1.
+    #[serde(default)]
+    reverb: f32,
+    #[serde(default)]
+    delay: f32,
     #[serde(default)]
     muted: bool,
     #[serde(default)]
@@ -242,6 +272,8 @@ fn write_zip(path: &Path, project: &Project, bpm: f32) -> Result<(), String> {
             notes: notes_of(t),
             volume: t.volume,
             pan: t.pan,
+            reverb: t.reverb,
+            delay: t.delay,
             muted: t.muted,
             solo: t.solo,
             humanize: t.humanize,
@@ -269,6 +301,12 @@ fn write_zip(path: &Path, project: &Project, bpm: f32) -> Result<(), String> {
                 volume: g.volume,
             })
             .collect(),
+        effects: EffectsFile {
+            reverb_size: project.effects.reverb_size,
+            reverb_tone: project.effects.reverb_tone,
+            delay_steps: project.effects.delay_steps,
+            delay_feedback: project.effects.delay_feedback,
+        },
         tracks,
     };
 
@@ -405,6 +443,8 @@ fn read_zip(path: &Path) -> Result<Song, String> {
         }
         track.volume = t.volume.clamp(0.0, 1.0);
         track.pan = t.pan.clamp(-1.0, 1.0);
+        track.reverb = t.reverb.clamp(0.0, 1.0);
+        track.delay = t.delay.clamp(0.0, 1.0);
         track.muted = t.muted;
         track.solo = t.solo;
         track.humanize = t.humanize.clamp(0.0, 1.0);
@@ -421,6 +461,13 @@ fn read_zip(path: &Path) -> Result<Song, String> {
     let mut project = Project::empty();
     project.tracks = tracks;
     project.swing = song.swing.clamp(0.0, 1.0);
+    let fx = &song.effects;
+    project.effects = Effects {
+        reverb_size: fx.reverb_size.clamp(0.0, 1.0),
+        reverb_tone: fx.reverb_tone.clamp(0.0, 1.0),
+        delay_steps: fx.delay_steps.round().clamp(1.0, 8.0),
+        delay_feedback: fx.delay_feedback.clamp(0.0, 0.9),
+    };
     for (bar, slot) in song.song.into_iter().take(SONG_SLOTS).enumerate() {
         project.song[bar] = slot.filter(|&p| (p as usize) < PATTERNS);
     }
@@ -512,6 +559,9 @@ mod tests {
         project.groups[0].collapsed = true;
         project.groups[0].volume = 0.5;
         project.tracks[5].pan = -0.3;
+        project.tracks[4].delay = 0.6;
+        project.effects.delay_steps = 6.0;
+        project.effects.reverb_size = 0.8;
         // A loaded sample, used by two tracks.
         let tone = Arc::new(Sample {
             name: "tone".into(),
@@ -544,6 +594,7 @@ mod tests {
             assert_eq!(a.midi_channel, b.midi_channel);
             assert_eq!(a.group, b.group);
             assert_eq!(a.pan, b.pan);
+            assert_eq!((a.reverb, a.delay), (b.reverb, b.delay));
         }
         let Kind::Synth(v) = &p.tracks[4].kind else {
             panic!("lead is a synth")
@@ -551,6 +602,7 @@ mod tests {
         assert_eq!(v[synth::CUTOFF], 1234.0);
         assert!(p.groups[0].collapsed);
         assert_eq!(p.groups[0].volume, 0.5);
+        assert_eq!(p.effects, project.effects);
 
         // Built-in drums aren't stored; the shared sample is stored once.
         assert_eq!(stored_samples, 1);
@@ -595,6 +647,7 @@ mod tests {
         fs::remove_file(&path).unwrap();
 
         assert_eq!(song.bpm, 120.0);
+        assert_eq!(song.project.effects, Effects::DEFAULT);
         let t = &song.project.tracks[0];
         assert_eq!(t.patterns[0][2][4], Some(Step::HIT));
         let Kind::Synth(v) = &t.kind else {
