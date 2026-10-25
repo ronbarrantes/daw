@@ -8,6 +8,7 @@ mod midi;
 mod project;
 mod sample;
 mod synth;
+mod undo;
 mod widgets;
 
 use std::collections::VecDeque;
@@ -27,6 +28,7 @@ use project::{
     MAX_RATCHET, MAX_TRACKS, NORMAL, PATTERNS, SONG_SLOTS, STEPS,
 };
 use synth::{Param, Unit, PARAMS};
+use undo::Undo;
 use widgets::{
     disclosure_arrow, empty_fill, knob, lit_fill, playhead, port_picker, DRUM_ON, NOTE_HELD,
     NOTE_NAMES, NOTE_ON,
@@ -156,10 +158,12 @@ fn main() -> eframe::Result<()> {
         ..Default::default()
     };
     let selected = first_melodic(&project);
+    let undo = Undo::new(project.clone());
     let app = App {
         shared,
         project,
         history: VecDeque::from([snapshot]),
+        undo,
         dirty: false,
         events,
         midi,
@@ -248,6 +252,8 @@ struct App {
     project: Project,
     /// Recent snapshots, kept so the audio thread is never the one to free one.
     history: VecDeque<Arc<Project>>,
+    /// Earlier versions of the song, for Ctrl+Z.
+    undo: Undo<Project>,
     /// The project changed this frame and needs publishing.
     dirty: bool,
     events: SyncSender<Event>,
@@ -425,6 +431,7 @@ impl eframe::App for App {
                 self.show_help = !self.show_help;
             }
             self.view_keys(ctx);
+            self.undo_keys(ctx);
             if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::G)) {
                 self.group_picked();
             }
@@ -552,6 +559,12 @@ impl eframe::App for App {
 
         if self.dirty {
             self.publish();
+            self.undo.changed();
+        }
+        // A knob drag or a burst of typing is one undo step, settled once
+        // it's over.
+        if !ctx.input(|i| i.pointer.any_down()) && !ctx.wants_keyboard_input() {
+            self.undo.settle(&self.project);
         }
         self.update_title(ctx);
         // Only redraw continuously while playing, to keep CPU low when idle.
@@ -571,6 +584,50 @@ impl App {
         }
         self.dirty = false;
         self.modified = true;
+    }
+
+    /// Ctrl+Z undoes; Ctrl+Shift+Z or Ctrl+Y redoes (Cmd on Mac).
+    fn undo_keys(&mut self, ctx: &egui::Context) {
+        use egui::{Key, KeyboardShortcut, Modifiers};
+        let pressed = |modifiers, key| {
+            ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(modifiers, key)))
+        };
+        // Check Shift+Z first: plain Ctrl+Z would also match it.
+        if pressed(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z)
+            || pressed(Modifiers::COMMAND, Key::Y)
+        {
+            self.redo();
+        } else if pressed(Modifiers::COMMAND, Key::Z) {
+            self.undo();
+        }
+    }
+
+    fn undo(&mut self) {
+        if let Some(project) = self.undo.undo(&self.project) {
+            self.restore(project);
+        }
+    }
+
+    fn redo(&mut self) {
+        if let Some(project) = self.undo.redo(&self.project) {
+            self.restore(project);
+        }
+    }
+
+    /// Switches to an earlier or later version of the song.
+    fn restore(&mut self, project: Project) {
+        self.project = project;
+        self.selected = self
+            .selected
+            .min(self.project.tracks.len().saturating_sub(1));
+        if self
+            .selected_group
+            .is_some_and(|id| self.project.group(id).is_none())
+        {
+            self.selected_group = None;
+        }
+        self.picked.clear();
+        self.publish();
     }
 
     fn unsaved(&self) -> bool {
@@ -648,6 +705,7 @@ impl App {
         self.shared.edit_pattern.store(0, Relaxed);
         self.shared.set_bpm(bpm);
         self.publish();
+        self.undo.reset(self.project.clone());
         self.file = file;
         self.modified = false;
         self.saved_bpm = bpm;
@@ -926,6 +984,17 @@ impl App {
                 }
             });
             ui.menu_button("Edit", |ui| {
+                let undo = egui::Button::new("Undo  (Ctrl+Z)");
+                if ui.add_enabled(self.undo.can_undo(), undo).clicked() {
+                    self.undo();
+                    ui.close_menu();
+                }
+                let redo = egui::Button::new("Redo  (Ctrl+Shift+Z)");
+                if ui.add_enabled(self.undo.can_redo(), redo).clicked() {
+                    self.redo();
+                    ui.close_menu();
+                }
+                ui.separator();
                 if ui.button("Copy pattern").clicked() {
                     self.copy_pattern();
                     ui.close_menu();
