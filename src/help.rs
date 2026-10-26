@@ -180,6 +180,9 @@ const SECTIONS: &[(&str, &str)] = &[
          • Voices: Poly (chords), Mono (one note at a time) or Legato (one \
          at a time, overlapping notes don't restart). Glide slides between \
          notes in Mono and Legato.\n\
+         • Arpeggiator: plays held notes one at a time in a pattern (Up, \
+         Down, Up/Down, Random, As played) at a rate tied to the tempo, over \
+         1-4 octaves. Hold a chord on the keys, or draw long notes.\n\
          • Drone plays a note nonstop so you can turn knobs and listen; its \
          slider sets the pitch anywhere, between notes too.\n\
          • Theremin (bottom of the panel): hold the mouse down on the pad \

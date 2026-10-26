@@ -382,6 +382,13 @@ it. Hover for what each one does. To keep scrolling down:
   **Legato** plays one at a time, and a note played while another is held
   just changes pitch without restarting. **Glide** slides between notes in
   Mono and Legato (portamento). **Humanize** varies timing and loudness.
+- **Arpeggiator** (folded; click it open): plays held notes one at a time
+  in a pattern instead of together. **Arp** picks the pattern (**Up**,
+  **Down**, **Up/Down**, **Random**, **As played**, or **Off** for normal
+  chords), **Arp rate** how often (1/4 to 1/32, with triplets, in time with
+  the tempo), **Octaves** how many octaves it climbs, **Arp gate** how long
+  each note lasts. It works on anything held: keys, a MIDI controller, long
+  notes in a MIDI block or tied notes in the piano roll.
 - **Drone** plays a note nonstop, so you can turn knobs and hear the sound
   change; click again to stop. Its slider sets the pitch anywhere, sliding
   smoothly between notes too (it shows the Hz and the nearest note). For a
@@ -462,6 +469,7 @@ Done:
 - ~~Foldable instrument panel, pop-out scope, LFO on pan~~
 - ~~Free pitch: Drone slider and theremin pad; closable panel sections~~
 - ~~Synth presets: piano, basses, strings, brass, organ, bell, pad and more~~
+- ~~Arpeggiator~~
 
 Next:
 

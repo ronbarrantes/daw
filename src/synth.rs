@@ -107,6 +107,14 @@ pub const LFO_SYNCS: [&str; 8] = [
 ];
 const SYNC_BEATS: [f32; 8] = [0.0, 4.0, 2.0, 1.0, 0.5, 0.25, 1.0 / 3.0, 1.0 / 6.0];
 pub const VOICE_MODES: [&str; 3] = ["Poly", "Mono", "Legato"];
+/// How the arpeggiator walks through the held notes; Off plays them as
+/// chords like normal.
+pub const ARP_MODES: [&str; 6] = ["Off", "Up", "Down", "Up/Down", "Random", "As played"];
+/// How often the arpeggiator plays a note, and how many 16th-note steps
+/// that is.
+pub const ARP_RATES: [&str; 6] = ["1/4", "1/8", "1/16", "1/32", "1/8 T", "1/16 T"];
+pub const ARP_RATE_STEPS: [f32; 6] = [4.0, 2.0, 1.0, 0.5, 4.0 / 3.0, 2.0 / 3.0];
+pub const ARP_OCTAVE_CHOICES: [&str; 4] = ["1", "2", "3", "4"];
 const RANDOM: usize = 4;
 
 /// How a synth track plays overlapping notes.
@@ -155,6 +163,10 @@ pub const LFO_TARGET: usize = 17;
 pub const LFO_SYNC: usize = 18;
 pub const GLIDE: usize = 19;
 pub const VOICES: usize = 20;
+pub const ARP_MODE: usize = 21;
+pub const ARP_RATE: usize = 22;
+pub const ARP_OCTAVES: usize = 23;
+pub const ARP_GATE: usize = 24;
 
 const fn param(
     name: &'static str,
@@ -177,7 +189,7 @@ const fn param(
 /// The knobs. Song files store them by name, so a renamed knob needs
 /// converting when old songs open (see `file`); the defaults sound like
 /// the synth did before each knob existed.
-pub const PARAMS: [Param; 21] = [
+pub const PARAMS: [Param; 25] = [
     param("Wave 1", 0.0, 4.0, SAW, false, Unit::Wave),
     param("Detune", 0.0, 1.0, 0.2, false, Unit::Percent),
     param("Cutoff", 60.0, 8000.0, 250.0, true, Unit::Hz),
@@ -199,6 +211,17 @@ pub const PARAMS: [Param; 21] = [
     param("LFO sync", 0.0, 7.0, 0.0, false, Unit::Choice(&LFO_SYNCS)),
     param("Glide", 0.0, 1.0, 0.0, false, Unit::Seconds),
     param("Voices", 0.0, 2.0, 0.0, false, Unit::Choice(&VOICE_MODES)),
+    param("Arp", 0.0, 5.0, 0.0, false, Unit::Choice(&ARP_MODES)),
+    param("Arp rate", 0.0, 5.0, 2.0, false, Unit::Choice(&ARP_RATES)),
+    param(
+        "Octaves",
+        0.0,
+        3.0,
+        0.0,
+        false,
+        Unit::Choice(&ARP_OCTAVE_CHOICES),
+    ),
+    param("Arp gate", 0.05, 1.0, 0.5, false, Unit::Percent),
 ];
 
 /// The attack aims past full volume so it actually gets there, then hands

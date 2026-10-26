@@ -44,6 +44,8 @@ const NONE: u8 = u8::MAX;
 pub const NO_SEEK: usize = usize::MAX;
 /// Voices per track: how many notes it can sound at once.
 const POLYPHONY: usize = 16;
+/// Notes the arpeggiator can hold at once.
+const ARP_MAX: usize = 16;
 /// How long a clicked note sounds, in seconds.
 const PREVIEW_SECONDS: f32 = 0.3;
 /// How often the engine checks for a new project and events, in samples.
@@ -324,6 +326,39 @@ impl Click {
     }
 }
 
+/// A note the arpeggiator is holding: played by the sequencer, a MIDI
+/// block or live.
+#[derive(Clone, Copy, Default)]
+struct ArpNote {
+    note: u8,
+    velocity: u8,
+    /// Ends it, like a voice's generation, when the sequencer's note ends.
+    generation: u32,
+    live: bool,
+}
+
+/// A track's arpeggiator: the held notes, in the order they came, and
+/// where it is in its pattern.
+#[derive(Clone, Copy, Default)]
+struct Arp {
+    held: [ArpNote; ARP_MAX],
+    count: usize,
+    pos: usize,
+    /// Samples until the next note.
+    countdown: f32,
+}
+
+impl Arp {
+    fn remove(&mut self, matches: impl Fn(&ArpNote) -> bool) -> bool {
+        let Some(k) = self.held[..self.count].iter().position(matches) else {
+            return false;
+        };
+        self.held.copy_within(k + 1..self.count, k);
+        self.count -= 1;
+        true
+    }
+}
+
 /// Something the sequencer will do a few samples from now.
 #[derive(Clone, Copy)]
 struct Pending {
@@ -354,6 +389,8 @@ struct Engine {
     next_generation: u32,
     /// Each synth track's LFO.
     lfos: Vec<Lfo>,
+    /// Each synth track's arpeggiator.
+    arps: [Arp; MAX_TRACKS],
     /// Scheduled hits; preallocated so the audio thread never allocates.
     pending: Vec<Pending>,
     /// Clock tick within the bar, 0..TICKS_PER_STEP * STEPS.
@@ -411,6 +448,7 @@ impl Engine {
             voices,
             next_generation: 1,
             lfos: (0..MAX_TRACKS).map(|_| Lfo::default()).collect(),
+            arps: [Arp::default(); MAX_TRACKS],
             pending: Vec::with_capacity(MAX_PENDING),
             tick: 0,
             samples_to_next_tick: 0.0,
@@ -454,6 +492,11 @@ impl Engine {
                 }
                 None => ([0.0; 2], [0.0; 2]),
             };
+        }
+        for i in 0..MAX_TRACKS {
+            if !self.arp_on(i) {
+                self.arps[i].count = 0;
+            }
         }
         for (lanes, track) in self.voices.iter_mut().zip(&project.tracks) {
             if let Kind::Synth(values) = &track.kind {
@@ -595,9 +638,101 @@ impl Engine {
         }
     }
 
+    /// Whether track `i` is a synth with its arpeggiator on.
+    fn arp_on(&self, i: usize) -> bool {
+        match self.project.tracks.get(i).map(|t| &t.kind) {
+            Some(Kind::Synth(v)) => synth::choice(v[synth::ARP_MODE], synth::ARP_MODES.len()) > 0,
+            _ => false,
+        }
+    }
+
+    /// Gives the arpeggiator a note to hold and returns the generation that
+    /// lets it go. The first note starts the pattern right away.
+    fn arp_add(&mut self, i: usize, note: u8, velocity: u8, live: bool) -> u32 {
+        let generation = self.next_generation;
+        self.next_generation = generation.wrapping_add(1);
+        let arp = &mut self.arps[i];
+        arp.remove(|h| h.note == note);
+        if arp.count == ARP_MAX {
+            arp.remove(|_| true);
+        }
+        if arp.count == 0 {
+            // Plays on the next sample.
+            arp.pos = 0;
+            arp.countdown = 1.0;
+        }
+        arp.held[arp.count] = ArpNote {
+            note,
+            velocity,
+            generation,
+            live,
+        };
+        arp.count += 1;
+        generation
+    }
+
+    /// Plays the arpeggiator's next note on each track whose time has come.
+    fn run_arps(&mut self) {
+        let step_len = self.samples_per_tick * TICKS_PER_STEP as f32;
+        for i in 0..self.track_count() {
+            if self.arps[i].count == 0 {
+                continue;
+            }
+            self.arps[i].countdown -= 1.0;
+            if self.arps[i].countdown > 0.0 {
+                continue;
+            }
+            let Kind::Synth(v) = &self.project.tracks[i].kind else {
+                continue;
+            };
+            let mode = synth::choice(v[synth::ARP_MODE], synth::ARP_MODES.len());
+            let rate = synth::choice(v[synth::ARP_RATE], synth::ARP_RATES.len());
+            let octaves = synth::choice(v[synth::ARP_OCTAVES], 4) + 1;
+            let gate = v[synth::ARP_GATE];
+            let every = synth::ARP_RATE_STEPS[rate] * step_len;
+            // The held notes, lowest first unless it's As played.
+            let arp = self.arps[i];
+            let n = arp.count;
+            let mut order = [(0u8, 0u8); ARP_MAX];
+            for (o, h) in order.iter_mut().zip(&arp.held[..n]) {
+                *o = (h.note, h.velocity);
+            }
+            if mode != 5 {
+                order[..n].sort_unstable_by_key(|o| o.0);
+            }
+            let len = n * octaves;
+            let at = arp.pos % len.max(1);
+            let index = match mode {
+                2 => len - 1 - at,
+                3 if len > 1 => {
+                    // Up then back down, without repeating the ends.
+                    let p = arp.pos % (2 * len - 2);
+                    if p < len {
+                        p
+                    } else {
+                        2 * len - 2 - p
+                    }
+                }
+                4 => (self.random() * len as f32) as usize % len,
+                _ => at,
+            };
+            let (note, velocity) = order[index % n];
+            let note = (note as usize + 12 * (index / n)).min(127) as u8;
+            let generation = self.note_on(i, note, velocity);
+            let off = Action::Off { generation };
+            self.schedule((every * gate).max(1.0), i, note, off);
+            let arp = &mut self.arps[i];
+            arp.pos = arp.pos.wrapping_add(1);
+            arp.countdown += every;
+        }
+    }
+
     /// Ends the note with this generation, if it's still held and nobody
     /// is playing it live.
     fn generation_off(&mut self, i: usize, generation: u32) {
+        if i < MAX_TRACKS && self.arps[i].remove(|h| h.generation == generation) {
+            return;
+        }
         let v = self.voices[i]
             .iter()
             .position(|v| v.on && !v.live && v.generation == generation);
@@ -608,6 +743,9 @@ impl Engine {
 
     fn all_notes_off(&mut self) {
         self.pending.clear();
+        for arp in &mut self.arps {
+            while arp.remove(|h| !h.live) {}
+        }
         for i in 0..MAX_TRACKS {
             for v in 0..POLYPHONY {
                 if !self.voices[i][v].live {
@@ -641,6 +779,10 @@ impl Engine {
                     note,
                     velocity,
                 } if track < self.track_count() => {
+                    if self.arp_on(track) {
+                        self.arp_add(track, note, velocity, true);
+                        continue;
+                    }
                     let generation = self.note_on(track, note, velocity);
                     if let Some(v) = self.voices[track]
                         .iter_mut()
@@ -660,6 +802,7 @@ impl Engine {
                     }
                 }
                 Event::Release { track, note } if track < MAX_TRACKS => {
+                    self.arps[track].remove(|h| h.live && h.note == note);
                     // The track may have been deleted; then any voice
                     // holding the note will do.
                     let held = self.holding(track, self.key(track, note), true);
@@ -918,7 +1061,11 @@ impl Engine {
                 {
                     return; // you're playing this note live
                 }
-                let generation = self.note_on(p.track, p.note, velocity);
+                let generation = if self.arp_on(p.track) {
+                    self.arp_add(p.track, p.note, velocity, false)
+                } else {
+                    self.note_on(p.track, p.note, velocity)
+                };
                 if let Some(gate) = gate {
                     let off = Action::Off { generation };
                     self.schedule(gate as f32, p.track, p.note, off);
@@ -1033,6 +1180,7 @@ impl Engine {
             self.samples_to_next_tick -= 1.0;
         }
         self.run_pending();
+        self.run_arps();
 
         if let Some((track, generation, left)) = self.preview {
             if left <= 1 {
@@ -1460,6 +1608,72 @@ mod tests {
         let out = rig.run(48_000);
         let ups = out.windows(2).filter(|w| w[0] < 0.0 && w[1] >= 0.0).count();
         assert!((225..=228).contains(&ups), "about 226.5 Hz: {ups}");
+    }
+
+    /// The lead with its arpeggiator on, sending MIDI on channel 1.
+    fn arp_lead(mode: f32, octaves: f32) -> Project {
+        let mut project = quiet_demo();
+        project.tracks[LEAD].midi_channel = Some(0);
+        if let Kind::Synth(v) = &mut project.tracks[LEAD].kind {
+            v[synth::ARP_MODE] = mode;
+            v[synth::ARP_OCTAVES] = octaves;
+        }
+        project
+    }
+
+    /// Holds a chord and returns the notes played, in order, for `steps`
+    /// 16th notes at 120 BPM.
+    fn arp_notes(project: Project, chord: &[u8], steps: usize) -> Vec<u8> {
+        let mut rig = Rig::new(project);
+        for &note in chord {
+            rig.send(hold(LEAD, note));
+        }
+        let mut notes = Vec::new();
+        for _ in 0..STEP * steps {
+            rig.engine.next_sample();
+            for m in rig.midi.try_iter() {
+                let b = m.bytes();
+                if b.len() == 3 && b[0] == 0x90 {
+                    notes.push(b[1]);
+                }
+            }
+        }
+        notes
+    }
+
+    #[test]
+    fn the_arpeggiator_walks_through_a_held_chord() {
+        // Held out of order; Up plays them low to high, a 16th apart.
+        let up = arp_notes(arp_lead(1.0, 0.0), &[55, 48, 52], 6);
+        assert_eq!(up, [48, 52, 55, 48, 52, 55]);
+        let down = arp_notes(arp_lead(2.0, 0.0), &[48, 52, 55], 4);
+        assert_eq!(down, [55, 52, 48, 55]);
+        let up_down = arp_notes(arp_lead(3.0, 0.0), &[48, 52, 55], 6);
+        assert_eq!(up_down, [48, 52, 55, 52, 48, 52]);
+        // Two octaves: up through the chord, then again an octave higher.
+        let wide = arp_notes(arp_lead(1.0, 1.0), &[48, 55], 5);
+        assert_eq!(wide, [48, 55, 60, 67, 48]);
+        let played = arp_notes(arp_lead(5.0, 0.0), &[55, 48], 3);
+        assert_eq!(played, [55, 48, 55], "as played");
+        // Off: the chord plays together, once.
+        let chord = arp_notes(arp_lead(0.0, 0.0), &[48, 52, 55], 4);
+        assert_eq!(chord, [48, 52, 55]);
+    }
+
+    #[test]
+    fn the_arpeggiator_stops_when_notes_are_let_go() {
+        let mut rig = Rig::new(arp_lead(1.0, 0.0));
+        rig.send(hold(LEAD, 48));
+        rig.run(STEP * 2);
+        rig.send(Event::Release {
+            track: LEAD,
+            note: 48,
+        });
+        rig.run(UPDATE_INTERVAL as usize);
+        rig.midi();
+        rig.run(STEP * 4);
+        let ons = rig.midi().iter().filter(|m| m.bytes()[0] == 0x90).count();
+        assert_eq!(ons, 0, "nothing after letting go");
     }
 
     #[test]
