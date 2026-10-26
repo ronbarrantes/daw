@@ -175,6 +175,13 @@ fn hint(p: &Param) -> &'static str {
         }
         "LFO sync" => "Tie the LFO's speed to the tempo, e.g. once per beat (1/4)",
         "Glide" => "Slide from one note's pitch to the next (in Mono and Legato)",
+        "Arp" => {
+            "Arpeggiator: play held notes one at a time in a pattern.\n\
+                  Off plays them together, as chords"
+        }
+        "Arp rate" => "How often the arpeggiator plays a note, in time with the tempo",
+        "Octaves" => "How many octaves the pattern climbs through",
+        "Arp gate" => "How long each arpeggiated note lasts: short is staccato",
         "Voices" => {
             "Poly: chords. Mono: one note at a time.\n\
                      Legato: one at a time, overlapping notes glide without restarting"

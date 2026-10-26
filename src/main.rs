@@ -490,12 +490,13 @@ fn free_pitch(hz: f32) -> (u8, f32) {
 }
 
 /// Every section the instrument panel can show, in order.
-const SECTIONS: [&str; 8] = [
+const SECTIONS: [&str; 9] = [
     "Scope",
     "Oscillators",
     "Filter",
     "Envelope (ADSR)",
     "LFO",
+    "Arpeggiator",
     "Sample",
     "Mix",
     "Theremin",
@@ -2787,6 +2788,18 @@ impl App {
                         }
                     });
                 }
+                sections.show(ui, "Arpeggiator", false, |ui| {
+                    ui.horizontal(|ui| {
+                        for i in [
+                            synth::ARP_MODE,
+                            synth::ARP_RATE,
+                            synth::ARP_OCTAVES,
+                            synth::ARP_GATE,
+                        ] {
+                            changed |= knob(ui, &PARAMS[i], &mut values[i]);
+                        }
+                    });
+                });
             }
             Kind::Sampler { sample, pitched } => {
                 sections.show(ui, "Sample", true, |ui| {
