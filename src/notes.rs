@@ -114,6 +114,12 @@ enum Drag {
     },
     /// A box to select notes, from this point.
     Select { from: Pos2 },
+    /// Ctrl-drag: drawing notes, one per grid cell the pointer passes.
+    /// `last` is where the pointer was last frame, so fast drags don't
+    /// skip any.
+    Paint { last: Pos2 },
+    /// Right-drag: deleting every note the pointer passes.
+    Erase { last: Pos2 },
 }
 
 /// The note editor's view settings and what's selected.
@@ -517,7 +523,8 @@ impl App {
         });
         ui.weak(
             "Click: add a note · drag it: move · drag its end: longer/shorter · \
-             right-click: delete · drag empty space: select · Alt-drag: copy",
+             right-click: delete · drag empty space: select · Alt-drag: copy · \
+             Ctrl-drag: draw · right-drag: erase",
         );
     }
 
@@ -547,7 +554,15 @@ impl App {
             }
         }
 
-        if resp.drag_started() {
+        let (command, secondary) = ui.input(|i| (i.modifiers.command, i.pointer.secondary_down()));
+        let origin = ui.input(|i| i.pointer.press_origin());
+        if let (true, true, Some(last)) = (resp.drag_started(), secondary || command, origin) {
+            self.notes.drag = Some(if secondary {
+                Drag::Erase { last }
+            } else {
+                Drag::Paint { last }
+            });
+        } else if resp.drag_started() {
             let origin = ui.input(|i| i.pointer.press_origin());
             if let Some(pos) = origin
                 .or(resp.interact_pointer_pos())
@@ -653,6 +668,42 @@ impl App {
                     self.notes.selected = (0..notes.len())
                         .filter(|&i| view.note_rect(&notes[i]).intersects(r))
                         .collect();
+                }
+                Drag::Paint { last } => {
+                    // Every grid cell between last frame's pointer and
+                    // this one, on the row it's on now.
+                    let pitch = view.pitch_at(pos.y);
+                    let grid = self.notes.grid;
+                    let len = grid.parts().max(PPS / 4);
+                    let (a, b) = (view.parts_at(last.x), view.parts_at(pos.x));
+                    let mut cell = grid.down(a.min(b));
+                    while cell as f32 <= a.max(b) && notes.len() < MAX_NOTES {
+                        let taken = notes
+                            .iter()
+                            .any(|n| n.pitch == pitch && n.start <= cell && n.end() > cell);
+                        if !taken {
+                            notes.push(Note {
+                                start: cell,
+                                len,
+                                pitch,
+                                velocity: self.notes.velocity,
+                            });
+                            changed = true;
+                            hear = Some(pitch);
+                        }
+                        cell += len;
+                    }
+                    *last = pos;
+                }
+                Drag::Erase { last } => {
+                    let path = Rect::from_two_pos(*last, pos).expand(1.0);
+                    let before = notes.len();
+                    notes.retain(|n| !view.note_rect(n).intersects(path));
+                    if notes.len() != before {
+                        self.notes.selected.clear();
+                        changed = true;
+                    }
+                    *last = pos;
                 }
             }
             self.notes.drag = Some(drag);
@@ -925,6 +976,7 @@ fn view_origin(drag: &Drag) -> Pos2 {
     match drag {
         Drag::Move { origin, .. } | Drag::Resize { origin, .. } => *origin,
         Drag::Select { from } => *from,
+        Drag::Paint { last } | Drag::Erase { last } => *last,
     }
 }
 
