@@ -360,9 +360,13 @@ chords that don't fit a one-bar pattern.
 
 Select a synth track to see its knobs in the **instrument panel** on the
 right (F8 shows or hides it). Drag a knob up or down; double-click to reset
-it. Hover for what each one does. **Click a section's heading** (Scope,
-Oscillators, Filter, Envelope, LFO, Mix) to fold it away, so the ones you
-use fit without scrolling; click again to open it.
+it. Hover for what each one does. To keep scrolling down:
+
+- **Click a section's heading** (Scope, Oscillators, Filter, Envelope, LFO,
+  Mix, Theremin) to fold it; click again to unfold it.
+- **×** on a heading closes the section completely. **+ Section** (at the
+  bottom of the panel) or **View → Instrument panel sections** brings it
+  back. Closed sections are remembered next time you open the app.
 
 - **Oscillators:** two of them. **Wave 1** and **Wave 2** each go from
   **sine** (smooth) through **triangle**, **saw** (buzzy) and **square**
@@ -374,9 +378,14 @@ use fit without scrolling; click again to open it.
   **Legato** plays one at a time, and a note played while another is held
   just changes pitch without restarting. **Glide** slides between notes in
   Mono and Legato (portamento). **Humanize** varies timing and loudness.
-- **Drone** plays a note nonstop (pick it next to the button), so you can
-  turn knobs and hear the sound change; click again to stop. For a drone in
-  a song, put one long note in a MIDI block.
+- **Drone** plays a note nonstop, so you can turn knobs and hear the sound
+  change; click again to stop. Its slider sets the pitch anywhere, sliding
+  smoothly between notes too (it shows the Hz and the nearest note). For a
+  drone in a song, put one long note in a MIDI block.
+- **Theremin** (folded at the bottom of the panel; click it open): hold the
+  mouse down on the pad and move. Left to right slides the pitch smoothly
+  over four octaves, C2 to C6, with no steps; bottom to top opens the
+  filter. Let go to stop.
 - **Filter:** **Cutoff** and **Reso** set the tone; **Env amt** and
   **F decay** make each note "pluck" by opening the filter and closing it.
 - **Envelope (ADSR):** **Attack** fades in, **Decay** falls to the
@@ -447,6 +456,7 @@ Done:
 - ~~Drag to paint and erase steps and notes~~
 - ~~Synth: two oscillators from sine to noise, LFO, mono/legato, glide, drone~~
 - ~~Foldable instrument panel, pop-out scope, LFO on pan~~
+- ~~Free pitch: Drone slider and theremin pad; closable panel sections~~
 
 Next:
 
@@ -470,5 +480,9 @@ Next:
     music, e.g. a random source, a quantizer that keeps it on a scale, a
     clock that sets how often it picks a note, a range clamp and chance;
     then record the result for as long as you like into a MIDI block
+14. Fine tune: shift a whole track slightly off the usual notes, in cents
+15. Other tunings and scales: 24 notes per octave (quarter tones), just
+    intonation or your own, and switching between them and free pitch;
+    the piano roll and keyboard follow
 
 See [docs/WORKFLOW.md](docs/WORKFLOW.md) for how changes get pushed, merged and released.

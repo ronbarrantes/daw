@@ -768,6 +768,35 @@ fn read_wav(
     })
 }
 
+/// Where the app remembers which instrument panel sections are closed.
+#[cfg(not(target_arch = "wasm32"))]
+fn closed_sections_record() -> Option<std::path::PathBuf> {
+    Some(dirs::config_dir()?.join("daw").join("closed-sections"))
+}
+
+/// The instrument panel sections closed last time, one title per line.
+pub fn closed_sections() -> Vec<String> {
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Some(text) = closed_sections_record().and_then(|p| std::fs::read_to_string(p).ok()) {
+        return text.lines().map(str::to_string).collect();
+    }
+    Vec::new()
+}
+
+/// Remembers which sections are closed. Failing to is harmless, and the
+/// web version only remembers until the page closes.
+pub fn remember_closed_sections(closed: &[String]) {
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Some(record) = closed_sections_record() {
+        if let Some(dir) = record.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::write(record, closed.join("\n"));
+    }
+    #[cfg(target_arch = "wasm32")]
+    let _ = closed;
+}
+
 /// Where the app remembers the last song, so it reopens at startup.
 #[cfg(not(target_arch = "wasm32"))]
 fn last_song_record() -> Option<std::path::PathBuf> {

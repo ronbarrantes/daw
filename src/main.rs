@@ -290,14 +290,20 @@ struct App {
     /// The note a synth track is droning (playing nonstop), if any:
     /// (track, MIDI note).
     drone: Option<(usize, u8)>,
-    /// The note the Drone button plays.
-    drone_note: u8,
+    /// The Drone's pitch, in Hz: anywhere, not just on the 12 notes.
+    drone_hz: f32,
+    /// The theremin pad's note while it's held: (track, MIDI note).
+    theremin: Option<(usize, u8)>,
     /// Steps being painted or erased by dragging across them.
     paint: Option<Paint>,
     /// The oscilloscope and envelope drawing in the instrument panel.
     show_scope: bool,
     /// The scope is in its own window instead of the instrument panel.
     scope_popped: bool,
+    /// Instrument panel sections closed with their ×, by title.
+    closed_sections: Vec<String>,
+    /// `closed_sections` changed and should be remembered.
+    sections_changed: bool,
     /// Which of `SCOPE_SPANS` the scope shows.
     scope_span: usize,
     /// The scope had something to show last frame, so keep it moving.
@@ -393,9 +399,12 @@ impl App {
             note_drag: None,
             paint: None,
             drone: None,
-            drone_note: 48,
+            drone_hz: synth::midi_to_hz(48),
+            theremin: None,
             show_scope: true,
             scope_popped: false,
+            closed_sections: file::closed_sections(),
+            sections_changed: false,
             scope_span: 1,
             scope_busy: false,
             confirm: None,
@@ -472,12 +481,68 @@ fn erase_note(lane: &mut project::Lane, step: usize) {
     }
 }
 
-/// A foldable section of the instrument panel. egui remembers which are
-/// folded while the app runs.
-fn section(title: &str) -> egui::CollapsingHeader {
-    egui::CollapsingHeader::new(RichText::new(title).small().strong())
-        .id_salt(("panel section", title))
-        .default_open(true)
+/// A pitch in Hz as a MIDI note to hold and how far to bend it (0-1
+/// semitones), for pitches between the usual notes.
+fn free_pitch(hz: f32) -> (u8, f32) {
+    let exact = (69.0 + 12.0 * (hz / 440.0).log2()).clamp(0.0, 127.0);
+    let note = exact.floor();
+    (note as u8, exact - note)
+}
+
+/// Every section the instrument panel can show, in order.
+const SECTIONS: [&str; 8] = [
+    "Scope",
+    "Oscillators",
+    "Filter",
+    "Envelope (ADSR)",
+    "LFO",
+    "Sample",
+    "Mix",
+    "Theremin",
+];
+
+/// The instrument panel's sections, while it's being drawn: each one can
+/// be folded (click its heading; egui remembers that while the app runs)
+/// or closed with × and brought back from + Section or the View menu.
+struct Sections {
+    /// Closed sections, by title.
+    closed: Vec<String>,
+    /// A section whose × was clicked this frame.
+    close: Option<String>,
+}
+
+impl Sections {
+    fn is_open(&self, title: &str) -> bool {
+        !self.closed.iter().any(|c| c == title)
+    }
+
+    /// Shows a section unless it's closed. `open` is whether it starts
+    /// unfolded.
+    fn show(
+        &mut self,
+        ui: &mut egui::Ui,
+        title: &str,
+        open: bool,
+        body: impl FnOnce(&mut egui::Ui),
+    ) {
+        if !self.is_open(title) {
+            return;
+        }
+        let id = ui.make_persistent_id(("panel section", title));
+        egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, open)
+            .show_header(ui, |ui| {
+                ui.label(RichText::new(title).small().strong());
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let close = ui
+                        .small_button("×")
+                        .on_hover_text("Close this section (+ Section brings it back)");
+                    if close.clicked() {
+                        self.close = Some(title.to_string());
+                    }
+                });
+            })
+            .body(body);
+    }
 }
 
 /// What File > Export writes.
@@ -794,7 +859,14 @@ impl eframe::App for App {
                     p.last_x = pos.map(|pos| pos.x).or(p.last_x);
                 }
             }
-            None => self.paint = None,
+            None => {
+                self.paint = None;
+                // The theremin's note ends when the mouse comes up, even if
+                // its pad was hidden mid-drag.
+                if let Some((track, note)) = self.theremin.take() {
+                    let _ = self.events.try_send(Event::Release { track, note });
+                }
+            }
         }
         self.update_title(ctx);
         #[cfg(target_arch = "wasm32")]
@@ -1444,6 +1516,18 @@ impl App {
                     &mut self.show_scope,
                     "Scope and envelope (instrument panel)",
                 );
+                ui.menu_button("Instrument panel sections", |ui| {
+                    for t in SECTIONS {
+                        let mut on = !self.closed_sections.iter().any(|c| c == t);
+                        if ui.checkbox(&mut on, t).changed() {
+                            self.closed_sections.retain(|c| c != t);
+                            if !on {
+                                self.closed_sections.push(t.to_string());
+                            }
+                            file::remember_closed_sections(&self.closed_sections);
+                        }
+                    }
+                });
                 ui.separator();
                 ui.label(RichText::new("Focus on one thing").small().weak());
                 if ui.button("Tracks only").clicked() {
@@ -2422,11 +2506,85 @@ impl App {
         }
     }
 
+    /// A pad to play the selected synth like a theremin: hold the mouse
+    /// down and move it. Left to right slides the pitch smoothly over four
+    /// octaves (no steps), bottom to top opens the filter.
+    fn theremin_pad(&mut self, ui: &mut egui::Ui) {
+        const LOW: f32 = 36.0; // C2
+        const HIGH: f32 = 84.0; // C6
+        const NOTE: u8 = 60;
+        let size = Vec2::new(ui.available_width().min(270.0), 110.0);
+        let (rect, resp) = ui.allocate_exact_size(size, Sense::drag());
+        let resp = resp.on_hover_text(
+            "Hold the mouse down and move: left to right is pitch (smooth,\n\
+             between notes too), bottom to top opens the filter",
+        );
+        let painter = ui.painter_at(rect);
+        painter.rect_filled(rect, 4.0, Color32::from_rgb(20, 18, 32));
+        // A line at each C, so you can find your way.
+        for c in (LOW as u8..=HIGH as u8).step_by(12) {
+            let x = rect.left() + (c as f32 - LOW) / (HIGH - LOW) * rect.width();
+            painter.line_segment(
+                [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
+                egui::Stroke::new(1.0_f32, Color32::from_gray(60)),
+            );
+            painter.text(
+                egui::pos2(x + 2.0, rect.bottom() - 2.0),
+                egui::Align2::LEFT_BOTTOM,
+                notes::note_name(c),
+                egui::FontId::proportional(9.0),
+                Color32::from_gray(140),
+            );
+        }
+        let i = self.selected;
+        let pointer = resp
+            .is_pointer_button_down_on()
+            .then(|| resp.interact_pointer_pos())
+            .flatten();
+        match (pointer, self.theremin) {
+            (Some(pos), held) => {
+                let x = ((pos.x - rect.left()) / rect.width()).clamp(0.0, 1.0);
+                let y = ((rect.bottom() - pos.y) / rect.height()).clamp(0.0, 1.0);
+                let pitch = LOW + x * (HIGH - LOW);
+                if held.is_none() {
+                    self.theremin = Some((i, NOTE));
+                    let _ = self.events.try_send(Event::Hold {
+                        track: i,
+                        note: NOTE,
+                        velocity: NORMAL,
+                    });
+                }
+                let (track, note) = self.theremin.unwrap_or((i, NOTE));
+                let _ = self.events.try_send(Event::Bend {
+                    track,
+                    note,
+                    semis: pitch - note as f32,
+                    filter: y * 6.0 - 2.0,
+                });
+                painter.circle_filled(pos, 6.0, Color32::from_rgb(180, 140, 255));
+                let hz = 440.0 * 2f32.powf((pitch - 69.0) / 12.0);
+                painter.text(
+                    rect.left_top() + Vec2::new(4.0, 2.0),
+                    egui::Align2::LEFT_TOP,
+                    format!("{hz:.0} Hz"),
+                    egui::FontId::proportional(11.0),
+                    Color32::WHITE,
+                );
+                ui.ctx().request_repaint();
+            }
+            (None, Some((track, note))) => {
+                self.theremin = None;
+                let _ = self.events.try_send(Event::Release { track, note });
+            }
+            (None, None) => {}
+        }
+    }
+
     /// The scope's foldable section in the instrument panel, unless it's
     /// popped out or turned off.
-    fn panel_scope(&mut self, ui: &mut egui::Ui) {
-        if self.show_scope && !self.scope_popped {
-            section("Scope").show(ui, |ui| {
+    fn panel_scope(&mut self, ui: &mut egui::Ui, sections: &mut Sections) {
+        if self.show_scope && !self.scope_popped && sections.is_open("Scope") {
+            sections.show(ui, "Scope", true, |ui| {
                 let size = Vec2::new(ui.available_width().min(270.0), 80.0);
                 if self.draw_scope(ui, size) {
                     self.scope_span = (self.scope_span + 1) % SCOPE_SPANS.len();
@@ -2455,7 +2613,11 @@ impl App {
             .desired_width(200.0);
         changed |= ui.add(name).changed();
         ui.add_space(4.0);
-        self.panel_scope(ui);
+        let mut sections = Sections {
+            closed: std::mem::take(&mut self.closed_sections),
+            close: None,
+        };
+        self.panel_scope(ui, &mut sections);
         let track = &mut self.project.tracks[self.selected];
 
         ui.horizontal(|ui| {
@@ -2494,7 +2656,7 @@ impl App {
             Kind::Synth(values) => {
                 ui.weak("Drag knobs up/down. Double-click to reset. Click a heading to fold it.");
                 ui.add_space(4.0);
-                section("Oscillators").show(ui, |ui| {
+                sections.show(ui, "Oscillators", true, |ui| {
                     ui.horizontal(|ui| {
                         for i in [synth::WAVE, synth::WAVE_2, synth::LEVEL_2, synth::PITCH_2] {
                             changed |= knob(ui, &PARAMS[i], &mut values[i]);
@@ -2514,27 +2676,49 @@ impl App {
                         let hint = "Play a note nonstop, so you can turn knobs and hear\n\
                                 the sound change. Click again to stop.";
                         let flip = ui.toggle_value(&mut toggle, "Drone").on_hover_text(hint);
-                        let pick = egui::DragValue::new(&mut self.drone_note)
-                            .range(12..=108)
-                            .custom_formatter(|v, _| notes::note_name(v as u8));
-                        let moved = ui.add(pick).on_hover_text("The drone's note").changed();
-                        if flip.clicked() || (on && moved) {
+                        // Any pitch, sliding smoothly: the note it's held on
+                        // is bent the rest of the way.
+                        let pick = egui::Slider::new(&mut self.drone_hz, 30.0..=2000.0)
+                            .logarithmic(true)
+                            .show_value(false);
+                        let moved = ui
+                            .add(pick)
+                            .on_hover_text("The drone's pitch: slide anywhere, between notes too")
+                            .changed();
+                        let (base, semis) = free_pitch(self.drone_hz);
+                        ui.label(
+                            RichText::new(format!(
+                                "{:.0} Hz  {}",
+                                self.drone_hz,
+                                notes::note_name((base as f32 + semis).round() as u8)
+                            ))
+                            .small(),
+                        );
+                        if flip.clicked() {
                             if let Some((t, note)) = self.drone.take() {
                                 let _ = self.events.try_send(Event::Release { track: t, note });
                             }
                             if toggle {
-                                let note = self.drone_note;
-                                self.drone = Some((i, note));
+                                self.drone = Some((i, base));
                                 let _ = self.events.try_send(Event::Hold {
                                     track: i,
-                                    note,
+                                    note: base,
                                     velocity: NORMAL,
                                 });
                             }
                         }
+                        if let Some((t, note)) = self.drone.filter(|_| moved || flip.clicked()) {
+                            let semis = semis + base as f32 - note as f32;
+                            let _ = self.events.try_send(Event::Bend {
+                                track: t,
+                                note,
+                                semis,
+                                filter: 0.0,
+                            });
+                        }
                     });
                 });
-                let sections: [(&str, [usize; 4]); 3] = [
+                let rows: [(&str, [usize; 4]); 3] = [
                     (
                         "Filter",
                         [
@@ -2558,8 +2742,8 @@ impl App {
                         ],
                     ),
                 ];
-                for (title, row) in sections {
-                    section(title).show(ui, |ui| {
+                for (title, row) in rows {
+                    sections.show(ui, title, true, |ui| {
                         ui.horizontal(|ui| {
                             for i in row {
                                 changed |= knob(ui, &PARAMS[i], &mut values[i]);
@@ -2584,7 +2768,7 @@ impl App {
                 }
             }
             Kind::Sampler { sample, pitched } => {
-                section("Sample").show(ui, |ui| {
+                sections.show(ui, "Sample", true, |ui| {
                     ui.label(format!("Sample: {}", sample.name));
                     ui.weak(format!("{:.2} s, {} Hz", sample.seconds(), sample.rate));
                     ui.add_space(6.0);
@@ -2599,7 +2783,7 @@ impl App {
                 });
             }
         }
-        section("Mix").show(ui, |ui| {
+        sections.show(ui, "Mix", true, |ui| {
             ui.horizontal(|ui| {
                 changed |= knob(ui, &TRACK_VOLUME, &mut track.volume);
                 changed |= knob(ui, &PAN, &mut track.pan);
@@ -2610,10 +2794,47 @@ impl App {
         if changed {
             self.dirty = true;
         }
+        let synth = matches!(self.project.tracks[self.selected].kind, Kind::Synth(_));
+        if synth {
+            sections.show(ui, "Theremin", false, |ui| self.theremin_pad(ui));
+        }
 
         ui.add_space(12.0);
-        if ui.button("Play a note").clicked() {
-            self.preview(self.selected, 0);
+        ui.horizontal(|ui| {
+            if ui.button("Play a note").clicked() {
+                self.preview(self.selected, 0);
+            }
+            // Closed sections that belong on this kind of track.
+            let fits = |t: &str| match t {
+                "Sample" => !synth,
+                "Scope" | "Mix" => true,
+                _ => synth,
+            };
+            let reopen: Vec<&str> = SECTIONS
+                .into_iter()
+                .filter(|t| fits(t) && !sections.is_open(t))
+                .collect();
+            if !reopen.is_empty() {
+                ui.menu_button("+ Section", |ui| {
+                    for t in reopen {
+                        if ui.button(t).clicked() {
+                            sections.closed.retain(|c| c != t);
+                            self.sections_changed = true;
+                            ui.close_menu();
+                        }
+                    }
+                })
+                .response
+                .on_hover_text("Bring back a section you closed");
+            }
+        });
+        if let Some(t) = sections.close.take() {
+            sections.closed.push(t);
+            self.sections_changed = true;
+        }
+        self.closed_sections = sections.closed;
+        if std::mem::take(&mut self.sections_changed) {
+            file::remember_closed_sections(&self.closed_sections);
         }
         ui.add_space(12.0);
         if ui

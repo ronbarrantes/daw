@@ -279,6 +279,12 @@ pub struct Voice {
     lfo_steps: bool,
     /// 0 = jump straight to each new pitch.
     glide_coef: f32,
+    /// A smooth pitch and filter offset from `bend`, heading for its target
+    /// over a few milliseconds so slider moves don't step.
+    bend_semis: f32,
+    bend_filter: f32,
+    bend_target: (f32, f32),
+    bend_coef: f32,
     cutoff: f32,
     damping: f32,
     env_octaves: f32,
@@ -310,6 +316,10 @@ impl Voice {
             lfo_target: 0,
             lfo_steps: false,
             glide_coef: 0.0,
+            bend_semis: 0.0,
+            bend_filter: 0.0,
+            bend_target: (0.0, 0.0),
+            bend_coef: coef(0.01, sr),
             cutoff: 0.0,
             damping: 1.0,
             env_octaves: 0.0,
@@ -355,7 +365,16 @@ impl Voice {
 
     /// Starts a note. With `glide`, the pitch slides from the last note's;
     /// without `retrigger` (legato), the envelopes carry on.
+    /// Moves the note's pitch by `semis` (fractions allowed, so between the
+    /// usual notes) and its filter by `filter` octaves, smoothly.
+    pub fn bend(&mut self, semis: f32, filter: f32) {
+        self.bend_target = (semis, filter);
+    }
+
     pub fn note_on(&mut self, note: u8, glide: bool, retrigger: bool) {
+        self.bend_semis = 0.0;
+        self.bend_filter = 0.0;
+        self.bend_target = (0.0, 0.0);
         self.target = midi_to_hz(note);
         // Only glide from a note that's still sounding.
         if !glide || self.glide_coef == 0.0 || self.is_idle() {
@@ -384,13 +403,19 @@ impl Voice {
         let lfo = lfo * self.lfo_amount;
         let mut pitch = 1.0;
         let mut cutoff_octaves = self.env_octaves * self.filter_env;
+        if self.bend_target != (0.0, 0.0) || self.bend_semis != 0.0 || self.bend_filter != 0.0 {
+            self.bend_semis += (self.bend_target.0 - self.bend_semis) * self.bend_coef;
+            self.bend_filter += (self.bend_target.1 - self.bend_filter) * self.bend_coef;
+            pitch *= 2f32.powf(self.bend_semis / 12.0);
+            cutoff_octaves += self.bend_filter;
+        }
         let mut level = 1.0;
         if self.lfo_amount > 0.0 {
             match self.lfo_target {
                 0 => {
                     let semis = lfo * 12.0;
                     let semis = if self.lfo_steps { semis.round() } else { semis };
-                    pitch = 2f32.powf(semis / 12.0);
+                    pitch *= 2f32.powf(semis / 12.0);
                 }
                 1 => cutoff_octaves += lfo * 4.0,
                 2 => level = 1.0 - (self.lfo_amount - lfo) * 0.5,
