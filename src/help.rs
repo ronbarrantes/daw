@@ -62,7 +62,8 @@ const SECTIONS: &[(&str, &str)] = &[
     ),
     (
         "Steps and groove",
-        "• Click a step to turn it on or off.\n\
+        "• Click a step to turn it on or off. Drag along a row to paint \
+         steps on (start on an empty step) or erase them (start on a lit one).\n\
          • Shift-click a step for a ghost note (a quiet hit). Quieter steps \
          look dimmer.\n\
          • Right-click a step for all its settings:\n\
@@ -79,6 +80,8 @@ const SECTIONS: &[(&str, &str)] = &[
         "Piano roll",
         "• Click a cell to add a note; click it again to remove it. Several \
          notes in one column make a chord.\n\
+         • Drag from an empty cell along a row to paint notes; Ctrl-drag \
+         erases them.\n\
          • Drag a note sideways to make it longer or shorter (the held part \
          is darker blue).\n\
          • Right-click a note itself for its velocity, chance, ratchet and \
@@ -150,6 +153,8 @@ const SECTIONS: &[(&str, &str)] = &[
          makes it longer).\n\
          • Click to add a note, drag it to move, drag its end to make it \
          longer or shorter, right-click to delete.\n\
+         • Ctrl-drag draws notes along the way (a pencil); right-drag erases \
+         every note it passes.\n\
          • Drag empty space to select; Shift-click adds or removes one; \
          Alt-drag copies. Ctrl+A selects all, Delete deletes, Ctrl+D \
          duplicates, arrows move (Shift: octave or bar), Esc deselects.\n\

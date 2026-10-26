@@ -166,7 +166,9 @@ Each row is a track: its name, **M** (mute), **S** (solo) and 16 steps.
 Tracks work like layers: mute turns one off, and solo plays only the
 soloed tracks so you can hear a part on its own.
 
-- Click a step to turn it on or off.
+- Click a step to turn it on or off. **Drag along a row** to paint steps
+  on (starting on an empty step) or erase them (starting on a lit one),
+  like a pencil and an eraser: a full row of hi-hats is one swipe.
 - Click a track's name to select it and hear it. The right panel shows its
   settings; melodic tracks also get a **piano roll** below the rows.
 - **+ Synth** adds a synth track. **+ Drum** adds a built-in drum: kick,
@@ -229,6 +231,8 @@ All of this goes out over MIDI too, with velocity.
 
 - Click a cell to add a note; click it again to remove it. Several notes in
   one column make a **chord**.
+- **Drag from an empty cell** along a row to paint notes; **Ctrl-drag**
+  (Cmd on Mac) erases them.
 - **Drag a note sideways** to make it longer or shorter (the held part is a
   darker blue). Longer notes let the synth's **Sustain** and **Release** be
   heard. Right-clicking the cell after a note holds it one step longer too.
@@ -340,6 +344,8 @@ chords that don't fit a one-bar pattern.
   end makes it longer by itself.
 - **Click** to add a note, **drag** it to move it, drag its **end** to make
   it longer or shorter, **right-click** to delete it.
+- **Ctrl-drag** (Cmd on Mac) draws notes along the way, one per grid
+  cell, like a pencil; **right-drag** erases every note it passes.
 - **Drag empty space** to select notes; **Shift-click** adds or removes one.
   **Alt-drag** copies. **Ctrl+A** selects all, **Delete** deletes,
   **Ctrl+D** duplicates, the **arrows** move them (Shift: by octave or bar),
@@ -404,6 +410,8 @@ Done:
 - ~~Timeline, pattern library, Jam and Arrange views with chains and blocks~~
 - ~~Real polyphony: 16 voices per track~~
 - ~~MIDI blocks with a full piano roll and triplet grids~~
+- ~~Clave, bongos, congas, toms, shaker and cowbell; + Drum~~
+- ~~Drag to paint and erase steps and notes~~
 
 Next:
 

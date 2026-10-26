@@ -287,6 +287,8 @@ struct App {
     notes: notes::State,
     /// A piano-roll note being dragged longer or shorter: (lane, its first step).
     note_drag: Option<(usize, usize)>,
+    /// Steps being painted or erased by dragging across them.
+    paint: Option<Paint>,
     /// The oscilloscope and envelope drawing in the instrument panel.
     show_scope: bool,
     /// Which of `SCOPE_SPANS` the scope shows.
@@ -382,6 +384,7 @@ impl App {
             timeline: timeline::State::default(),
             notes: notes::State::default(),
             note_drag: None,
+            paint: None,
             show_scope: true,
             scope_span: 1,
             scope_busy: false,
@@ -411,6 +414,51 @@ impl App {
             #[cfg(target_arch = "wasm32")]
             autosaved: (0, bpm),
         }
+    }
+}
+
+/// A drag across steps that turns them on or off, like a pencil or an
+/// eraser. It stays on the track (and piano-roll row) it started on.
+#[derive(Clone, Copy, PartialEq)]
+struct Paint {
+    track: usize,
+    /// The piano-roll row, or `None` in the track's step row.
+    lane: Option<usize>,
+    /// Painting notes in, or erasing them.
+    on: bool,
+    /// Where the pointer was last frame, so a fast drag doesn't skip steps.
+    last_x: Option<f32>,
+}
+
+impl Paint {
+    /// Whether the pointer passed over `rect`'s columns since last frame.
+    /// Only the columns count: the paint stays on its row.
+    fn crosses(&self, pointer: Option<egui::Pos2>, rect: egui::Rect) -> bool {
+        pointer.is_some_and(|pos| {
+            let from = self.last_x.unwrap_or(pos.x);
+            from.min(pos.x) <= rect.right() && from.max(pos.x) >= rect.left()
+        })
+    }
+}
+
+/// Where the pointer is while the main button is held, for painting.
+fn held_pointer(ui: &egui::Ui) -> Option<egui::Pos2> {
+    ui.input(|i| {
+        i.pointer
+            .primary_down()
+            .then(|| i.pointer.interact_pos())
+            .flatten()
+    })
+}
+
+/// Removes the note at `step` of a lane, and the ties that held it on.
+fn erase_note(lane: &mut project::Lane, step: usize) {
+    lane[step] = None;
+    for later in lane.iter_mut().skip(step + 1) {
+        if !later.is_some_and(|s| s.tie) {
+            break;
+        }
+        *later = None;
     }
 }
 
@@ -720,6 +768,14 @@ impl eframe::App for App {
         // it's over.
         if !ctx.input(|i| i.pointer.any_down()) && !ctx.wants_keyboard_input() {
             self.undo.settle(&self.project);
+        }
+        match ctx.input(|i| i.pointer.primary_down().then(|| i.pointer.interact_pos())) {
+            Some(pos) => {
+                if let Some(p) = &mut self.paint {
+                    p.last_x = pos.map(|pos| pos.x).or(p.last_x);
+                }
+            }
+            None => self.paint = None,
         }
         self.update_title(ctx);
         #[cfg(target_arch = "wasm32")]
@@ -1898,6 +1954,8 @@ impl App {
             let lanes = track.lanes();
             let on_color = if melodic { NOTE_ON } else { DRUM_ON };
             let grid = &mut track.patterns[pattern];
+            let shift = ui.input(|i| i.modifiers.shift);
+            let pointer = held_pointer(ui);
             // A step is a column across every lane, so walk it by index.
             #[allow(clippy::needless_range_loop)]
             for step in 0..STEPS {
@@ -1928,22 +1986,42 @@ impl App {
                     .stroke(playhead(current == Some(step)))
                     .min_size(Vec2::new(28.0, 26.0));
                 let resp = ui.add(pad);
-                if resp.clicked() {
-                    if ui.input(|i| i.modifiers.shift) {
-                        if first.is_none() {
-                            grid[0][step] = None;
-                            toggle_ghost(&mut grid[0][step]);
-                        }
-                        for &l in &notes {
-                            if Step::is_hit(&grid[l][step]) {
-                                toggle_ghost(&mut grid[l][step]);
+                // Pressing a step turns it on or off; dragging on along the
+                // row does the same to every step it passes.
+                // (A quick tap can press and release within one frame, so
+                // a click starts a paint too.)
+                let pressed = resp.is_pointer_button_down_on() || resp.clicked();
+                let start = !shift && pressed && self.paint.is_none();
+                if start {
+                    self.paint = Some(Paint {
+                        track: i,
+                        lane: None,
+                        on: notes.is_empty(),
+                        last_x: None,
+                    });
+                }
+                let painting = self.paint.filter(|p| p.track == i && p.lane.is_none());
+                if let Some(p) = painting {
+                    if start || p.crosses(pointer, resp.rect) {
+                        if p.on && notes.is_empty() {
+                            grid[0][step] = Some(Step::HIT);
+                            self.dirty = true;
+                        } else if !p.on && !notes.is_empty() {
+                            for &l in &notes {
+                                grid[l][step] = None;
                             }
+                            self.dirty = true;
                         }
-                    } else if notes.is_empty() {
-                        grid[0][step] = Some(Step::HIT);
-                    } else {
-                        for &l in &notes {
-                            grid[l][step] = None;
+                    }
+                }
+                if resp.clicked() && shift {
+                    if first.is_none() {
+                        grid[0][step] = None;
+                        toggle_ghost(&mut grid[0][step]);
+                    }
+                    for &l in &notes {
+                        if Step::is_hit(&grid[l][step]) {
+                            toggle_ghost(&mut grid[l][step]);
                         }
                     }
                     self.dirty = true;
@@ -2055,6 +2133,8 @@ impl App {
         ui.add_space(4.0);
         ui.spacing_mut().item_spacing.y = 2.0;
         let base = track.base_note();
+        let (shift, command) = ui.input(|i| (i.modifiers.shift, i.modifiers.command));
+        let pointer = held_pointer(ui);
         let grid = &mut track.patterns[pattern];
         // Where each step's column is, for working out where a note is
         // being dragged to.
@@ -2097,7 +2177,7 @@ impl App {
                     let resp = ui.add(cell);
                     columns[step] = resp.rect.center().x;
                     let lane_steps = &mut grid[lane];
-                    if value.is_some() {
+                    if value.is_some() && !command && self.paint.is_none() {
                         if resp.hovered() {
                             ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
                         }
@@ -2106,24 +2186,42 @@ impl App {
                             self.note_drag = note_head(lane_steps, step).map(|head| (lane, head));
                         }
                     }
-                    if resp.clicked() {
-                        if ui.input(|i| i.modifiers.shift) {
+                    // Pressing an empty cell adds a note, and dragging on
+                    // along the row adds more; Ctrl-drag erases instead.
+                    let pressed = resp.is_pointer_button_down_on() || resp.clicked();
+                    let start =
+                        !shift && pressed && self.paint.is_none() && (command || value.is_none());
+                    if start {
+                        self.paint = Some(Paint {
+                            track: i,
+                            lane: Some(lane),
+                            on: !command,
+                            last_x: None,
+                        });
+                        if !command {
+                            let _ = self.events.try_send(Event::Preview { track: i, note });
+                        }
+                    }
+                    let painting = self.paint.filter(|p| p.track == i && p.lane == Some(lane));
+                    if let Some(p) = painting {
+                        if start || p.crosses(pointer, resp.rect) {
+                            if p.on && lane_steps[step].is_none() {
+                                lane_steps[step] = Some(Step::HIT);
+                                self.dirty = true;
+                            } else if !p.on && Step::is_hit(&lane_steps[step]) {
+                                erase_note(lane_steps, step);
+                                self.dirty = true;
+                            }
+                        }
+                    }
+                    if resp.clicked() && (shift || self.paint.is_none()) {
+                        if shift {
                             if !Step::is_hit(&value) {
                                 lane_steps[step] = None;
                             }
                             toggle_ghost(&mut lane_steps[step]);
                         } else if value.is_some() {
-                            lane_steps[step] = None;
-                            // Drop the ties that held this note on.
-                            for later in lane_steps.iter_mut().skip(step + 1) {
-                                if !later.is_some_and(|s| s.tie) {
-                                    break;
-                                }
-                                *later = None;
-                            }
-                        } else {
-                            lane_steps[step] = Some(Step::HIT);
-                            let _ = self.events.try_send(Event::Preview { track: i, note });
+                            erase_note(lane_steps, step);
                         }
                         self.dirty = true;
                     } else if Step::is_hit(&value) {
