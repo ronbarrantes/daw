@@ -4,7 +4,7 @@ use std::f32::consts::PI;
 
 use eframe::egui::{self, Align, Color32, Layout, Pos2, RichText, Sense, Stroke, Vec2};
 
-use crate::synth::{Param, Unit};
+use crate::synth::{choice, Param, Unit, WAVES};
 
 pub const DRUM_ON: Color32 = Color32::from_rgb(255, 140, 40);
 pub const NOTE_ON: Color32 = Color32::from_rgb(80, 180, 255);
@@ -117,6 +117,7 @@ fn format_value(p: &Param, v: f32) -> String {
     match p.unit {
         Unit::Percent => format!("{:.0}%", v * 100.0),
         Unit::Hz if v >= 1000.0 => format!("{:.1} kHz", v / 1000.0),
+        Unit::Hz if v < 10.0 => format!("{v:.1} Hz"),
         Unit::Hz => format!("{v:.0} Hz"),
         Unit::Seconds if v < 1.0 => format!("{:.0} ms", v * 1000.0),
         Unit::Seconds => format!("{v:.2} s"),
@@ -133,13 +134,48 @@ fn format_value(p: &Param, v: f32) -> String {
             }
             format!("{n}/{d}")
         }
+        Unit::Wave => {
+            // A shape's name, or the two it's between.
+            let i = (v.max(0.0) as usize).min(WAVES.len() - 1);
+            let f = v - i as f32;
+            if f < 0.05 {
+                WAVES[i].into()
+            } else if f > 0.95 {
+                WAVES[(i + 1).min(WAVES.len() - 1)].into()
+            } else {
+                format!("{}/{}", WAVES[i], WAVES[i + 1])
+            }
+        }
+        Unit::Semitones => match v.round() as i32 {
+            0 => "0".into(),
+            n => format!("{n:+}"),
+        },
+        Unit::Choice(names) => names[choice(v, names.len())].into(),
     }
 }
 
 fn hint(p: &Param) -> &'static str {
     match p.name {
-        "Wave" => "0% = saw (buzzy), 100% = square (hollow)",
-        "Detune" => "Pitch difference between the two oscillators; higher = thicker",
+        "Wave 1" | "Wave 2" => {
+            "Oscillator shape: sine (smooth), triangle, saw (buzzy), square\n\
+             (hollow) or noise (hiss, for shakers, hats and wind); in between blends"
+        }
+        "Level 2" => "How loud the second oscillator is; 0 = just oscillator 1",
+        "Pitch 2" => "Second oscillator's pitch in semitones: +12 = an octave up, +7 = a fifth",
+        "Detune" => "Fine pitch difference between the two oscillators; higher = thicker",
+        "LFO rate" => "How fast the LFO wobbles (when LFO sync is off)",
+        "LFO amt" => "How much the LFO wobbles its target; 0 = off",
+        "LFO wave" => {
+            "The wobble's shape. Random picks a new value each cycle:\n\
+                       on pitch, that's random tones"
+        }
+        "LFO to" => "What the LFO wobbles: pitch (vibrato), filter (wah) or volume (tremolo)",
+        "LFO sync" => "Tie the LFO's speed to the tempo, e.g. once per beat (1/4)",
+        "Glide" => "Slide from one note's pitch to the next (in Mono and Legato)",
+        "Voices" => {
+            "Poly: chords. Mono: one note at a time.\n\
+                     Legato: one at a time, overlapping notes glide without restarting"
+        }
         "Cutoff" => "Filter brightness when the envelope is closed",
         "Reso" => "Filter peak; higher = squelchier",
         "Env amt" => "How far each note opens the filter",

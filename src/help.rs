@@ -55,7 +55,7 @@ const SECTIONS: &[(&str, &str)] = &[
     (
         "Showing and hiding",
         "Hiding a part never deletes it or stops it playing.\n\n\
-         • View menu, or F5 song and patterns, F6 tracks, F7 piano roll, \
+         • View menu, or F5 chain and patterns, F6 tracks, F7 piano roll, \
          F8 instrument panel.\n\
          • View > Focus: Tracks only, or Piano roll and sound.\n\
          • F9 shows everything again.",
@@ -136,7 +136,8 @@ const SECTIONS: &[(&str, &str)] = &[
          repeats). Alt-drag makes a copy.\n\
          • Copies are linked: edit the block in Jam and they all change. \
          Right-click one and choose Make unique to give it its own block.\n\
-         • Double-click a block to edit it in Jam.\n\
+         • Double-click a block to edit it in Jam (a MIDI block opens its \
+         notes below with one click).\n\
          • Click the ruler to set where playback starts; drag along it to \
          mark a loop, and turn Loop on or off.\n\
          • C splits the selected block at the cursor, Ctrl+D duplicates it, \
@@ -167,12 +168,23 @@ const SECTIONS: &[(&str, &str)] = &[
         "Synth",
         "Drag a knob up or down; double-click to reset it; hover to see what \
          it does.\n\n\
-         • Sound: Wave (saw to square), Detune (thicker), Humanize.\n\
+         • Oscillators: Wave 1 and Wave 2 go from sine (smooth) through \
+         triangle, saw (buzzy) and square (hollow) to noise (hiss). Level 2 \
+         is the second one's volume, Pitch 2 its pitch in semitones, Detune \
+         thickens.\n\
+         • Voices: Poly (chords), Mono (one note at a time) or Legato (one \
+         at a time, overlapping notes don't restart). Glide slides between \
+         notes in Mono and Legato.\n\
+         • Drone plays a note nonstop so you can turn knobs and listen.\n\
          • Filter: Cutoff and Reso set the tone; Env amt and F decay make \
          each note pluck.\n\
          • Envelope (ADSR): Attack fades in, Decay falls to the Sustain level \
-         while a note is held, Release fades out after.\n\n\
-         Try: Cutoff down, Reso up, Env amt up, short F decay = acid bass.\n\n\
+         while a note is held, Release fades out after.\n\
+         • LFO: a wobble on Pitch (vibrato), Filter (wah) or Volume \
+         (tremolo). Random jumps each cycle (random tones on pitch). LFO sync \
+         ties its speed to the tempo.\n\n\
+         Try: Cutoff down, Reso up, Env amt up, short F decay = acid bass. \
+         Noise with a short decay and high cutoff = a shaker.\n\n\
          The green scope at the top of the panel shows the selected track's \
          wave as you play; click it to show more or less time. The blue \
          drawing shows the envelope. View menu turns them off.",

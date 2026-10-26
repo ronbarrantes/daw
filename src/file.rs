@@ -542,6 +542,13 @@ fn read_zip(bytes: Vec<u8>) -> Result<Song, String> {
                         values[i] = v.clamp(p.min, p.max);
                     }
                 }
+                // Before v0.19 one Wave knob (0-1, saw to square) set both
+                // oscillators.
+                if let (Some(old), None) = (settings.get("Wave"), settings.get("Wave 1")) {
+                    let wave = synth::SAW + old.clamp(0.0, 1.0);
+                    values[synth::WAVE] = wave;
+                    values[synth::WAVE_2] = wave;
+                }
                 Kind::Synth(values)
             }
             Instrument::Sampler { sample, pitched } => {
@@ -959,7 +966,7 @@ mod tests {
             "format": 1,
             "song": [0, 0, null, 3],
             "tracks": [
-                { "name": "Bass", "instrument": { "type": "synth", "settings": { "Cutoff": 500 } },
+                { "name": "Bass", "instrument": { "type": "synth", "settings": { "Cutoff": 500, "Wave": 0.25 } },
                   "notes": [ { "pattern": 0, "lane": 2, "step": 4 } ],
                   "some_future_field": true }
             ]
@@ -993,6 +1000,9 @@ mod tests {
             panic!("synth")
         };
         assert_eq!(v[synth::CUTOFF], 500.0);
+        assert_eq!(v[synth::WAVE], synth::SAW + 0.25, "old Wave knob");
+        assert_eq!(v[synth::WAVE_2], synth::SAW + 0.25);
+        assert_eq!(v[synth::LFO_AMOUNT], 0.0, "new knobs start off");
         assert_eq!(v[synth::RESONANCE], synth::PARAMS[synth::RESONANCE].default);
     }
 

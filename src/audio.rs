@@ -34,7 +34,7 @@ use crate::midi::{self, Msg};
 use crate::project::{
     Block, Kind, MidiPart, Project, Sample, Step, MAX_TRACKS, NORMAL, PPS, SAMPLE_ROOT, STEPS,
 };
-use crate::synth::Voice;
+use crate::synth::{self, Lfo, Mode, Voice};
 
 /// MIDI clock runs at 24 ticks per beat, so a 16th-note step is 6 ticks.
 const TICKS_PER_STEP: u32 = 6;
@@ -343,6 +343,8 @@ struct Engine {
     voices: Vec<Vec<TrackVoice>>,
     /// The generation the next note gets.
     next_generation: u32,
+    /// Each synth track's LFO.
+    lfos: Vec<Lfo>,
     /// Scheduled hits; preallocated so the audio thread never allocates.
     pending: Vec<Pending>,
     /// Clock tick within the bar, 0..TICKS_PER_STEP * STEPS.
@@ -397,6 +399,7 @@ impl Engine {
             midi_out,
             voices,
             next_generation: 1,
+            lfos: (0..MAX_TRACKS).map(|_| Lfo::default()).collect(),
             pending: Vec::with_capacity(MAX_PENDING),
             tick: 0,
             samples_to_next_tick: 0.0,
@@ -520,10 +523,26 @@ impl Engine {
     /// Starts MIDI note `note` on a track and returns its generation.
     fn note_on(&mut self, i: usize, note: u8, velocity: u8) -> u32 {
         let note = self.key(i, note);
-        let v = self.pick_voice(i, note);
-        self.voice_off(i, v);
         let project = self.project.clone();
         let track = &project.tracks[i];
+        let mode = match &track.kind {
+            Kind::Synth(values) => synth::mode(values),
+            Kind::Sampler { .. } => Mode::Poly,
+        };
+        // Mono and Legato play everything on the first voice.
+        let v = match mode {
+            Mode::Poly => self.pick_voice(i, note),
+            _ => 0,
+        };
+        let legato = mode == Mode::Legato && self.voices[i][v].on;
+        if legato {
+            // The sound carries on; only the MIDI note changes.
+            if let Some((held, ch)) = self.voices[i][v].held.take() {
+                self.send(Msg::three(0x80 | ch, held, 0));
+            }
+        } else {
+            self.voice_off(i, v);
+        }
         if let Some(ch) = track.midi_channel {
             self.send(Msg::three(0x90 | ch, note, velocity));
             self.voices[i][v].held = Some((note, ch));
@@ -537,7 +556,7 @@ impl Engine {
         voice.on = true;
         voice.live = false;
         match &track.kind {
-            Kind::Synth(_) => voice.synth.note_on(note),
+            Kind::Synth(_) => voice.synth.note_on(note, mode != Mode::Poly, !legato),
             Kind::Sampler { sample, pitched } => {
                 let semis = if *pitched {
                     note as f32 - SAMPLE_ROOT as f32
@@ -620,8 +639,8 @@ impl Engine {
                 Event::Release { track, note } if track < MAX_TRACKS => {
                     // The track may have been deleted; then any voice
                     // holding the note will do.
-                    let note = self.key(track, note);
-                    if let Some(v) = self.holding(track, note, true) {
+                    let held = self.holding(track, self.key(track, note), true);
+                    if let Some(v) = held.or_else(|| self.holding(track, note, true)) {
                         self.voice_off(track, v);
                     }
                 }
@@ -1005,15 +1024,28 @@ impl Engine {
         let mut send = [0.0; 2];
         let scoped = self.shared.selected_track.load(Relaxed);
         let mut scope = 0.0;
+        let beat = self.samples_per_tick * TICKS_PER_BEAT as f32;
         for i in 0..self.track_count() {
-            let synth = matches!(self.project.tracks[i].kind, Kind::Synth(_));
+            let values = match &self.project.tracks[i].kind {
+                Kind::Synth(values) => Some(values),
+                Kind::Sampler { .. } => None,
+            };
+            // The LFO runs whether or not notes are playing, so it's
+            // somewhere in its cycle rather than restarting each note.
+            let lfo = match values {
+                Some(v) if v[synth::LFO_AMOUNT] > 0.0 => {
+                    let step = Lfo::step(v, self.sr, beat);
+                    self.lfos[i].next(v, step)
+                }
+                _ => 0.0,
+            };
             let mut out = 0.0;
             for voice in &mut self.voices[i] {
-                let sample = if synth {
+                let sample = if values.is_some() {
                     if voice.synth.is_idle() {
                         continue;
                     }
-                    voice.synth.next_sample()
+                    voice.synth.next_sample(lfo)
                 } else {
                     voice.sample_out()
                 };
@@ -1345,6 +1377,27 @@ mod tests {
             assert!(msgs.contains(&Msg::three(0x91, note, 100)), "note {note}");
         }
         assert_eq!(rig.sounding(PAD), 3, "three voices at once");
+    }
+
+    #[test]
+    fn mono_tracks_play_one_note_at_a_time() {
+        let mut project = quiet_demo();
+        if let Kind::Synth(v) = &mut project.tracks[LEAD].kind {
+            v[synth::VOICES] = 1.0;
+        }
+        project.tracks[LEAD].midi_channel = Some(0);
+        let mut rig = Rig::new(project);
+        rig.send(hold(LEAD, 48));
+        rig.send(hold(LEAD, 55));
+        rig.run(UPDATE_INTERVAL as usize);
+        assert_eq!(rig.sounding(LEAD), 1);
+        assert!(rig.midi().contains(&Msg::three(0x80, 48, 0)), "C3 gave way");
+        rig.send(Event::Release {
+            track: LEAD,
+            note: 55,
+        });
+        rig.run(UPDATE_INTERVAL as usize);
+        assert!(rig.midi().contains(&Msg::three(0x80, 55, 0)), "G3 ends");
     }
 
     #[test]

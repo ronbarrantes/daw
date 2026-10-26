@@ -287,6 +287,11 @@ struct App {
     notes: notes::State,
     /// A piano-roll note being dragged longer or shorter: (lane, its first step).
     note_drag: Option<(usize, usize)>,
+    /// The note a synth track is droning (playing nonstop), if any:
+    /// (track, MIDI note).
+    drone: Option<(usize, u8)>,
+    /// The note the Drone button plays.
+    drone_note: u8,
     /// Steps being painted or erased by dragging across them.
     paint: Option<Paint>,
     /// The oscilloscope and envelope drawing in the instrument panel.
@@ -385,6 +390,8 @@ impl App {
             notes: notes::State::default(),
             note_drag: None,
             paint: None,
+            drone: None,
+            drone_note: 48,
             show_scope: true,
             scope_span: 1,
             scope_busy: false,
@@ -933,6 +940,7 @@ impl App {
 
     fn replace_song(&mut self, project: Project, file: Option<PathBuf>, bpm: f32) {
         self.shared.playing.store(false, Relaxed);
+        self.stop_drone();
         self.selected = first_melodic(&project);
         self.project = project;
         self.selected_group = None;
@@ -1187,8 +1195,18 @@ impl App {
         self.delete_track(self.selected);
     }
 
+    /// Stops the Drone button's note.
+    fn stop_drone(&mut self) {
+        if let Some((track, note)) = self.drone.take() {
+            let _ = self.events.try_send(Event::Release { track, note });
+        }
+    }
+
     fn delete_track(&mut self, i: usize) {
         if i < self.project.tracks.len() {
+            // The engine's voices don't move with the tracks, so a drone
+            // can't follow its track to a new place.
+            self.stop_drone();
             self.project.remove_track(i);
             self.midi.track_deleted(i);
             self.selected = self
@@ -2411,14 +2429,46 @@ impl App {
             Kind::Synth(values) => {
                 ui.weak("Drag knobs up/down. Double-click to reset.");
                 ui.add_space(4.0);
-                ui.label(RichText::new("Sound").small().strong());
+                ui.label(RichText::new("Oscillators").small().strong());
                 ui.horizontal(|ui| {
-                    for i in [synth::WAVE, synth::DETUNE] {
+                    for i in [synth::WAVE, synth::WAVE_2, synth::LEVEL_2, synth::PITCH_2] {
+                        changed |= knob(ui, &PARAMS[i], &mut values[i]);
+                    }
+                });
+                ui.horizontal(|ui| {
+                    for i in [synth::DETUNE, synth::VOICES, synth::GLIDE] {
                         changed |= knob(ui, &PARAMS[i], &mut values[i]);
                     }
                     changed |= knob(ui, &HUMANIZE, &mut track.humanize);
                 });
-                let sections: [(&str, [usize; 4]); 2] = [
+                // Drone: hold a note nonstop, to shape the sound by ear.
+                ui.horizontal(|ui| {
+                    let i = self.selected;
+                    let on = self.drone.is_some_and(|(t, _)| t == i);
+                    let mut toggle = on;
+                    let hint = "Play a note nonstop, so you can turn knobs and hear\n\
+                                the sound change. Click again to stop.";
+                    let flip = ui.toggle_value(&mut toggle, "Drone").on_hover_text(hint);
+                    let pick = egui::DragValue::new(&mut self.drone_note)
+                        .range(12..=108)
+                        .custom_formatter(|v, _| notes::note_name(v as u8));
+                    let moved = ui.add(pick).on_hover_text("The drone's note").changed();
+                    if flip.clicked() || (on && moved) {
+                        if let Some((t, note)) = self.drone.take() {
+                            let _ = self.events.try_send(Event::Release { track: t, note });
+                        }
+                        if toggle {
+                            let note = self.drone_note;
+                            self.drone = Some((i, note));
+                            let _ = self.events.try_send(Event::Hold {
+                                track: i,
+                                note,
+                                velocity: NORMAL,
+                            });
+                        }
+                    }
+                });
+                let sections: [(&str, [usize; 4]); 3] = [
                     (
                         "Filter",
                         [
@@ -2432,6 +2482,15 @@ impl App {
                         "Envelope (ADSR)",
                         [synth::ATTACK, synth::DECAY, synth::SUSTAIN, synth::RELEASE],
                     ),
+                    (
+                        "LFO",
+                        [
+                            synth::LFO_TARGET,
+                            synth::LFO_SHAPE,
+                            synth::LFO_AMOUNT,
+                            synth::LFO_RATE,
+                        ],
+                    ),
                 ];
                 for (title, row) in sections {
                     ui.add_space(6.0);
@@ -2441,6 +2500,12 @@ impl App {
                             changed |= knob(ui, &PARAMS[i], &mut values[i]);
                         }
                     });
+                    if row[0] == synth::LFO_TARGET {
+                        ui.horizontal(|ui| {
+                            let i = synth::LFO_SYNC;
+                            changed |= knob(ui, &PARAMS[i], &mut values[i]);
+                        });
+                    }
                     if self.show_scope && row[0] == synth::ATTACK {
                         envelope(
                             ui,

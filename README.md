@@ -1,8 +1,9 @@
 # daw
 
-A tiny, lightweight DAW in Rust: synth and sample tracks, 8 patterns you can
-arrange into a song, and MIDI for hardware like the M-VAVE FM-1 and Roland
-AIRA Compacts.
+A tiny, lightweight DAW in Rust: a step sequencer with built-in drums,
+synths and sample tracks, patterns chained into blocks, MIDI blocks with a
+full piano roll, a timeline to arrange songs, and MIDI for hardware like the
+M-VAVE FM-1 and Roland AIRA Compacts.
 
 ## Download
 
@@ -210,7 +211,7 @@ the four drums in a **Drums** group.
 
 Hiding a part never deletes it or stops it playing.
 
-- **View** menu, or **F5** song and patterns, **F6** tracks, **F7** piano roll,
+- **View** menu, or **F5** chain and patterns, **F6** tracks, **F7** piano roll,
   **F8** instrument panel.
 - **View → Focus** shows just the tracks, or just the piano roll and sound.
 - **F9** shows everything again.
@@ -319,7 +320,7 @@ Arrange plays the timeline, from the cursor.
   grows or shrinks with it). Right-click a copy and choose **Make unique**
   to give it its own block. Copies of the block you're editing are brighter.
 - **Double-click** a block (on the timeline or in the drawer) to edit it in
-  Jam.
+  Jam. A MIDI block opens in the note editor below instead, with one click.
 - Click the **ruler** to set where playback starts; drag along it to mark a
   **loop**, and toggle **Loop** on or off.
 - **C** splits the selected block at the cursor (like Premiere's razor),
@@ -360,13 +361,38 @@ chords that don't fit a one-bar pattern.
 Select a synth track to see its knobs. Drag a knob up or down; double-click
 to reset it. Hover for what each one does.
 
-- **Sound:** **Wave** saw → square. **Detune** thickens. **Humanize**.
+- **Oscillators:** two of them. **Wave 1** and **Wave 2** each go from
+  **sine** (smooth) through **triangle**, **saw** (buzzy) and **square**
+  (hollow) to **noise** (hiss); in between blends two shapes. **Level 2**
+  is how loud the second one is (0 = just the first), **Pitch 2** moves it
+  in semitones (+12 an octave up, +7 a fifth), **Detune** pulls it slightly
+  out of tune to thicken the sound.
+- **Voices:** **Poly** plays chords. **Mono** plays one note at a time.
+  **Legato** plays one at a time, and a note played while another is held
+  just changes pitch without restarting. **Glide** slides between notes in
+  Mono and Legato (portamento). **Humanize** varies timing and loudness.
+- **Drone** plays a note nonstop (pick it next to the button), so you can
+  turn knobs and hear the sound change; click again to stop. For a drone in
+  a song, put one long note in a MIDI block.
 - **Filter:** **Cutoff** and **Reso** set the tone; **Env amt** and
   **F decay** make each note "pluck" by opening the filter and closing it.
 - **Envelope (ADSR):** **Attack** fades in, **Decay** falls to the
   **Sustain** level while the note is held, **Release** fades out after.
+- **LFO:** a slow wobble. **LFO to** picks what it moves: **Pitch**
+  (vibrato), **Filter** (wah) or **Volume** (tremolo). **LFO wave** is its
+  shape; **Random** jumps to a new value each cycle (on pitch, by whole
+  semitones: random tones). **LFO amt** is how much (0 = off), **LFO rate**
+  how fast, and **LFO sync** ties the speed to the tempo instead (1/4 = once
+  a beat).
 
-Try: Cutoff down, Reso up, Env amt up, Decay short → squelchy acid bass.
+Try:
+- Cutoff down, Reso up, Env amt up, Decay short: squelchy acid bass. Add
+  Legato and some Glide for a 303-style slide.
+- Wave 1 on Noise, Level 2 at 0, Cutoff high, Attack short, Decay and
+  Sustain low: a shaker or hi-hat.
+- LFO to Pitch, LFO wave Random, LFO amt about 50%, LFO sync 1/16: random
+  bleeps.
+- Wave 2 on Sine, Pitch 2 at -12: a sub-bass under the main sound.
 
 **Scope:** the green screen at the top of the panel is an oscilloscope of
 the selected track, so you can watch a knob change the wave. A saw is a
@@ -412,6 +438,7 @@ Done:
 - ~~MIDI blocks with a full piano roll and triplet grids~~
 - ~~Clave, bongos, congas, toms, shaker and cowbell; + Drum~~
 - ~~Drag to paint and erase steps and notes~~
+- ~~Synth: two oscillators from sine to noise, LFO, mono/legato, glide, drone~~
 
 Next:
 
@@ -427,7 +454,7 @@ Next:
 8. Clip overrides: mute a track, transpose or change the volume of one
    block without unlinking it
 9. Sample editor: chop, trim, ADSR, fades, reverse
-11. A full mixer
-12. Freesound.org sample browser
+10. A full mixer
+11. Freesound.org sample browser
 
 See [docs/WORKFLOW.md](docs/WORKFLOW.md) for how changes get pushed, merged and released.
