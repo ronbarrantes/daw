@@ -170,6 +170,9 @@ const SECTIONS: &[(&str, &str)] = &[
          it does. Click a section's heading to fold it (and again to open \
          it); × closes it, and + Section at the bottom of the panel (or View \
          > Instrument panel sections) brings it back.\n\n\
+         • Preset: a starting sound (piano, electric piano, guitar pluck, \
+         basses, strings, violin, brass, organ, flute, bell, pad, shaker), \
+         then adjust any knob.\n\
          • Oscillators: Wave 1 and Wave 2 go from sine (smooth) through \
          triangle, saw (buzzy) and square (hollow) to noise (hiss). Level 2 \
          is the second one's volume, Pitch 2 its pitch in semitones, Detune \

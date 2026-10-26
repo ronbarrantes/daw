@@ -2656,6 +2656,27 @@ impl App {
             Kind::Synth(values) => {
                 ui.weak("Drag knobs up/down. Double-click to reset. Click a heading to fold it.");
                 ui.add_space(4.0);
+                // A starting sound, adjusted from there with the knobs.
+                ui.horizontal(|ui| {
+                    ui.label("Preset");
+                    egui::ComboBox::from_id_salt("preset")
+                        .selected_text("Pick a sound…")
+                        .width(150.0)
+                        .show_ui(ui, |ui| {
+                            for (i, (name, _)) in synth::PRESETS.iter().enumerate() {
+                                if ui.selectable_label(false, *name).clicked() {
+                                    *values = synth::preset(i);
+                                    changed = true;
+                                }
+                            }
+                        })
+                        .response
+                        .on_hover_text(
+                            "Start from an instrument sound, then adjust any knob.\n\
+                             Ctrl+Z undoes it.",
+                        );
+                });
+                ui.add_space(4.0);
                 sections.show(ui, "Oscillators", true, |ui| {
                     ui.horizontal(|ui| {
                         for i in [synth::WAVE, synth::WAVE_2, synth::LEVEL_2, synth::PITCH_2] {
