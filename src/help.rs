@@ -167,8 +167,9 @@ const SECTIONS: &[(&str, &str)] = &[
     (
         "Synth",
         "Drag a knob up or down; double-click to reset it; hover to see what \
-         it does. Click a section's heading to fold it away (and again to \
-         open it), so what you use fits without scrolling.\n\n\
+         it does. Click a section's heading to fold it (and again to open \
+         it); × closes it, and + Section at the bottom of the panel (or View \
+         > Instrument panel sections) brings it back.\n\n\
          • Oscillators: Wave 1 and Wave 2 go from sine (smooth) through \
          triangle, saw (buzzy) and square (hollow) to noise (hiss). Level 2 \
          is the second one's volume, Pitch 2 its pitch in semitones, Detune \
@@ -176,7 +177,11 @@ const SECTIONS: &[(&str, &str)] = &[
          • Voices: Poly (chords), Mono (one note at a time) or Legato (one \
          at a time, overlapping notes don't restart). Glide slides between \
          notes in Mono and Legato.\n\
-         • Drone plays a note nonstop so you can turn knobs and listen.\n\
+         • Drone plays a note nonstop so you can turn knobs and listen; its \
+         slider sets the pitch anywhere, between notes too.\n\
+         • Theremin (bottom of the panel): hold the mouse down on the pad \
+         and move. Left to right slides the pitch smoothly, bottom to top \
+         opens the filter.\n\
          • Filter: Cutoff and Reso set the tone; Env amt and F decay make \
          each note pluck.\n\
          • Envelope (ADSR): Attack fades in, Decay falls to the Sustain level \

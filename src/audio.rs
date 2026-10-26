@@ -87,6 +87,15 @@ pub enum Event {
         track: usize,
         note: u8,
     },
+    /// Slides a held note's pitch smoothly, off the 12-note grid, and moves
+    /// its filter: `semis` from the note (fractions allowed), `filter` in
+    /// octaves. For the Drone's pitch slider and the theremin pad.
+    Bend {
+        track: usize,
+        note: u8,
+        semis: f32,
+        filter: f32,
+    },
 }
 
 pub struct Shared {
@@ -638,6 +647,16 @@ impl Engine {
                         .find(|v| v.generation == generation)
                     {
                         v.live = true;
+                    }
+                }
+                Event::Bend {
+                    track,
+                    note,
+                    semis,
+                    filter,
+                } if track < self.track_count() => {
+                    if let Some(v) = self.holding(track, self.key(track, note), true) {
+                        self.voices[track][v].synth.bend(semis, filter);
                     }
                 }
                 Event::Release { track, note } if track < MAX_TRACKS => {
@@ -1417,6 +1436,30 @@ mod tests {
         assert!(l < r * 0.01, "first half right: {l} {r}");
         let [l, r] = side(15_000..21_000);
         assert!(r < l * 0.01, "then left: {l} {r}");
+    }
+
+    #[test]
+    fn held_notes_bend_smoothly_off_the_grid() {
+        let mut project = quiet_demo();
+        if let Kind::Synth(v) = &mut project.tracks[LEAD].kind {
+            v[synth::WAVE] = 0.0; // sine
+            v[synth::LEVEL_2] = 0.0;
+            v[synth::CUTOFF] = 8000.0;
+            v[synth::SUSTAIN] = 1.0;
+        }
+        let mut rig = Rig::new(project);
+        // A3 (220 Hz), bent up half a semitone: about 226.5 Hz.
+        rig.send(hold(LEAD, 57));
+        rig.send(Event::Bend {
+            track: LEAD,
+            note: 57,
+            semis: 0.5,
+            filter: 0.0,
+        });
+        rig.run(4_800); // let the bend settle
+        let out = rig.run(48_000);
+        let ups = out.windows(2).filter(|w| w[0] < 0.0 && w[1] >= 0.0).count();
+        assert!((225..=228).contains(&ups), "about 226.5 Hz: {ups}");
     }
 
     #[test]
