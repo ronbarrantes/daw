@@ -1109,6 +1109,24 @@ impl App {
         self.add_track(Track::synth(&format!("Synth {n}")));
     }
 
+    /// Adds built-in drum `i`, on the drum channel, into the Drums group
+    /// if there is one.
+    fn add_drum(&mut self, i: usize) {
+        let Some(sample) = project::builtin_drums().into_iter().nth(i) else {
+            return;
+        };
+        let mut track = Track::sampler(sample, false);
+        track.midi_channel = Some(9);
+        track.midi_note = drums::NOTES[i];
+        track.group = self
+            .project
+            .groups
+            .iter()
+            .find(|g| g.name == "Drums")
+            .map(|g| g.id);
+        self.add_track(track);
+    }
+
     fn delete_selected(&mut self) {
         self.delete_track(self.selected);
     }
@@ -1978,6 +1996,18 @@ impl App {
             {
                 self.add_synth();
             }
+            ui.add_enabled_ui(!full, |ui| {
+                ui.menu_button("+ Drum", |ui| {
+                    for (i, name) in drums::NAMES.iter().enumerate() {
+                        if ui.button(*name).clicked() {
+                            self.add_drum(i);
+                            ui.close_menu();
+                        }
+                    }
+                })
+                .response
+                .on_hover_text("Add a built-in drum sound");
+            });
             let load = ui.add_enabled(!full, egui::Button::new("+ Sample…"));
             if load.on_hover_text("WAV, MP3, FLAC or OGG").clicked() {
                 self.pick_samples(ctx);
