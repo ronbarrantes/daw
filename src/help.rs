@@ -167,7 +167,8 @@ const SECTIONS: &[(&str, &str)] = &[
     (
         "Synth",
         "Drag a knob up or down; double-click to reset it; hover to see what \
-         it does.\n\n\
+         it does. Click a section's heading to fold it away (and again to \
+         open it), so what you use fits without scrolling.\n\n\
          • Oscillators: Wave 1 and Wave 2 go from sine (smooth) through \
          triangle, saw (buzzy) and square (hollow) to noise (hiss). Level 2 \
          is the second one's volume, Pitch 2 its pitch in semitones, Detune \
@@ -180,13 +181,14 @@ const SECTIONS: &[(&str, &str)] = &[
          each note pluck.\n\
          • Envelope (ADSR): Attack fades in, Decay falls to the Sustain level \
          while a note is held, Release fades out after.\n\
-         • LFO: a wobble on Pitch (vibrato), Filter (wah) or Volume \
-         (tremolo). Random jumps each cycle (random tones on pitch). LFO sync \
+         • LFO: a wobble on Pitch (vibrato), Filter (wah), Volume \
+         (tremolo) or Pan (left and right). Random jumps each cycle (random tones on pitch). LFO sync \
          ties its speed to the tempo.\n\n\
          Try: Cutoff down, Reso up, Env amt up, short F decay = acid bass. \
          Noise with a short decay and high cutoff = a shaker.\n\n\
          The green scope at the top of the panel shows the selected track's \
-         wave as you play; click it to show more or less time. The blue \
+         wave as you play; click it to show more or less time. Pop out \
+         puts it in its own window you can move and resize. The blue \
          drawing shows the envelope. View menu turns them off.",
     ),
     (
