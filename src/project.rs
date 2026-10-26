@@ -835,7 +835,8 @@ impl Project {
         pad.reverb = 0.35;
         pad.octave = 4;
         if let Kind::Synth(v) = &mut pad.kind {
-            v[synth::WAVE] = 0.3;
+            v[synth::WAVE] = synth::SAW + 0.3;
+            v[synth::WAVE_2] = synth::SAW + 0.3;
             v[synth::DETUNE] = 0.6;
             v[synth::CUTOFF] = 900.0;
             v[synth::ENV_AMOUNT] = 0.2;

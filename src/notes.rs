@@ -170,7 +170,7 @@ impl State {
 }
 
 /// A note's name with its octave, e.g. C4 for 60.
-fn note_name(pitch: u8) -> String {
+pub fn note_name(pitch: u8) -> String {
     format!(
         "{}{}",
         NOTE_NAMES[pitch as usize % 12],
