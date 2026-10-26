@@ -27,8 +27,10 @@ const SECTIONS: &[(&str, &str)] = &[
     ),
     (
         "Tracks",
-        "• + Synth adds a synth. + Sample… loads WAV, MP3, FLAC or OGG files, \
-         or drop audio files onto the window.\n\
+        "• + Synth adds a synth. + Drum adds a built-in drum (clave, bongos, \
+         congas, toms, shaker, cowbell and more). + Sample… loads WAV, MP3, \
+         FLAC or OGG files, or drop audio files onto the window.\n\
+         • Right-click a track's name to delete it.\n\
          • M mutes a track. S solos it: when any track is soloed, only soloed \
          tracks play. Use solo to hear one part on its own.\n\
          • Mix (right panel): Volume, Pan (left or right; double-click for \

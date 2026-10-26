@@ -795,6 +795,7 @@ impl Project {
     pub fn demo() -> Self {
         let mut tracks: Vec<Track> = builtin_drums()
             .into_iter()
+            .take(drums::STARTER_KIT)
             .enumerate()
             .map(|(i, sample)| {
                 let mut t = Track::sampler(sample, false);

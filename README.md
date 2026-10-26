@@ -169,8 +169,11 @@ soloed tracks so you can hear a part on its own.
 - Click a step to turn it on or off.
 - Click a track's name to select it and hear it. The right panel shows its
   settings; melodic tracks also get a **piano roll** below the rows.
-- **+ Synth** adds a synth track. **+ Sample…** loads WAV, MP3, FLAC or OGG
-  files as sample tracks, or just drop files onto the window.
+- **+ Synth** adds a synth track. **+ Drum** adds a built-in drum: kick,
+  snare, hat, clap, clave, bongos, congas, toms, shaker or cowbell (it goes
+  in the Drums group if there is one). **+ Sample…** loads WAV, MP3, FLAC
+  or OGG files as sample tracks, or just drop files onto the window.
+- Right-click a track's name to delete it.
 - Rename a track by editing its name at the top of the right panel.
 - **Mix** (right panel): **Volume**, **Pan** (left or right in the stereo
   mix; double-click to centre), and **Reverb** and **Delay**: how much of
@@ -371,7 +374,9 @@ Plug gear in over USB (or a USB-MIDI cable), then press **⟳** to rescan.
 
 - **MIDI out:** sends clock and Start/Stop so gear follows the tempo. Each
   track's **MIDI ch** (right panel) sends its notes on that channel; the
-  built-in drums use channel 10 (Kick 36, Snare 38, Hat 42, Clap 39).
+  built-in drums use channel 10 with General MIDI notes (Kick 36, Snare 38,
+  Hat 42, Clap 39, Clave 75, Bongos 60/61, Congas 63/64, Toms 50/47/45,
+  Shaker 70, Cowbell 56).
 - **MIDI in:** click it to connect controllers, several at once. Each plays
   the **selected track** (follows your clicks) or a fixed **track** or
   **group**. Route a drum kit to the Drums group and each pad plays its
