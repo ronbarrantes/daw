@@ -36,6 +36,65 @@ pub enum Unit {
 
 /// The shapes an oscillator morphs through, in order.
 pub const WAVES: [&str; 5] = ["Sine", "Tri", "Saw", "Square", "Noise"];
+/// Ready-made sounds: each changes some knobs from their defaults. They're
+/// synth versions of the instruments, a starting point to adjust.
+#[rustfmt::skip]
+pub const PRESETS: [(&str, &[(usize, f32)]); 14] = [
+    ("Piano (synth)", &[(WAVE, 2.6), (WAVE_2, 1.0), (LEVEL_2, 0.5), (PITCH_2, 12.0), (DETUNE, 0.1),
+        (CUTOFF, 1800.0), (RESONANCE, 0.1), (ENV_AMOUNT, 0.5), (FILTER_DECAY, 0.4),
+        (ATTACK, 0.002), (DECAY, 0.9), (SUSTAIN, 0.0), (RELEASE, 0.4)]),
+    ("Electric piano", &[(WAVE, 0.0), (WAVE_2, 0.0), (LEVEL_2, 0.35), (PITCH_2, 12.0),
+        (CUTOFF, 3000.0), (RESONANCE, 0.0), (ENV_AMOUNT, 0.3), (FILTER_DECAY, 0.3),
+        (ATTACK, 0.002), (DECAY, 1.2), (SUSTAIN, 0.2), (RELEASE, 0.5),
+        (LFO_TARGET, 2.0), (LFO_AMOUNT, 0.15), (LFO_RATE, 4.0)]),
+    ("Guitar pluck", &[(WAVE, 2.0), (WAVE_2, 3.0), (LEVEL_2, 0.5), (DETUNE, 0.15),
+        (CUTOFF, 600.0), (RESONANCE, 0.25), (ENV_AMOUNT, 0.7), (FILTER_DECAY, 0.2),
+        (ATTACK, 0.001), (DECAY, 0.6), (SUSTAIN, 0.0), (RELEASE, 0.25)]),
+    ("Bass", &[(WAVE, 2.0), (WAVE_2, 3.0), (LEVEL_2, 0.7), (PITCH_2, -12.0),
+        (CUTOFF, 300.0), (RESONANCE, 0.3), (ENV_AMOUNT, 0.5), (FILTER_DECAY, 0.15),
+        (ATTACK, 0.002), (DECAY, 0.3), (SUSTAIN, 0.6), (RELEASE, 0.1), (VOICES, 1.0)]),
+    ("Sub bass", &[(WAVE, 0.0), (LEVEL_2, 0.0), (CUTOFF, 400.0), (RESONANCE, 0.0),
+        (ENV_AMOUNT, 0.0), (ATTACK, 0.005), (DECAY, 0.3), (SUSTAIN, 1.0), (RELEASE, 0.1),
+        (VOICES, 1.0)]),
+    ("Acid bass", &[(WAVE, 2.0), (LEVEL_2, 0.0), (CUTOFF, 180.0), (RESONANCE, 0.85),
+        (ENV_AMOUNT, 0.8), (FILTER_DECAY, 0.18), (ATTACK, 0.002), (DECAY, 0.2),
+        (SUSTAIN, 0.5), (RELEASE, 0.08), (VOICES, 2.0), (GLIDE, 0.08)]),
+    ("Strings", &[(WAVE, 2.0), (WAVE_2, 2.0), (DETUNE, 0.8), (CUTOFF, 1500.0),
+        (RESONANCE, 0.1), (ENV_AMOUNT, 0.1), (ATTACK, 0.35), (DECAY, 0.5), (SUSTAIN, 0.85),
+        (RELEASE, 0.7), (LFO_AMOUNT, 0.02), (LFO_RATE, 5.0)]),
+    ("Violin lead", &[(WAVE, 2.0), (WAVE_2, 2.0), (DETUNE, 0.3), (CUTOFF, 2200.0),
+        (RESONANCE, 0.15), (ENV_AMOUNT, 0.2), (ATTACK, 0.12), (SUSTAIN, 0.9),
+        (RELEASE, 0.3), (VOICES, 2.0), (GLIDE, 0.05), (LFO_AMOUNT, 0.03), (LFO_RATE, 5.5)]),
+    ("Brass", &[(WAVE, 2.0), (WAVE_2, 2.0), (DETUNE, 0.4), (CUTOFF, 500.0),
+        (RESONANCE, 0.2), (ENV_AMOUNT, 0.6), (FILTER_DECAY, 0.35), (ATTACK, 0.05),
+        (DECAY, 0.3), (SUSTAIN, 0.8), (RELEASE, 0.2)]),
+    ("Organ", &[(WAVE, 0.0), (WAVE_2, 0.0), (LEVEL_2, 0.7), (PITCH_2, 12.0),
+        (CUTOFF, 5000.0), (RESONANCE, 0.0), (ENV_AMOUNT, 0.0), (ATTACK, 0.005),
+        (DECAY, 0.1), (SUSTAIN, 1.0), (RELEASE, 0.05),
+        (LFO_TARGET, 2.0), (LFO_AMOUNT, 0.1), (LFO_RATE, 6.0)]),
+    ("Flute", &[(WAVE, 0.3), (WAVE_2, 4.0), (LEVEL_2, 0.08), (CUTOFF, 2500.0),
+        (RESONANCE, 0.0), (ENV_AMOUNT, 0.1), (ATTACK, 0.08), (SUSTAIN, 0.9),
+        (RELEASE, 0.2), (LFO_AMOUNT, 0.02), (LFO_RATE, 5.0)]),
+    ("Bell", &[(WAVE, 0.0), (WAVE_2, 0.0), (LEVEL_2, 0.6), (PITCH_2, 19.0), (DETUNE, 0.6),
+        (CUTOFF, 6000.0), (RESONANCE, 0.0), (ENV_AMOUNT, 0.2), (ATTACK, 0.001),
+        (DECAY, 1.8), (SUSTAIN, 0.0), (RELEASE, 1.5)]),
+    ("Warm pad", &[(WAVE, 2.5), (WAVE_2, 2.5), (DETUNE, 0.7), (CUTOFF, 700.0),
+        (RESONANCE, 0.2), (ENV_AMOUNT, 0.15), (FILTER_DECAY, 1.5), (ATTACK, 0.8),
+        (DECAY, 1.0), (SUSTAIN, 0.8), (RELEASE, 1.5),
+        (LFO_TARGET, 1.0), (LFO_AMOUNT, 0.15), (LFO_RATE, 0.3)]),
+    ("Shaker (noise)", &[(WAVE, 4.0), (LEVEL_2, 0.0), (CUTOFF, 7000.0), (RESONANCE, 0.2),
+        (ENV_AMOUNT, 0.0), (ATTACK, 0.005), (DECAY, 0.06), (SUSTAIN, 0.0), (RELEASE, 0.05)]),
+];
+
+/// The knobs for preset `i`: the defaults with its changes.
+pub fn preset(i: usize) -> Values {
+    let mut values = PARAMS.map(|p| p.default);
+    for &(knob, value) in PRESETS[i].1 {
+        values[knob] = value;
+    }
+    values
+}
+
 /// Where `Unit::Wave` puts a plain saw, the sound before shapes could be picked.
 pub const SAW: f32 = 2.0;
 pub const LFO_SHAPES: [&str; 5] = ["Sine", "Tri", "Square", "Saw", "Random"];
@@ -514,6 +573,19 @@ mod tests {
         v[ENV_AMOUNT] = 0.0;
         v[LEVEL_2] = 0.0;
         v
+    }
+
+    #[test]
+    fn presets_stay_within_each_knob_and_make_sound() {
+        for (i, (name, _)) in PRESETS.iter().enumerate() {
+            let values = preset(i);
+            for (p, v) in PARAMS.iter().zip(values) {
+                assert!((p.min..=p.max).contains(&v), "{name}: {} = {v}", p.name);
+            }
+            let out = play(&values, 60, 4_800);
+            let peak = out.iter().fold(0.0_f32, |m, s| m.max(s.abs()));
+            assert!(peak > 0.01 && peak < 1.0, "{name}: peak {peak}");
+        }
     }
 
     #[test]

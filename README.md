@@ -368,6 +368,10 @@ it. Hover for what each one does. To keep scrolling down:
   bottom of the panel) or **View → Instrument panel sections** brings it
   back. Closed sections are remembered next time you open the app.
 
+- **Preset:** pick a starting sound: Piano (synth), Electric piano, Guitar
+  pluck, Bass, Sub bass, Acid bass, Strings, Violin lead, Brass, Organ,
+  Flute, Bell, Warm pad or Shaker (noise). They're synth versions of the
+  instruments; every knob can be adjusted from there, and Ctrl+Z undoes it.
 - **Oscillators:** two of them. **Wave 1** and **Wave 2** each go from
   **sine** (smooth) through **triangle**, **saw** (buzzy) and **square**
   (hollow) to **noise** (hiss); in between blends two shapes. **Level 2**
@@ -457,6 +461,7 @@ Done:
 - ~~Synth: two oscillators from sine to noise, LFO, mono/legato, glide, drone~~
 - ~~Foldable instrument panel, pop-out scope, LFO on pan~~
 - ~~Free pitch: Drone slider and theremin pad; closable panel sections~~
+- ~~Synth presets: piano, basses, strings, brass, organ, bell, pad and more~~
 
 Next:
 
@@ -484,5 +489,6 @@ Next:
 15. Other tunings and scales: 24 notes per octave (quarter tones), just
     intonation or your own, and switching between them and free pitch;
     the piano roll and keyboard follow
+16. Save your own synth presets, and share them between songs
 
 See [docs/WORKFLOW.md](docs/WORKFLOW.md) for how changes get pushed, merged and released.
