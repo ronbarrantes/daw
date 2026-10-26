@@ -296,6 +296,8 @@ struct App {
     paint: Option<Paint>,
     /// The oscilloscope and envelope drawing in the instrument panel.
     show_scope: bool,
+    /// The scope is in its own window instead of the instrument panel.
+    scope_popped: bool,
     /// Which of `SCOPE_SPANS` the scope shows.
     scope_span: usize,
     /// The scope had something to show last frame, so keep it moving.
@@ -393,6 +395,7 @@ impl App {
             drone: None,
             drone_note: 48,
             show_scope: true,
+            scope_popped: false,
             scope_span: 1,
             scope_busy: false,
             confirm: None,
@@ -467,6 +470,14 @@ fn erase_note(lane: &mut project::Lane, step: usize) {
         }
         *later = None;
     }
+}
+
+/// A foldable section of the instrument panel. egui remembers which are
+/// folded while the app runs.
+fn section(title: &str) -> egui::CollapsingHeader {
+    egui::CollapsingHeader::new(RichText::new(title).small().strong())
+        .id_salt(("panel section", title))
+        .default_open(true)
 }
 
 /// What File > Export writes.
@@ -764,6 +775,7 @@ impl eframe::App for App {
         help::guide(ctx, &mut self.show_help);
         help::about(ctx, &mut self.show_about);
         self.fx_window(ctx);
+        self.scope_window(ctx);
         self.confirm_dialog(ctx);
         self.midi_inputs_window(ctx);
 
@@ -795,7 +807,8 @@ impl eframe::App for App {
             }
         }
         // The engine only feeds the scope while it's showing.
-        let scope = self.show_scope && self.view.panel && self.selected_group.is_none();
+        let in_panel = self.view.panel && self.selected_group.is_none();
+        let scope = self.show_scope && (in_panel || self.scope_popped);
         self.shared.scope_on.store(scope, Relaxed);
         // Only redraw continuously while playing (or the scope has sound
         // to show), to keep CPU low when idle.
@@ -2370,6 +2383,66 @@ impl App {
     }
 
     /// Settings for the selected track.
+    /// Reads the latest scope samples and draws them at `size`. Returns
+    /// true if clicked (to show more or less time).
+    fn draw_scope(&mut self, ui: &mut egui::Ui, size: Vec2) -> bool {
+        let mut samples = [0.0_f32; SCOPE_LEN];
+        self.shared.read_scope(&mut samples);
+        self.scope_busy = samples.iter().any(|s| s.abs() > 1e-4);
+        let rate = self.shared.sample_rate.load(Relaxed) as f32;
+        scope(ui, &samples, rate, SCOPE_SPANS[self.scope_span], size)
+    }
+
+    /// The scope popped out of the instrument panel into its own window,
+    /// which can be moved and resized. Closing it puts it back.
+    fn scope_window(&mut self, ctx: &egui::Context) {
+        if !self.scope_popped || !self.show_scope {
+            return;
+        }
+        let mut open = true;
+        let name = self
+            .project
+            .tracks
+            .get(self.selected)
+            .map_or(String::new(), |t| t.name.clone());
+        egui::Window::new(format!("Scope · {name}"))
+            .id(egui::Id::new("scope window"))
+            .open(&mut open)
+            .default_size([520.0, 240.0])
+            .min_size([200.0, 80.0])
+            .resizable(true)
+            .show(ctx, |ui| {
+                let size = ui.available_size().max(Vec2::new(200.0, 80.0));
+                if self.draw_scope(ui, size) {
+                    self.scope_span = (self.scope_span + 1) % SCOPE_SPANS.len();
+                }
+            });
+        if !open {
+            self.scope_popped = false;
+        }
+    }
+
+    /// The scope's foldable section in the instrument panel, unless it's
+    /// popped out or turned off.
+    fn panel_scope(&mut self, ui: &mut egui::Ui) {
+        if self.show_scope && !self.scope_popped {
+            section("Scope").show(ui, |ui| {
+                let size = Vec2::new(ui.available_width().min(270.0), 80.0);
+                if self.draw_scope(ui, size) {
+                    self.scope_span = (self.scope_span + 1) % SCOPE_SPANS.len();
+                }
+                if ui
+                    .small_button("Pop out")
+                    .on_hover_text("Show the scope in its own window, as big as you like")
+                    .clicked()
+                {
+                    self.scope_popped = true;
+                }
+            });
+            ui.add_space(4.0);
+        }
+    }
+
     fn instrument_panel(&mut self, ui: &mut egui::Ui) {
         ui.add_space(4.0);
         let Some(track) = self.project.tracks.get_mut(self.selected) else {
@@ -2382,16 +2455,8 @@ impl App {
             .desired_width(200.0);
         changed |= ui.add(name).changed();
         ui.add_space(4.0);
-        if self.show_scope {
-            let mut samples = [0.0_f32; SCOPE_LEN];
-            self.shared.read_scope(&mut samples);
-            self.scope_busy = samples.iter().any(|s| s.abs() > 1e-4);
-            let rate = self.shared.sample_rate.load(Relaxed) as f32;
-            if scope(ui, &samples, rate, SCOPE_SPANS[self.scope_span]) {
-                self.scope_span = (self.scope_span + 1) % SCOPE_SPANS.len();
-            }
-            ui.add_space(4.0);
-        }
+        self.panel_scope(ui);
+        let track = &mut self.project.tracks[self.selected];
 
         ui.horizontal(|ui| {
             // Shown 1-16 like on hardware, stored 0-15; 0 means off.
@@ -2427,46 +2492,47 @@ impl App {
 
         match &mut track.kind {
             Kind::Synth(values) => {
-                ui.weak("Drag knobs up/down. Double-click to reset.");
+                ui.weak("Drag knobs up/down. Double-click to reset. Click a heading to fold it.");
                 ui.add_space(4.0);
-                ui.label(RichText::new("Oscillators").small().strong());
-                ui.horizontal(|ui| {
-                    for i in [synth::WAVE, synth::WAVE_2, synth::LEVEL_2, synth::PITCH_2] {
-                        changed |= knob(ui, &PARAMS[i], &mut values[i]);
-                    }
-                });
-                ui.horizontal(|ui| {
-                    for i in [synth::DETUNE, synth::VOICES, synth::GLIDE] {
-                        changed |= knob(ui, &PARAMS[i], &mut values[i]);
-                    }
-                    changed |= knob(ui, &HUMANIZE, &mut track.humanize);
-                });
-                // Drone: hold a note nonstop, to shape the sound by ear.
-                ui.horizontal(|ui| {
-                    let i = self.selected;
-                    let on = self.drone.is_some_and(|(t, _)| t == i);
-                    let mut toggle = on;
-                    let hint = "Play a note nonstop, so you can turn knobs and hear\n\
+                section("Oscillators").show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        for i in [synth::WAVE, synth::WAVE_2, synth::LEVEL_2, synth::PITCH_2] {
+                            changed |= knob(ui, &PARAMS[i], &mut values[i]);
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        for i in [synth::DETUNE, synth::VOICES, synth::GLIDE] {
+                            changed |= knob(ui, &PARAMS[i], &mut values[i]);
+                        }
+                        changed |= knob(ui, &HUMANIZE, &mut track.humanize);
+                    });
+                    // Drone: hold a note nonstop, to shape the sound by ear.
+                    ui.horizontal(|ui| {
+                        let i = self.selected;
+                        let on = self.drone.is_some_and(|(t, _)| t == i);
+                        let mut toggle = on;
+                        let hint = "Play a note nonstop, so you can turn knobs and hear\n\
                                 the sound change. Click again to stop.";
-                    let flip = ui.toggle_value(&mut toggle, "Drone").on_hover_text(hint);
-                    let pick = egui::DragValue::new(&mut self.drone_note)
-                        .range(12..=108)
-                        .custom_formatter(|v, _| notes::note_name(v as u8));
-                    let moved = ui.add(pick).on_hover_text("The drone's note").changed();
-                    if flip.clicked() || (on && moved) {
-                        if let Some((t, note)) = self.drone.take() {
-                            let _ = self.events.try_send(Event::Release { track: t, note });
+                        let flip = ui.toggle_value(&mut toggle, "Drone").on_hover_text(hint);
+                        let pick = egui::DragValue::new(&mut self.drone_note)
+                            .range(12..=108)
+                            .custom_formatter(|v, _| notes::note_name(v as u8));
+                        let moved = ui.add(pick).on_hover_text("The drone's note").changed();
+                        if flip.clicked() || (on && moved) {
+                            if let Some((t, note)) = self.drone.take() {
+                                let _ = self.events.try_send(Event::Release { track: t, note });
+                            }
+                            if toggle {
+                                let note = self.drone_note;
+                                self.drone = Some((i, note));
+                                let _ = self.events.try_send(Event::Hold {
+                                    track: i,
+                                    note,
+                                    velocity: NORMAL,
+                                });
+                            }
                         }
-                        if toggle {
-                            let note = self.drone_note;
-                            self.drone = Some((i, note));
-                            let _ = self.events.try_send(Event::Hold {
-                                track: i,
-                                note,
-                                velocity: NORMAL,
-                            });
-                        }
-                    }
+                    });
                 });
                 let sections: [(&str, [usize; 4]); 3] = [
                     (
@@ -2493,51 +2559,53 @@ impl App {
                     ),
                 ];
                 for (title, row) in sections {
-                    ui.add_space(6.0);
-                    ui.label(RichText::new(title).small().strong());
-                    ui.horizontal(|ui| {
-                        for i in row {
-                            changed |= knob(ui, &PARAMS[i], &mut values[i]);
+                    section(title).show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            for i in row {
+                                changed |= knob(ui, &PARAMS[i], &mut values[i]);
+                            }
+                        });
+                        if row[0] == synth::LFO_TARGET {
+                            ui.horizontal(|ui| {
+                                let i = synth::LFO_SYNC;
+                                changed |= knob(ui, &PARAMS[i], &mut values[i]);
+                            });
+                        }
+                        if self.show_scope && row[0] == synth::ATTACK {
+                            envelope(
+                                ui,
+                                values[synth::ATTACK],
+                                values[synth::DECAY],
+                                values[synth::SUSTAIN],
+                                values[synth::RELEASE],
+                            );
                         }
                     });
-                    if row[0] == synth::LFO_TARGET {
-                        ui.horizontal(|ui| {
-                            let i = synth::LFO_SYNC;
-                            changed |= knob(ui, &PARAMS[i], &mut values[i]);
-                        });
-                    }
-                    if self.show_scope && row[0] == synth::ATTACK {
-                        envelope(
-                            ui,
-                            values[synth::ATTACK],
-                            values[synth::DECAY],
-                            values[synth::SUSTAIN],
-                            values[synth::RELEASE],
-                        );
-                    }
                 }
             }
             Kind::Sampler { sample, pitched } => {
-                ui.label(format!("Sample: {}", sample.name));
-                ui.weak(format!("{:.2} s, {} Hz", sample.seconds(), sample.rate));
-                ui.add_space(6.0);
-                let hint = "Off: plays as recorded, like a drum.\n\
-                            On: plays at the pitch of each note, like an instrument (C4 = as recorded).";
-                changed |= ui
-                    .checkbox(pitched, "Pitched")
-                    .on_hover_text(hint)
-                    .changed();
-                ui.add_space(6.0);
-                changed |= knob(ui, &HUMANIZE, &mut track.humanize);
+                section("Sample").show(ui, |ui| {
+                    ui.label(format!("Sample: {}", sample.name));
+                    ui.weak(format!("{:.2} s, {} Hz", sample.seconds(), sample.rate));
+                    ui.add_space(6.0);
+                    let hint = "Off: plays as recorded, like a drum.\n\
+                                On: plays at the pitch of each note, like an instrument (C4 = as recorded).";
+                    changed |= ui
+                        .checkbox(pitched, "Pitched")
+                        .on_hover_text(hint)
+                        .changed();
+                    ui.add_space(6.0);
+                    changed |= knob(ui, &HUMANIZE, &mut track.humanize);
+                });
             }
         }
-        ui.add_space(6.0);
-        ui.label(RichText::new("Mix").small().strong());
-        ui.horizontal(|ui| {
-            changed |= knob(ui, &TRACK_VOLUME, &mut track.volume);
-            changed |= knob(ui, &PAN, &mut track.pan);
-            changed |= knob(ui, &REVERB_SEND, &mut track.reverb);
-            changed |= knob(ui, &DELAY_SEND, &mut track.delay);
+        section("Mix").show(ui, |ui| {
+            ui.horizontal(|ui| {
+                changed |= knob(ui, &TRACK_VOLUME, &mut track.volume);
+                changed |= knob(ui, &PAN, &mut track.pan);
+                changed |= knob(ui, &REVERB_SEND, &mut track.reverb);
+                changed |= knob(ui, &DELAY_SEND, &mut track.delay);
+            });
         });
         if changed {
             self.dirty = true;

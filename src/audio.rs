@@ -361,6 +361,8 @@ struct Engine {
     /// once per project change rather than every sample. Left and right,
     /// so pan is included.
     gains: [[f32; 2]; MAX_TRACKS],
+    /// Each track's level without pan, for when an LFO moves the pan.
+    levels: [f32; MAX_TRACKS],
     /// Each track's reverb and delay send levels, after its gain.
     sends: [[f32; 2]; MAX_TRACKS],
     reverb: Reverb,
@@ -408,6 +410,7 @@ impl Engine {
             samples_to_update: 0,
             preview: None,
             gains: [[0.0; 2]; MAX_TRACKS],
+            levels: [0.0; MAX_TRACKS],
             sends: [[0.0; 2]; MAX_TRACKS],
             reverb: Reverb::new(sr),
             delay: Delay::new(sr),
@@ -431,6 +434,7 @@ impl Engine {
     fn project_changed(&mut self) {
         let project = self.project.clone();
         for i in 0..MAX_TRACKS {
+            self.levels[i] = project.tracks.get(i).map_or(0.0, |_| project.gain(i));
             (self.gains[i], self.sends[i]) = match project.tracks.get(i) {
                 Some(t) => {
                     let gain = project.gain(i);
@@ -1054,8 +1058,18 @@ impl Engine {
             if i == scoped {
                 scope = out;
             }
-            mix[0] += out * self.gains[i][0];
-            mix[1] += out * self.gains[i][1];
+            // An LFO on pan sweeps the track left and right (auto-pan).
+            let gains = match values {
+                Some(v)
+                    if lfo != 0.0 && synth::choice(v[synth::LFO_TARGET], 4) == synth::LFO_PAN =>
+                {
+                    let pan = self.project.tracks[i].pan + lfo * v[synth::LFO_AMOUNT];
+                    pan_gains(pan).map(|g| g * self.levels[i])
+                }
+                _ => self.gains[i],
+            };
+            mix[0] += out * gains[0];
+            mix[1] += out * gains[1];
             send[0] += out * self.sends[i][0];
             send[1] += out * self.sends[i][1];
         }
@@ -1377,6 +1391,32 @@ mod tests {
             assert!(msgs.contains(&Msg::three(0x91, note, 100)), "note {note}");
         }
         assert_eq!(rig.sounding(PAD), 3, "three voices at once");
+    }
+
+    #[test]
+    fn an_lfo_on_pan_sweeps_left_and_right() {
+        let mut project = quiet_demo();
+        if let Kind::Synth(v) = &mut project.tracks[LEAD].kind {
+            v[synth::LFO_TARGET] = synth::LFO_PAN as f32;
+            v[synth::LFO_AMOUNT] = 1.0;
+            v[synth::LFO_SHAPE] = 2.0; // square: hard right, then hard left
+            v[synth::LFO_RATE] = 2.0;
+            v[synth::SUSTAIN] = 1.0;
+        }
+        let mut rig = Rig::new(project);
+        rig.send(hold(LEAD, 48));
+        // Half a second per side at 2 Hz is a quarter second; look at
+        // the middle of each half-cycle.
+        let out = rig.run_stereo(24_000);
+        let side = |range: std::ops::Range<usize>| {
+            out[range]
+                .iter()
+                .fold([0.0; 2], |[l, r], [a, b]| [l + a.abs(), r + b.abs()])
+        };
+        let [l, r] = side(3_000..9_000);
+        assert!(l < r * 0.01, "first half right: {l} {r}");
+        let [l, r] = side(15_000..21_000);
+        assert!(r < l * 0.01, "then left: {l} {r}");
     }
 
     #[test]

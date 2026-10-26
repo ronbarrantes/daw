@@ -169,7 +169,10 @@ fn hint(p: &Param) -> &'static str {
             "The wobble's shape. Random picks a new value each cycle:\n\
                        on pitch, that's random tones"
         }
-        "LFO to" => "What the LFO wobbles: pitch (vibrato), filter (wah) or volume (tremolo)",
+        "LFO to" => {
+            "What the LFO wobbles: pitch (vibrato), filter (wah), volume (tremolo)\n\
+                     or pan (left and right)"
+        }
         "LFO sync" => "Tie the LFO's speed to the tempo, e.g. once per beat (1/4)",
         "Glide" => "Slide from one note's pitch to the next (in Mono and Legato)",
         "Voices" => {
@@ -244,8 +247,13 @@ pub const SCOPE_SPANS: [f32; 4] = [5.0, 10.0, 20.0, 50.0];
 
 /// An oscilloscope: draws `samples` (oldest first) like a scope triggered
 /// on a rising edge, so a steady note stands still. Returns true if clicked.
-pub fn scope(ui: &mut egui::Ui, samples: &[f32], sample_rate: f32, span_ms: f32) -> bool {
-    let size = Vec2::new(ui.available_width().min(270.0), 80.0);
+pub fn scope(
+    ui: &mut egui::Ui,
+    samples: &[f32],
+    sample_rate: f32,
+    span_ms: f32,
+    size: Vec2,
+) -> bool {
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     let painter = ui.painter_at(rect);
     painter.rect_filled(rect, 4.0, Color32::from_rgb(12, 20, 16));

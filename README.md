@@ -358,8 +358,11 @@ chords that don't fit a one-bar pattern.
 
 ### Synth
 
-Select a synth track to see its knobs. Drag a knob up or down; double-click
-to reset it. Hover for what each one does.
+Select a synth track to see its knobs in the **instrument panel** on the
+right (F8 shows or hides it). Drag a knob up or down; double-click to reset
+it. Hover for what each one does. **Click a section's heading** (Scope,
+Oscillators, Filter, Envelope, LFO, Mix) to fold it away, so the ones you
+use fit without scrolling; click again to open it.
 
 - **Oscillators:** two of them. **Wave 1** and **Wave 2** each go from
   **sine** (smooth) through **triangle**, **saw** (buzzy) and **square**
@@ -379,7 +382,8 @@ to reset it. Hover for what each one does.
 - **Envelope (ADSR):** **Attack** fades in, **Decay** falls to the
   **Sustain** level while the note is held, **Release** fades out after.
 - **LFO:** a slow wobble. **LFO to** picks what it moves: **Pitch**
-  (vibrato), **Filter** (wah) or **Volume** (tremolo). **LFO wave** is its
+  (vibrato), **Filter** (wah), **Volume** (tremolo) or **Pan** (the sound
+  sweeps left and right, called auto-pan). **LFO wave** is its
   shape; **Random** jumps to a new value each cycle (on pitch, by whole
   semitones: random tones). **LFO amt** is how much (0 = off), **LFO rate**
   how fast, and **LFO sync** ties the speed to the tempo instead (1/4 = once
@@ -393,12 +397,15 @@ Try:
 - LFO to Pitch, LFO wave Random, LFO amt about 50%, LFO sync 1/16: random
   bleeps.
 - Wave 2 on Sine, Pitch 2 at -12: a sub-bass under the main sound.
+- LFO to Pan, LFO sync 1/4: the sound bounces left and right on the beat.
 
 **Scope:** the green screen at the top of the panel is an oscilloscope of
 the selected track, so you can watch a knob change the wave. A saw is a
 ramp, a square is a square, and the filter rounds off the sharp corners.
-Click it to show more or less time. The blue drawing under the envelope
-knobs shows the note's volume over time. Turn both off in **View**.
+Click it to show more or less time. **Pop out** moves it into its own
+window you can drag anywhere and make as big as you like; close that window
+to put it back. The blue drawing under the envelope knobs shows the note's
+volume over time. Turn both off in **View**.
 
 ### MIDI
 
@@ -439,6 +446,7 @@ Done:
 - ~~Clave, bongos, congas, toms, shaker and cowbell; + Drum~~
 - ~~Drag to paint and erase steps and notes~~
 - ~~Synth: two oscillators from sine to noise, LFO, mono/legato, glide, drone~~
+- ~~Foldable instrument panel, pop-out scope, LFO on pan~~
 
 Next:
 
@@ -456,5 +464,11 @@ Next:
 9. Sample editor: chop, trim, ADSR, fades, reverse
 10. A full mixer
 11. Freesound.org sample browser
+12. Mod matrix: connect any source (LFOs, envelopes, velocity) to any knob,
+    with an amount, e.g. an LFO on reverb or a second LFO on the filter
+13. Patch view: a full page of modules chained together for generative
+    music, e.g. a random source, a quantizer that keeps it on a scale, a
+    clock that sets how often it picks a note, a range clamp and chance;
+    then record the result for as long as you like into a MIDI block
 
 See [docs/WORKFLOW.md](docs/WORKFLOW.md) for how changes get pushed, merged and released.

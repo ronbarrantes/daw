@@ -39,7 +39,9 @@ pub const WAVES: [&str; 5] = ["Sine", "Tri", "Saw", "Square", "Noise"];
 /// Where `Unit::Wave` puts a plain saw, the sound before shapes could be picked.
 pub const SAW: f32 = 2.0;
 pub const LFO_SHAPES: [&str; 5] = ["Sine", "Tri", "Square", "Saw", "Random"];
-pub const LFO_TARGETS: [&str; 3] = ["Pitch", "Filter", "Volume"];
+pub const LFO_TARGETS: [&str; 4] = ["Pitch", "Filter", "Volume", "Pan"];
+/// `LFO_TARGETS` index of Pan, which the engine applies to the whole track.
+pub const LFO_PAN: usize = 3;
 /// LFO speeds tied to the tempo, and how many beats each cycle lasts.
 pub const LFO_SYNCS: [&str; 8] = [
     "Off", "1 bar", "1/2", "1/4", "1/8", "1/16", "1/8 T", "1/16 T",
@@ -134,7 +136,7 @@ pub const PARAMS: [Param; 21] = [
     param("LFO rate", 0.05, 20.0, 4.0, true, Unit::Hz),
     param("LFO amt", 0.0, 1.0, 0.0, false, Unit::Percent),
     param("LFO wave", 0.0, 4.0, 0.0, false, Unit::Choice(&LFO_SHAPES)),
-    param("LFO to", 0.0, 2.0, 0.0, false, Unit::Choice(&LFO_TARGETS)),
+    param("LFO to", 0.0, 3.0, 0.0, false, Unit::Choice(&LFO_TARGETS)),
     param("LFO sync", 0.0, 7.0, 0.0, false, Unit::Choice(&LFO_SYNCS)),
     param("Glide", 0.0, 1.0, 0.0, false, Unit::Seconds),
     param("Voices", 0.0, 2.0, 0.0, false, Unit::Choice(&VOICE_MODES)),
@@ -391,7 +393,9 @@ impl Voice {
                     pitch = 2f32.powf(semis / 12.0);
                 }
                 1 => cutoff_octaves += lfo * 4.0,
-                _ => level = 1.0 - (self.lfo_amount - lfo) * 0.5,
+                2 => level = 1.0 - (self.lfo_amount - lfo) * 0.5,
+                // Pan moves the whole track; the engine does it.
+                _ => {}
             }
         }
         match self.stage {
