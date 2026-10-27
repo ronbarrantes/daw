@@ -218,6 +218,9 @@ impl View {
 
 /// Something to do to a track, chosen from its right-click menu.
 enum TrackAction {
+    Duplicate,
+    /// Swap places with the track above (-1) or below (+1).
+    Move(isize),
     Group,
     MoveTo(u32),
     Ungroup,
@@ -2145,6 +2148,19 @@ impl App {
                     ui.close_menu();
                 }
                 ui.separator();
+                if ui.button("Duplicate track").clicked() {
+                    action = Some(TrackAction::Duplicate);
+                    ui.close_menu();
+                }
+                if ui.button("Move up").clicked() {
+                    action = Some(TrackAction::Move(-1));
+                    ui.close_menu();
+                }
+                if ui.button("Move down").clicked() {
+                    action = Some(TrackAction::Move(1));
+                    ui.close_menu();
+                }
+                ui.separator();
                 if ui.button("Delete track").clicked() {
                     action = Some(TrackAction::Delete);
                     ui.close_menu();
@@ -2290,6 +2306,32 @@ impl App {
                 self.dirty = true;
             }
             Some(TrackAction::Delete) => self.delete_track(i),
+            Some(TrackAction::Duplicate) => {
+                if let Some(copy) = self.project.duplicate_track(i) {
+                    // The engine's voices stay with their slot, so a drone
+                    // can't follow its track.
+                    self.stop_drone();
+                    self.midi.track_inserted(copy);
+                    self.selected = copy;
+                    self.selected_group = None;
+                    self.dirty = true;
+                }
+            }
+            Some(TrackAction::Move(by)) => {
+                let to = i as isize + by;
+                if to >= 0 && (to as usize) < self.project.tracks.len() {
+                    let to = to as usize;
+                    self.stop_drone();
+                    self.project.swap_tracks(i, to);
+                    self.midi.tracks_swapped(i, to);
+                    if self.selected == i {
+                        self.selected = to;
+                    } else if self.selected == to {
+                        self.selected = i;
+                    }
+                    self.dirty = true;
+                }
+            }
             None => {}
         }
     }
