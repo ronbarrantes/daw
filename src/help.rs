@@ -231,8 +231,10 @@ const SECTIONS: &[(&str, &str)] = &[
          Try: Cutoff down, Reso up, Env amt up, short F decay = acid bass. \
          Noise with a short decay and high cutoff = a shaker.\n\n\
          The green scope at the top of the panel shows the selected track's \
-         wave as you play; click it to show more or less time. The blue \
-         drawing shows the envelope. View menu turns them off.",
+         wave as you play; click it to show more or less time, or switch it \
+         to Spectrum (loudness per pitch). Drawings under the knobs show \
+         the envelope, the filter's shape and each LFO's wave. View menu \
+         turns them off.",
     ),
     (
         "Sample tracks",
