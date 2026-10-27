@@ -34,8 +34,8 @@ use eframe::egui::{self, Color32, RichText, Sense, Vec2};
 use audio::{Event, Shared};
 use midi::{Midi, Played, Route};
 use project::{
-    note_head, set_note_length, Effects, Grid, Kind, Project, Row, Sample, Step, Track, ACCENT,
-    EMPTY_GRID, GHOST, LANES, MAX_RATCHET, MAX_TRACKS, NORMAL, STEPS,
+    move_note, note_head, note_len, set_note_length, Effects, Grid, Kind, Project, Row, Sample,
+    Step, Track, ACCENT, EMPTY_GRID, GHOST, LANES, MAX_RATCHET, MAX_TRACKS, NORMAL, STEPS,
 };
 use synth::{Param, Unit};
 use synth_ui::{section_titles, Snapshot};
@@ -284,8 +284,8 @@ struct App {
     timeline: timeline::State,
     /// The note editor for MIDI blocks, in Arrange.
     notes: notes::State,
-    /// A piano-roll note being dragged longer or shorter: (lane, its first step).
-    note_drag: Option<(usize, usize)>,
+    /// A piano-roll note being dragged.
+    note_drag: Option<NoteDrag>,
     /// The note a synth track is droning (playing nonstop), if any:
     /// (track, MIDI note).
     drone: Option<(usize, u8)>,
@@ -552,6 +552,24 @@ fn held_pointer(ui: &egui::Ui) -> Option<egui::Pos2> {
             .flatten()
     })
 }
+
+/// A piano-roll note being dragged, found by its lane and first step.
+#[derive(Clone, Copy)]
+enum NoteDrag {
+    /// By its right edge, longer or shorter.
+    Resize { lane: usize, head: usize },
+    /// By the rest of it, to another pitch or step; `grab` is how many
+    /// steps into the note it was picked up.
+    Move {
+        lane: usize,
+        head: usize,
+        grab: usize,
+    },
+}
+
+/// How close to a note's right end, in points, a drag makes it longer or
+/// shorter instead of moving it.
+const RESIZE_EDGE: f32 = 9.0;
 
 /// Removes the note at `step` of a lane, and the ties that held it on.
 fn erase_note(lane: &mut project::Lane, step: usize) {
@@ -2372,7 +2390,7 @@ impl App {
             {
                 self.dirty = true;
             }
-            ui.weak("Click: add/remove · drag a note sideways: longer/shorter · several per column = chord · right-click a note: groove");
+            ui.weak("Click: add/remove · drag a note: move it · drag its right edge: longer/shorter · several per column = chord · right-click a note: groove");
         });
         ui.add_space(4.0);
         ui.spacing_mut().item_spacing.y = 2.0;
@@ -2382,9 +2400,10 @@ impl App {
         let command = command || self.tool == Tool::Erase;
         let pointer = held_pointer(ui);
         let grid = &mut track.patterns[pattern];
-        // Where each step's column is, for working out where a note is
-        // being dragged to.
+        // Where each step's column and each lane's row is, for working
+        // out where a note is being dragged to.
         let mut columns = [0.0_f32; STEPS];
+        let mut rows = [0.0_f32; LANES];
         // Highest note on top, like a piano.
         for lane in (0..LANES).rev() {
             let name = NOTE_NAMES[lane];
@@ -2422,24 +2441,46 @@ impl App {
                         .sense(Sense::click_and_drag());
                     let resp = ui.add(cell);
                     columns[step] = resp.rect.center().x;
+                    rows[lane] = resp.rect.center().y;
                     if resp.hovered() {
                         self.roll_hover = Some(step);
                     }
                     let lane_steps = &mut grid[lane];
                     if value.is_some() && !command && self.paint.is_none() {
-                        if resp.hovered() {
-                            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
-                        }
-                        if resp.drag_started() {
-                            // Drag any part of a note to change its length.
-                            self.note_drag = note_head(lane_steps, step).map(|head| (lane, head));
+                        if let Some(head) = note_head(lane_steps, step) {
+                            // The note's right edge changes its length; the
+                            // rest of it moves it.
+                            let last = head + note_len(lane_steps, head) - 1;
+                            let edge = |x: f32| step == last && x > resp.rect.right() - RESIZE_EDGE;
+                            let hover = resp.hover_pos().map(|p| p.x);
+                            if self.note_drag.is_none() && hover.is_some_and(edge) {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+                            } else if self.note_drag.is_none() && hover.is_some() {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+                            }
+                            if resp.drag_started() {
+                                // Where the press began: the pointer has moved
+                                // on a little by the time it counts as a drag.
+                                let at = ui.input(|i| i.pointer.press_origin()).map(|p| p.x);
+                                self.note_drag = Some(if at.is_some_and(edge) {
+                                    NoteDrag::Resize { lane, head }
+                                } else {
+                                    let grab = step - head;
+                                    NoteDrag::Move { lane, head, grab }
+                                });
+                            }
                         }
                     }
                     // Pressing an empty cell adds a note, and dragging on
                     // along the row adds more; Ctrl-drag erases instead.
                     let pressed = resp.is_pointer_button_down_on() || resp.clicked();
-                    let start =
-                        !shift && pressed && self.paint.is_none() && (command || value.is_none());
+                    // (Not while a note is being dragged: the step it was
+                    // picked up from may be empty now.)
+                    let start = !shift
+                        && pressed
+                        && self.paint.is_none()
+                        && self.note_drag.is_none()
+                        && (command || value.is_none());
                     if start {
                         self.paint = Some(Paint {
                             track: i,
@@ -2489,26 +2530,48 @@ impl App {
                 }
             });
         }
-        if let Some((lane, head)) = self.note_drag {
-            let pointer =
-                ui.input(|i| i.pointer.primary_down().then_some(i.pointer.interact_pos()));
-            match pointer {
-                Some(Some(pos)) => {
-                    // The column nearest the pointer, but never before the note.
-                    let end = (0..STEPS)
-                        .min_by(|&a, &b| {
-                            (columns[a] - pos.x)
-                                .abs()
-                                .total_cmp(&(columns[b] - pos.x).abs())
-                        })
-                        .unwrap_or(head)
-                        .max(head);
-                    if set_note_length(&mut grid[lane], head, end) {
-                        self.dirty = true;
+        let Some(drag) = self.note_drag else {
+            return;
+        };
+        let pointer = ui.input(|i| i.pointer.primary_down().then_some(i.pointer.interact_pos()));
+        let pos = match pointer {
+            Some(Some(pos)) => pos,
+            Some(None) => return,
+            None => {
+                self.note_drag = None;
+                return;
+            }
+        };
+        // The column and row nearest the pointer.
+        let nearest = |at: &[f32], x: f32| {
+            (0..at.len())
+                .min_by(|&a, &b| (at[a] - x).abs().total_cmp(&(at[b] - x).abs()))
+                .unwrap_or(0)
+        };
+        let column = nearest(&columns, pos.x);
+        match drag {
+            NoteDrag::Resize { lane, head } => {
+                // Never before the note's start.
+                if set_note_length(&mut grid[lane], head, column.max(head)) {
+                    self.dirty = true;
+                }
+            }
+            NoteDrag::Move { lane, head, grab } => {
+                let len = note_len(&grid[lane], head);
+                let to_lane = nearest(&rows, pos.y);
+                let to_head = column.saturating_sub(grab).min(STEPS - len);
+                if move_note(grid, (lane, head), (to_lane, to_head)) {
+                    self.note_drag = Some(NoteDrag::Move {
+                        lane: to_lane,
+                        head: to_head,
+                        grab,
+                    });
+                    self.dirty = true;
+                    if to_lane != lane {
+                        let note = base + to_lane as u8;
+                        let _ = self.events.try_send(Event::Preview { track: i, note });
                     }
                 }
-                Some(None) => {}
-                None => self.note_drag = None,
             }
         }
     }

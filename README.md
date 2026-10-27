@@ -251,8 +251,9 @@ All of this goes out over MIDI too, with velocity.
   pointer or playing.
 - **Drag from an empty cell** along a row to paint notes; **Ctrl-drag**
   (Cmd on Mac) erases them.
-- **Drag a note sideways** to make it longer or shorter (the held part is a
-  darker blue). Longer notes let the synth's **Sustain** and **Release** be
+- **Drag a note** to move it up or down (pitch) or left or right (time),
+  and **drag its right edge** to make it longer or shorter (the held part
+  is a darker blue). Both work while it plays. Longer notes let the synth's **Sustain** and **Release** be
   heard. Right-clicking the cell after a note holds it one step longer too.
 - **Right-click** a note for its groove settings; **shift-click** for a ghost note.
 - Other tracks' notes show faintly behind, to help line parts up (View menu

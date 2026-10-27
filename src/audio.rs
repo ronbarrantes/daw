@@ -494,6 +494,11 @@ struct Engine {
     track_knobs: Vec<synth::Values>,
     /// Each synth track's arpeggiator.
     arps: [Arp; MAX_TRACKS],
+    /// The generation of each note the sequencer is holding on for tied
+    /// steps, by track and note, so the note ends when its ties do, or
+    /// when they're erased while it plays (the arpeggiator or a voice may
+    /// be holding it).
+    tied: [[Option<u32>; 128]; MAX_TRACKS],
     /// Automation is moving knobs right now (the timeline is playing and
     /// has lanes), so stopping puts them back.
     automating: bool,
@@ -571,6 +576,7 @@ impl Engine {
             knobs: vec![synth::PARAMS.map(|p| p.default); MAX_TRACKS],
             track_knobs: vec![synth::PARAMS.map(|p| p.default); MAX_TRACKS],
             arps: [Arp::default(); MAX_TRACKS],
+            tied: [[None; 128]; MAX_TRACKS],
             slot_ids: [None; MAX_TRACKS],
             automating: false,
             pending: Vec::with_capacity(MAX_PENDING),
@@ -824,6 +830,7 @@ impl Engine {
             voice.live = false;
         }
         self.arps[i].count = 0;
+        self.tied[i] = [None; 128];
     }
 
     /// Whether track `i` is a synth with its arpeggiator on.
@@ -970,6 +977,7 @@ impl Engine {
 
     fn all_notes_off(&mut self) {
         self.pending.clear();
+        self.tied = [[None; 128]; MAX_TRACKS];
         for arp in &mut self.arps {
             while arp.remove(|h| !h.live) {}
         }
@@ -1338,11 +1346,11 @@ impl Engine {
         if s.tie {
             // The note was started by an earlier step; end it here unless
             // the tie carries on.
-            let held = self.holding(i, self.key(i, note), false);
-            if let (false, Some(v)) = (next_tied, held) {
-                let generation = self.voices[i][v].generation;
-                let at = start + step_len * GATE;
-                self.schedule(at, i, note, Action::Off { generation });
+            if !next_tied {
+                if let Some(generation) = self.tied[i][note as usize].take() {
+                    let at = start + step_len * GATE;
+                    self.schedule(at, i, note, Action::Off { generation });
+                }
             }
             return;
         }
@@ -1375,6 +1383,14 @@ impl Engine {
                 continue;
             };
             for (lane, steps) in grid.iter().enumerate().take(track.lanes()) {
+                // A note held on for ties whose ties are gone (erased
+                // while it played) ends now.
+                if !steps[step].is_some_and(|s| s.tie) {
+                    let note = track.note(lane) as usize;
+                    if let Some(generation) = self.tied[i][note].take() {
+                        self.schedule(0.0, i, note as u8, Action::Off { generation });
+                    }
+                }
                 if let Some(s) = steps[step] {
                     let offset = self.offset(at, &s);
                     if offset >= 0.0 || fresh {
@@ -1415,6 +1431,9 @@ impl Engine {
                 if let Some(gate) = gate {
                     let off = Action::Off { generation };
                     self.schedule(gate as f32, p.track, p.note, off);
+                } else if p.track < MAX_TRACKS {
+                    // Held for the tied steps after it, which end it.
+                    self.tied[p.track][p.note as usize] = Some(generation);
                 }
             }
             Action::Off { generation } => self.generation_off(p.track, generation),
@@ -2811,6 +2830,71 @@ mod tests {
             rig.midi().contains(&Msg::three(0x80, 48, 0)),
             "released after the ties"
         );
+    }
+
+    /// The arpeggiating lead with a C major chord from step 0, tied
+    /// through step `last`.
+    fn tied_chord(last: usize) -> Project {
+        let mut project = arp_lead(1.0, 0.0);
+        for lane in [0, 4, 7] {
+            let steps = &mut project.tracks[LEAD].patterns[0][lane];
+            steps[0] = hit();
+            for s in &mut steps[1..=last] {
+                *s = Some(Step::TIE);
+            }
+        }
+        project
+    }
+
+    /// Plays `steps` 16ths and returns the note-ons sent.
+    fn note_ons(rig: &mut Rig, steps: usize) -> Vec<u8> {
+        rig.run(STEP * steps);
+        let msgs = rig.midi();
+        msgs.iter()
+            .map(|m| m.bytes())
+            .filter(|b| b.len() == 3 && b[0] == 0x90)
+            .map(|b| b[1])
+            .collect()
+    }
+
+    #[test]
+    fn the_arpeggiator_lets_go_when_a_tied_chord_ends() {
+        let mut rig = Rig::new(tied_chord(3));
+        rig.shared.playing.store(true, Relaxed);
+        assert!(!note_ons(&mut rig, 4).is_empty(), "arpeggiates the chord");
+        rig.run(STEP); // the last note's tail
+        assert_eq!(
+            note_ons(&mut rig, 6),
+            Vec::<u8>::new(),
+            "stops after the ties"
+        );
+    }
+
+    #[test]
+    fn erasing_a_held_chord_while_it_plays_lets_go() {
+        let mut rig = Rig::new(tied_chord(STEPS - 1));
+        rig.shared.playing.store(true, Relaxed);
+        assert!(!note_ons(&mut rig, 4).is_empty(), "arpeggiates the chord");
+        rig.shared.publish(Arc::new(arp_lead(1.0, 0.0)));
+        rig.run(STEP * 2);
+        assert_eq!(
+            note_ons(&mut rig, 6),
+            Vec::<u8>::new(),
+            "the erased chord stops"
+        );
+        // The same without the arpeggiator: the held notes end.
+        let mut project = tied_chord(STEPS - 1);
+        if let Kind::Synth(v) = &mut project.tracks[LEAD].kind {
+            v[synth::ARP_MODE] = 0.0;
+        }
+        let mut rig = Rig::new(project.clone());
+        rig.shared.playing.store(true, Relaxed);
+        rig.run(STEP * 4);
+        project.tracks[LEAD].patterns[0] = EMPTY_GRID;
+        rig.shared.publish(Arc::new(project));
+        rig.run(STEP * 2);
+        let offs = rig.midi().iter().filter(|m| m.bytes()[0] == 0x80).count();
+        assert_eq!(offs, 3, "all three notes end");
     }
 
     #[test]
