@@ -242,6 +242,30 @@ impl Midi {
 
     /// Keeps fixed-track routes pointing at the same tracks after one is
     /// deleted; routes to the deleted track fall back to the selected track.
+    /// A track was inserted at `at`: routes to later tracks move with them.
+    pub fn track_inserted(&mut self, at: usize) {
+        for input in &self.inputs {
+            let mut route = input.route.lock().unwrap();
+            if let Route::Track(i) = *route {
+                if i >= at {
+                    *route = Route::Track(i + 1);
+                }
+            }
+        }
+    }
+
+    /// Two tracks swapped places: routes follow them.
+    pub fn tracks_swapped(&mut self, a: usize, b: usize) {
+        for input in &self.inputs {
+            let mut route = input.route.lock().unwrap();
+            *route = match *route {
+                Route::Track(i) if i == a => Route::Track(b),
+                Route::Track(i) if i == b => Route::Track(a),
+                other => other,
+            };
+        }
+    }
+
     pub fn track_deleted(&mut self, deleted: usize) {
         for input in &self.inputs {
             let mut route = input.route.lock().unwrap();

@@ -599,6 +599,39 @@ impl Project {
         self.tracks.push(track);
     }
 
+    /// Copies a track (sound, notes and all) to just below it and returns
+    /// the copy's index, unless the song is full.
+    pub fn duplicate_track(&mut self, i: usize) -> Option<usize> {
+        if i >= self.tracks.len() || self.tracks.len() >= MAX_TRACKS {
+            return None;
+        }
+        let mut copy = self.tracks[i].clone();
+        copy.name = free_name(&copy.name, |n| self.tracks.iter().any(|t| t.name == n));
+        copy.id = self.tracks.iter().map(|t| t.id + 1).max().unwrap_or(1);
+        self.tracks.insert(i + 1, copy);
+        for m in self.blocks.iter_mut().filter_map(|b| b.midi.as_mut()) {
+            if let Some(t) = m.track.as_mut().filter(|t| **t > i) {
+                *t += 1;
+            }
+        }
+        Some(i + 1)
+    }
+
+    /// Swaps two tracks' places in the list; MIDI blocks follow them.
+    pub fn swap_tracks(&mut self, a: usize, b: usize) {
+        if a.max(b) >= self.tracks.len() {
+            return;
+        }
+        self.tracks.swap(a, b);
+        for m in self.blocks.iter_mut().filter_map(|b| b.midi.as_mut()) {
+            m.track = match m.track {
+                Some(t) if t == a => Some(b),
+                Some(t) if t == b => Some(a),
+                other => other,
+            };
+        }
+    }
+
     /// Numbers the tracks 1, 2, 3... (for songs just built or opened).
     pub fn number_tracks(&mut self) {
         for (i, t) in self.tracks.iter_mut().enumerate() {
@@ -1101,6 +1134,22 @@ mod tests {
         p.remove_track(LEAD - 1);
         assert_eq!(p.blocks[b].midi.as_ref().unwrap().track, None, "silent");
         assert_eq!(p.blocks[b].midi.as_ref().unwrap().notes.len(), 1);
+    }
+
+    #[test]
+    fn tracks_duplicate_and_move_with_their_midi_blocks() {
+        let mut p = Project::demo();
+        let b = p.new_midi_block(Some(LEAD)).unwrap();
+        let copy = p.duplicate_track(1).unwrap();
+        assert_eq!(copy, 2);
+        assert_eq!(p.tracks[2].name, "Snare 2");
+        assert_eq!(p.tracks[2].patterns, p.tracks[1].patterns, "notes and all");
+        assert_ne!(p.tracks[2].id, p.tracks[1].id);
+        let lead = p.blocks[b].midi.as_ref().unwrap().track;
+        assert_eq!(lead, Some(LEAD + 1), "the lead moved down one");
+        p.swap_tracks(LEAD + 1, LEAD);
+        assert_eq!(p.tracks[LEAD].name, "Lead");
+        assert_eq!(p.blocks[b].midi.as_ref().unwrap().track, Some(LEAD));
     }
 
     #[test]

@@ -185,7 +185,8 @@ soloed tracks so you can hear a part on its own.
   snare, hat, clap, clave, bongos, congas, toms, shaker or cowbell (it goes
   in the Drums group if there is one). **+ Sample…** loads WAV, MP3, FLAC
   or OGG files as sample tracks, or just drop files onto the window.
-- Right-click a track's name to delete it.
+- Right-click a track's name to **duplicate** it (sound and notes, for
+  trying a variation), **move** it up or down, or delete it.
 - Rename a track by editing its name at the top of the right panel.
 - **Mix** (right panel): **Volume**, **Pan** (left or right in the stereo
   mix; double-click to centre), and **Reverb** and **Delay**: how much of
@@ -501,6 +502,7 @@ Done:
 - ~~Arp latch, and chords and scales from one note~~
 - ~~Chord names on steps~~
 - ~~Tool bar: Draw, Select and Erase~~
+- ~~Duplicate and reorder tracks~~
 
 Next:
 
