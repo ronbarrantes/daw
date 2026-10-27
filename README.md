@@ -281,6 +281,13 @@ A S D F G H J K L         ← white keys (A = C)
 
 ### Sample tracks
 
+**Browse drum sounds** in the instrument panel searches built-in drums and
+samples loaded in this song. Click a sound to replace the selected sample
+track, then **Play a note** to hear it. Notes, name, mix and MIDI routing
+stay; sample trim and fades reset. Ctrl+Z undoes the swap. Add outside
+sounds with **+ Sample…** or drag and drop.
+
+
 - **Pitched off:** plays as recorded, like a drum hit.
 - **Pitched on:** each note plays the sample higher or lower, like an
   instrument. C at octave 4 is the original pitch.

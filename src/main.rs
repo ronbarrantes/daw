@@ -3,6 +3,7 @@
 
 mod audio;
 mod chords;
+mod drum_browser;
 mod drums;
 mod export;
 mod file;
@@ -247,6 +248,7 @@ fn first_melodic(project: &Project) -> usize {
 }
 
 struct App {
+    drum_browser: drum_browser::Browser,
     shared: Arc<Shared>,
     /// The editable project; changes are published to the engine as snapshots.
     project: Project,
@@ -392,6 +394,7 @@ impl App {
         let selected = first_melodic(&project);
         let undo = Undo::new(project.clone());
         App {
+            drum_browser: Default::default(),
             shared,
             project,
             history: VecDeque::from([snapshot]),

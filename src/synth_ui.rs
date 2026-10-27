@@ -667,6 +667,12 @@ impl App {
             }
         });
         ui.add_space(4.0);
+        if !synth {
+            if let Some(sound) = self.drum_browser.show(ui, &self.project.tracks) {
+                self.dirty |=
+                    crate::drum_browser::replace(&mut self.project.tracks[self.selected], sound);
+            }
+        }
         let mut sections = Sections {
             closed: std::mem::take(&mut self.closed_sections),
             close: None,
