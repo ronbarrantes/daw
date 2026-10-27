@@ -177,3 +177,54 @@ mod tests {
         assert!(out.iter().all(|[l, r]| l.is_finite() && r.is_finite()));
     }
 }
+
+/// The level the limiter keeps the mix under: just below full scale.
+pub const LIMIT: f32 = 0.95;
+
+/// A peak limiter on the master: when the mix would go over `LIMIT` it's
+/// turned down at once (so it never clips), then eased back up.
+pub struct Limiter {
+    /// The gain now, 1 when it isn't limiting.
+    pub gain: f32,
+    release: f32,
+}
+
+impl Limiter {
+    pub fn new(sr: f32) -> Self {
+        Self {
+            gain: 1.0,
+            // About a tenth of a second to recover.
+            release: 1.0 - (-1.0 / (0.1 * sr)).exp(),
+        }
+    }
+
+    pub fn process(&mut self, frame: [f32; 2]) -> [f32; 2] {
+        let peak = frame[0].abs().max(frame[1].abs());
+        let needed = if peak > LIMIT { LIMIT / peak } else { 1.0 };
+        self.gain = needed.min(self.gain + (1.0 - self.gain) * self.release);
+        frame.map(|s| s * self.gain)
+    }
+}
+
+#[cfg(test)]
+mod limiter_tests {
+    use super::*;
+
+    #[test]
+    fn the_limiter_never_lets_the_mix_clip_and_recovers() {
+        let mut l = Limiter::new(48_000.0);
+        let loud: Vec<[f32; 2]> = (0..4_800)
+            .map(|i| {
+                let s = (i as f32 * 0.05).sin() * 3.0;
+                l.process([s, -s])
+            })
+            .collect();
+        assert!(loud.iter().all(|f| f[0].abs() <= LIMIT + 1e-6));
+        assert!(l.gain < 0.5, "turned down: {}", l.gain);
+        for _ in 0..48_000 {
+            l.process([0.1, 0.1]);
+        }
+        assert!(l.gain > 0.99, "back up: {}", l.gain);
+        assert_eq!(l.process([0.5, 0.2]), [0.5 * l.gain, 0.2 * l.gain]);
+    }
+}

@@ -5,7 +5,10 @@ use eframe::egui::{self, RichText};
 const SECTIONS: &[(&str, &str)] = &[
     (
         "Getting started",
-        "Press Space (or ▶ Play) to start and stop. Ctrl+Z (Cmd+Z on Mac) \
+        "Press Space (or ▶ Play) to start and stop. Master (top bar) sets the \
+         whole song's volume; the meter shows the level, and LIMIT lights when \
+         the limiter is stopping it from clipping (turn things down a bit). \
+         Ctrl+Z (Cmd+Z on Mac) \
          undoes and Ctrl+Shift+Z redoes, also in the Edit menu.\n\n\
          Each row is a track. Click its steps to make a beat, click a track's \
          name to select it, and use the panel on the right to shape its sound. \
