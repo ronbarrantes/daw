@@ -97,6 +97,27 @@ impl Grid {
     }
 }
 
+/// Note lengths to pick from, in `PPS`ths of a step.
+const LENGTHS: [(&str, u32); 7] = [
+    ("1/16", PPS),
+    ("1/8", 2 * PPS),
+    ("1/4", 4 * PPS),
+    ("1/2", 8 * PPS),
+    ("1 bar", 16 * PPS),
+    ("2 bars", 32 * PPS),
+    ("4 bars", 64 * PPS),
+];
+
+fn length_label(len: Option<u32>) -> String {
+    match len {
+        None => "Grid".into(),
+        Some(len) => LENGTHS.iter().find(|(_, parts)| *parts == len).map_or_else(
+            || format!("{:.2} beats", len as f32 / (4 * PPS) as f32),
+            |(n, _)| n.to_string(),
+        ),
+    }
+}
+
 /// A drag in progress. `before` is every note as it was when it started.
 enum Drag {
     /// Moving the selected notes; `grab` is the note held.
@@ -486,6 +507,43 @@ impl App {
                     "What notes line up to. Hold Shift while dragging to go off the grid.",
                 );
 
+            // How long new notes are (or the selected ones): easier than
+            // dragging a note's end, above all on a touch screen.
+            let mut pick = None;
+            egui::ComboBox::from_id_salt("notes length")
+                .selected_text(format!("Length: {}", length_label(st.last_len)))
+                .width(110.0)
+                .show_ui(ui, |ui| {
+                    if ui.selectable_label(st.last_len.is_none(), "Grid").clicked() {
+                        pick = Some(None);
+                    }
+                    for (name, parts) in LENGTHS {
+                        if ui
+                            .selectable_label(st.last_len == Some(parts), name)
+                            .clicked()
+                        {
+                            pick = Some(Some(parts));
+                        }
+                    }
+                })
+                .response
+                .on_hover_text(
+                    "How long new notes are, and sets the selected notes to it.\n\
+                     Grid: one snap step (or as long as the last one you stretched)",
+                );
+            let mut lengthened = false;
+            if let Some(len) = pick {
+                st.last_len = len;
+                if let (Some(parts), Some(m)) = (len, self.project.blocks[b].midi.as_mut()) {
+                    for &i in &st.selected {
+                        if let Some(n) = m.notes.get_mut(i) {
+                            n.len = parts;
+                            lengthened = true;
+                        }
+                    }
+                }
+            }
+
             // Velocity of the selected notes, or of new ones.
             ui.label("Velocity");
             let notes = self.project.blocks[b].midi.as_mut().map(|m| &mut m.notes);
@@ -519,6 +577,9 @@ impl App {
             }
             if ui.button("+").on_hover_text("Zoom in").clicked() {
                 st.zoom = (st.zoom * 1.5).min(MAX_ZOOM);
+            }
+            if lengthened {
+                self.notes_changed(b);
             }
         });
         ui.weak(

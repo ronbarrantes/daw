@@ -614,6 +614,7 @@ fn read_zip(bytes: Vec<u8>) -> Result<Song, String> {
 
     let mut project = Project::empty();
     project.tracks = tracks;
+    project.number_tracks();
     project.swing = song.swing.clamp(0.0, 1.0);
     let fx = &song.effects;
     project.effects = Effects {

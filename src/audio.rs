@@ -391,6 +391,10 @@ struct Engine {
     lfos: Vec<Lfo>,
     /// Each synth track's arpeggiator.
     arps: [Arp; MAX_TRACKS],
+    /// Which track (by `Track::id`) each slot of `voices` belongs to, so a
+    /// slot that gets a different track (one was deleted or added) starts
+    /// silent instead of carrying on the old track's notes.
+    slot_ids: [Option<u32>; MAX_TRACKS],
     /// Scheduled hits; preallocated so the audio thread never allocates.
     pending: Vec<Pending>,
     /// Clock tick within the bar, 0..TICKS_PER_STEP * STEPS.
@@ -449,6 +453,7 @@ impl Engine {
             next_generation: 1,
             lfos: (0..MAX_TRACKS).map(|_| Lfo::default()).collect(),
             arps: [Arp::default(); MAX_TRACKS],
+            slot_ids: [None; MAX_TRACKS],
             pending: Vec::with_capacity(MAX_PENDING),
             tick: 0,
             samples_to_next_tick: 0.0,
@@ -494,6 +499,11 @@ impl Engine {
             };
         }
         for i in 0..MAX_TRACKS {
+            let id = project.tracks.get(i).map(|t| t.id);
+            if id != self.slot_ids[i] {
+                self.silence(i);
+                self.slot_ids[i] = id;
+            }
             if !self.arp_on(i) {
                 self.arps[i].count = 0;
             }
@@ -636,6 +646,22 @@ impl Engine {
         if let Some((note, ch)) = voice.held.take() {
             self.send(Msg::three(0x80 | ch, note, 0));
         }
+    }
+
+    /// Stops everything in voice slot `i` at once, held and live notes and
+    /// release tails too, and forgets its arpeggiator's notes.
+    fn silence(&mut self, i: usize) {
+        for v in 0..POLYPHONY {
+            if let Some((note, ch)) = self.voices[i][v].held.take() {
+                self.send(Msg::three(0x80 | ch, note, 0));
+            }
+            let voice = &mut self.voices[i][v];
+            voice.synth = Voice::new(self.sr);
+            voice.sample = None;
+            voice.on = false;
+            voice.live = false;
+        }
+        self.arps[i].count = 0;
     }
 
     /// Whether track `i` is a synth with its arpeggiator on.
@@ -2067,6 +2093,28 @@ mod tests {
         let fifth = 2f64.powf(7.0 / 12.0);
         let rate = rig.voice(i, SAMPLE_ROOT + 7).rate;
         assert!((rate - fifth).abs() < 1e-4, "G4 a fifth up");
+    }
+
+    #[test]
+    fn a_new_track_never_inherits_a_deleted_one_s_notes() {
+        // A held note (say a drone) on the last track, then that track is
+        // deleted and a new one added in its place.
+        let mut project = quiet_demo();
+        let last = project.tracks.len() - 1;
+        project.tracks[last].reverb = 0.0; // no tail to wait out
+        let mut rig = Rig::new(project.clone());
+        rig.send(hold(last, 60));
+        rig.run(4_800);
+        assert!(rig.sounding(last) > 0);
+        project.remove_track(last);
+        rig.shared.publish(Arc::new(project.clone()));
+        rig.run(UPDATE_INTERVAL as usize * 2);
+        project.add_track(Track::synth("New"));
+        rig.shared.publish(Arc::new(project));
+        rig.run(UPDATE_INTERVAL as usize * 2);
+        assert_eq!(rig.sounding(last), 0, "the new track starts silent");
+        let out = rig.run(4_800);
+        assert!(out.iter().all(|s| *s == 0.0), "and stays quiet");
     }
 
     #[test]

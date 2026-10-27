@@ -146,6 +146,9 @@ pub const EMPTY_GRID: Grid = [[None; STEPS]; LANES];
 
 #[derive(Clone)]
 pub struct Track {
+    /// Tells tracks apart (not saved), so the engine knows when a slot
+    /// holds a different track and should start it silent.
+    pub id: u32,
     pub name: String,
     pub kind: Kind,
     /// One grid per pattern, in the order of `Project::patterns`.
@@ -203,6 +206,7 @@ impl Track {
 
     fn new(name: &str, kind: Kind, octave: u8) -> Self {
         Self {
+            id: 0,
             name: name.to_string(),
             kind,
             patterns: vec![EMPTY_GRID; DEFAULT_PATTERNS],
@@ -585,7 +589,15 @@ impl Project {
     /// Adds a track, giving it a grid for every pattern.
     pub fn add_track(&mut self, mut track: Track) {
         track.patterns.resize(self.patterns.len(), EMPTY_GRID);
+        track.id = self.tracks.iter().map(|t| t.id + 1).max().unwrap_or(1);
         self.tracks.push(track);
+    }
+
+    /// Numbers the tracks 1, 2, 3... (for songs just built or opened).
+    pub fn number_tracks(&mut self) {
+        for (i, t) in self.tracks.iter_mut().enumerate() {
+            t.id = i as u32 + 1;
+        }
     }
 
     /// Removes a track. MIDI blocks it played keep their notes but go
@@ -877,6 +889,7 @@ impl Project {
             effects: Effects::DEFAULT,
         };
         project.new_group(&[0, 1, 2, 3], "Drums");
+        project.number_tracks();
         project
     }
 }
