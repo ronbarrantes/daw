@@ -532,9 +532,10 @@ remember the sound as it is; once both are kept, the slider between A and
 B morphs from one to the other. (A and B are forgotten when the app
 closes.)
 
-**Modulation: make any knob move.** The coloured chips (**LFO 1** in the
-LFO section, **LFO 2**, **Mod env** and **Velocity** in theirs) are
-sources. Drag one onto any knob that isn't a pick-one knob: a ring in the
+**Modulation: make any knob move.** The coloured chips are sources:
+**LFO 1** in the LFO section, **LFO 2** and **Mod env** in theirs (each
+section's knobs shape its chip), and **Velocity** in the Voice section
+(it has no knobs: it's how hard you play). Drag one onto any knob that isn't a pick-one knob: a ring in the
 chip's colour appears around the knob, showing how far the source moves
 it, and while notes play a white dot shows where it is right now.
 **Right-click** the knob to set how far each source moves it (either way)

@@ -234,9 +234,9 @@ const SECTIONS: &[(&str, &str)] = &[
          • Mutate nudges every knob a little for a new variation (right-click \
          it to leave sections alone). Keep A and Keep B remember two sounds; \
          the slider between them morphs from one to the other.\n\
-         • Modulation: drag a coloured chip (LFO 1, LFO 2, Mod env, \
-         Velocity) onto any knob to make it move that knob; a ring shows \
-         how far. Right-click the knob to change how far or remove it.\n\n\
+         • Modulation: drag a coloured chip (LFO 1, LFO 2 and Mod env in \
+         their sections, Velocity in Voice) onto any knob to make it move \
+         that knob; a ring shows how far. Velocity is how hard you play. Right-click the knob to change how far or remove it.\n\n\
          Try: Cutoff down, Reso up, Env amt up, short F decay = acid bass. \
          Noise with a short decay and high cutoff = a shaker.\n\n\
          The green scope at the top of the panel shows the selected track's \
