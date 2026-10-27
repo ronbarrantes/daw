@@ -492,7 +492,9 @@ it. Hover for what each one does. To keep scrolling down:
   shape; **Random** jumps to a new value each cycle (on pitch, by whole
   semitones: random tones). **LFO amt** is how much (0 = off), **LFO rate**
   how fast, and **LFO sync** ties the speed to the tempo instead (1/4 = once
-  a beat).
+  a beat). **LFO retrig** on starts the wobble again at every new note, so
+  each note moves the same way; off, it keeps running on its own (LFO 2
+  has one too).
 - **LFO 2** and **Mod envelope:** more things to move knobs with (see
   *Modulation* below). LFO 2 is a second wobble; the Mod envelope rises
   when a note starts (**Mod attack**), falls (**Mod decay**) and holds
@@ -542,7 +544,8 @@ off in **View**.
 
 ### MIDI
 
-Plug gear in over USB (or a USB-MIDI cable), then press **⟳** to rescan.
+Plug gear in over USB (or a USB-MIDI cable), or pair a Bluetooth MIDI
+keyboard with your computer, then press **⟳** to rescan.
 
 - **MIDI out:** sends clock and Start/Stop so gear follows the tempo. Each
   track's **MIDI ch** (right panel) sends its notes on that channel; the
@@ -554,6 +557,8 @@ Plug gear in over USB (or a USB-MIDI cable), then press **⟳** to rescan.
   **group**. Route a drum kit to the Drums group and each pad plays its
   matching drum. With **⏺ Rec** on and playing, what you play is written into
   the pattern, chords included.
+- **Sustain pedal:** a keyboard's pedal works like on a piano: notes you let
+  go of keep ringing while it's down, and stop when it comes up.
 - **Follow MIDI clock:** the incoming clock sets the tempo, and the other
   device's Start/Stop controls playback.
 

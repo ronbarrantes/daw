@@ -2,6 +2,7 @@
 //! volume (tremolo) or pan. One per track, shared by its voices so they
 //! wobble together. Its speed is in Hz, or tied to the tempo.
 
+use super::arp::OFF_ON;
 use super::{choice, knobs, noise, param, ModuleInfo, Unit, Values};
 
 pub const TARGET: usize = 0;
@@ -9,6 +10,7 @@ pub const SHAPE: usize = 1;
 pub const AMOUNT: usize = 2;
 pub const RATE: usize = 3;
 pub const SYNC: usize = 4;
+pub const RETRIG: usize = 5;
 
 pub const SHAPES: [&str; 5] = ["Sine", "Tri", "Square", "Saw", "Random"];
 /// `SHAPES` index of Random.
@@ -30,8 +32,9 @@ pub const INFO: ModuleInfo = ModuleInfo {
         param("LFO amt", 0.0, 1.0, 0.0, false, Unit::Percent),
         param("LFO rate", 0.05, 20.0, 4.0, true, Unit::Hz),
         param("LFO sync", 0.0, 7.0, 0.0, false, Unit::Choice(&SYNCS)),
+        param("LFO retrig", 0.0, 1.0, 0.0, false, Unit::Choice(&OFF_ON)),
     ],
-    rows: &[&[TARGET, SHAPE, AMOUNT, RATE], &[SYNC]],
+    rows: &[&[TARGET, SHAPE, AMOUNT, RATE], &[SYNC, RETRIG]],
     open: true,
     engine: None,
 };
@@ -68,6 +71,13 @@ impl Lfo {
             0 => rate / sr,
             sync => 1.0 / (SYNC_BEATS[sync] * beat).max(1.0),
         }
+    }
+
+    /// Starts the cycle again from the top, for retrigger: each new note
+    /// then wobbles the same way. Random picks a new value.
+    pub fn restart(&mut self) {
+        self.phase = 0.0;
+        self.held = noise(&mut self.rng);
     }
 
     /// Where it is in its cycle, 0-1.

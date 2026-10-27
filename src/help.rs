@@ -225,7 +225,7 @@ const SECTIONS: &[(&str, &str)] = &[
          while a note is held, Release fades out after.\n\
          • LFO: a wobble on Pitch (vibrato), Filter (wah), Volume \
          (tremolo) or Pan (left and right). Random jumps each cycle (random tones on pitch). LFO sync \
-         ties its speed to the tempo.\n\
+         ties its speed to the tempo. LFO retrig restarts it at every note.\n\
          • Mutate nudges every knob a little for a new variation (right-click \
          it to leave sections alone). Keep A and Keep B remember two sounds; \
          the slider between them morphs from one to the other.\n\
@@ -259,6 +259,8 @@ const SECTIONS: &[(&str, &str)] = &[
          each pad. Change it any time.\n\
          • With ⏺ Rec on and playing, what you play on a controller is \
          written into the pattern, chords included.\n\
+         • A keyboard's sustain pedal holds notes while it's down, like a \
+         piano.\n\
          • MIDI out sends clock and Start/Stop, so gear follows the tempo.\n\
          • Each track's MIDI ch (right panel) sends its notes, with velocity, \
          on that channel. The built-in drums use channel 10.\n\

@@ -434,6 +434,8 @@ pub const LFO_RATE: usize = first_knob(&lfo::INFO) + lfo::RATE;
 #[cfg(test)]
 pub const LFO_SYNC: usize = first_knob(&lfo::INFO) + lfo::SYNC;
 pub const LFO2_SHAPE: usize = first_knob(&lfo2::INFO) + lfo2::SHAPE;
+pub const LFO_RETRIG: usize = first_knob(&lfo::INFO) + lfo::RETRIG;
+pub const LFO2_RETRIG: usize = first_knob(&lfo2::INFO) + lfo2::RETRIG;
 pub const ARP_MODE: usize = first_knob(&arp::INFO) + arp::MODE;
 pub const ARP_RATE: usize = first_knob(&arp::INFO) + arp::RATE;
 pub const ARP_OCTAVES: usize = first_knob(&arp::INFO) + arp::OCTAVES;

@@ -219,6 +219,8 @@ impl Midi {
             played: self.played.clone(),
             route: route.clone(),
             sounding: [None; 128],
+            pedal: false,
+            sustained: [None; 128],
         };
         match connect_in(name, ctx) {
             Ok(conn) => {
@@ -299,6 +301,10 @@ struct InputContext {
     /// The track each held note went to, so its note-off goes there too
     /// even if the route or selection changed meanwhile.
     sounding: [Option<usize>; 128],
+    /// The sustain pedal is down: notes let go keep ringing (in
+    /// `sustained`, by track) until it comes up, like a piano.
+    pedal: bool,
+    sustained: [Option<usize>; 128],
 }
 
 fn connect_in(name: &str, mut ctx: InputContext) -> Result<MidiInputConnection<()>, String> {
@@ -314,6 +320,9 @@ fn connect_in(name: &str, mut ctx: InputContext) -> Result<MidiInputConnection<(
         .connect(&port, "daw-in", move |_, msg, _| ctx.handle(msg), ())
         .map_err(|e| e.to_string())
 }
+
+/// The sustain pedal's controller number.
+const SUSTAIN: u8 = 64;
 
 impl InputContext {
     fn handle(&mut self, msg: &[u8]) {
@@ -335,6 +344,9 @@ impl InputContext {
                 let selected = shared.selected_track.load(Relaxed);
                 let route = *self.route.lock().unwrap();
                 if let Some(track) = target(&project, selected, route, note) {
+                    // Played again while the pedal holds it: the new note
+                    // takes over (the engine reuses its voice).
+                    self.sustained[note as usize] = None;
                     self.sounding[note as usize] = Some(track);
                     let _ = self.events.try_send(Event::Hold {
                         track,
@@ -352,7 +364,23 @@ impl InputContext {
             [status, note, _] if status & 0xF0 == 0x80 || status & 0xF0 == 0x90 => {
                 let note = note & 0x7F;
                 if let Some(track) = self.sounding[note as usize].take() {
-                    let _ = self.events.try_send(Event::Release { track, note });
+                    if self.pedal {
+                        self.sustained[note as usize] = Some(track);
+                    } else {
+                        let _ = self.events.try_send(Event::Release { track, note });
+                    }
+                }
+            }
+            // The sustain pedal (controller 64): down from 64 up.
+            [status, SUSTAIN, value] if status & 0xF0 == 0xB0 => {
+                self.pedal = value >= 64;
+                if !self.pedal {
+                    for (note, held) in self.sustained.iter_mut().enumerate() {
+                        if let Some(track) = held.take() {
+                            let note = note as u8;
+                            let _ = self.events.try_send(Event::Release { track, note });
+                        }
+                    }
                 }
             }
             _ => {}
@@ -366,6 +394,39 @@ mod tests {
 
     const SNARE: usize = 1;
     const LEAD: usize = 4;
+
+    #[test]
+    fn the_sustain_pedal_holds_notes_until_it_comes_up() {
+        let (events, received) = std::sync::mpsc::sync_channel(64);
+        let (played, _) = std::sync::mpsc::channel();
+        let shared = Arc::new(Shared::new(Arc::new(Project::demo())));
+        shared.selected_track.store(LEAD, Relaxed);
+        let mut ctx = InputContext {
+            shared,
+            events,
+            played,
+            route: Arc::new(Mutex::new(Route::Selected)),
+            sounding: [None; 128],
+            pedal: false,
+            sustained: [None; 128],
+        };
+        let releases = |r: &std::sync::mpsc::Receiver<Event>| {
+            r.try_iter()
+                .filter(|e| matches!(e, Event::Release { .. }))
+                .count()
+        };
+        ctx.handle(&[0xB0, SUSTAIN, 127]);
+        ctx.handle(&[0x90, 60, 100]);
+        ctx.handle(&[0x90, 64, 100]);
+        ctx.handle(&[0x80, 60, 0]);
+        ctx.handle(&[0x90, 64, 0]);
+        assert_eq!(releases(&received), 0, "the pedal holds both");
+        ctx.handle(&[0xB0, SUSTAIN, 0]);
+        assert_eq!(releases(&received), 2, "pedal up lets both go");
+        ctx.handle(&[0x90, 67, 100]);
+        ctx.handle(&[0x80, 67, 0]);
+        assert_eq!(releases(&received), 1, "no pedal: let go at once");
+    }
 
     #[test]
     fn routes_pick_the_right_track() {
