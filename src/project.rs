@@ -495,6 +495,134 @@ fn free_name(base: &str, taken: impl Fn(&str) -> bool) -> String {
         .expect("some number is free")
 }
 
+/// What an automation lane moves: one of a track's mix knobs, or one of
+/// its synth knobs (by index into `synth::PARAMS`).
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Target {
+    Volume,
+    Pan,
+    Reverb,
+    Delay,
+    Synth(usize),
+}
+
+/// The mix knobs automation can move, as knobs for the range and name.
+pub const MIX_TARGETS: [(Target, synth::Param); 4] = [
+    (
+        Target::Volume,
+        mix_param("Volume", 0.0, 1.0, synth::Unit::Percent),
+    ),
+    (Target::Pan, mix_param("Pan", -1.0, 1.0, synth::Unit::Pan)),
+    (
+        Target::Reverb,
+        mix_param("Reverb", 0.0, 1.0, synth::Unit::Percent),
+    ),
+    (
+        Target::Delay,
+        mix_param("Delay", 0.0, 1.0, synth::Unit::Percent),
+    ),
+];
+
+const fn mix_param(name: &'static str, min: f32, max: f32, unit: synth::Unit) -> synth::Param {
+    synth::Param {
+        name,
+        min,
+        max,
+        default: 0.0,
+        log: false,
+        unit,
+    }
+}
+
+/// The synth knobs worth drawing changes for, in the panel's order (the
+/// pick-one knobs like Voices and LFO wave are left out).
+pub const SYNTH_TARGETS: [usize; 18] = [
+    synth::WAVE,
+    synth::WAVE_2,
+    synth::LEVEL_2,
+    synth::PITCH_2,
+    synth::DETUNE,
+    synth::GLIDE,
+    synth::CUTOFF,
+    synth::RESONANCE,
+    synth::ENV_AMOUNT,
+    synth::FILTER_DECAY,
+    synth::ATTACK,
+    synth::DECAY,
+    synth::SUSTAIN,
+    synth::RELEASE,
+    synth::LFO_RATE,
+    synth::LFO_AMOUNT,
+    synth::ARP_GATE,
+    synth::VOLUME,
+];
+
+impl Target {
+    /// Its name in menus and on lanes; the synth's own Volume is told
+    /// apart from the track's.
+    pub fn label(&self) -> &'static str {
+        match self {
+            Target::Synth(k) if *k == synth::VOLUME => "Synth volume",
+            t => t.param().name,
+        }
+    }
+
+    /// The knob it moves, for its range and how to show its values.
+    pub fn param(&self) -> &'static synth::Param {
+        match self {
+            Target::Synth(k) => &synth::PARAMS[(*k).min(synth::PARAMS.len() - 1)],
+            t => {
+                let i = MIX_TARGETS.iter().position(|(m, _)| m == t).unwrap_or(0);
+                &MIX_TARGETS[i].1
+            }
+        }
+    }
+}
+
+/// One point on an automation lane.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct AutoPoint {
+    /// When, in `PPS`ths of a step from the song's start.
+    pub at: u32,
+    /// The knob's position there, 0-1 along it.
+    pub value: f32,
+}
+
+/// Changes to one knob over the song: a line through its points, drawn
+/// in Arrange. Before the first point and after the last, it holds.
+#[derive(Clone, PartialEq, Debug)]
+pub struct AutoLane {
+    pub track: usize,
+    pub target: Target,
+    /// Kept in time order.
+    pub points: Vec<AutoPoint>,
+}
+
+impl AutoLane {
+    /// The knob's position (0-1) at song position `at` (in `PPS`ths of a
+    /// step), if the lane has any points.
+    pub fn value_at(&self, at: f32) -> Option<f32> {
+        let first = self.points.first()?;
+        if at <= first.at as f32 {
+            return Some(first.value);
+        }
+        let next = self.points.iter().position(|p| p.at as f32 > at);
+        Some(match next {
+            None => self.points.last()?.value,
+            Some(k) => {
+                let (a, b) = (self.points[k - 1], self.points[k]);
+                let t = (at - a.at as f32) / (b.at - a.at).max(1) as f32;
+                a.value + (b.value - a.value) * t
+            }
+        })
+    }
+
+    /// Puts the points back in time order after an edit.
+    pub fn sort(&mut self) {
+        self.points.sort_by_key(|p| p.at);
+    }
+}
+
 /// The master volume a new song starts with: the level songs always had.
 pub const MASTER_DEFAULT: f32 = 0.8;
 
@@ -526,6 +654,8 @@ pub struct Project {
     pub effects: Effects,
     /// Master volume, 0-1, before the limiter.
     pub master: f32,
+    /// Knob changes over the song, drawn in Arrange.
+    pub automation: Vec<AutoLane>,
 }
 
 impl Project {
@@ -539,6 +669,7 @@ impl Project {
             groups: Vec::new(),
             effects: Effects::DEFAULT,
             master: MASTER_DEFAULT,
+            automation: Vec::new(),
         }
     }
 
@@ -553,6 +684,12 @@ impl Project {
     /// How loud a track plays: its volume times its group's, or 0 when
     /// muted or when something else is soloed.
     pub fn gain(&self, i: usize) -> f32 {
+        self.gain_with(i, self.tracks[i].volume)
+    }
+
+    /// Like `gain`, with the track's volume set to `volume` (for
+    /// automation).
+    pub fn gain_with(&self, i: usize, volume: f32) -> f32 {
         let any_solo = self.tracks.iter().any(|t| t.solo) || self.groups.iter().any(|g| g.solo);
         let t = &self.tracks[i];
         let g = t.group.and_then(|id| self.group(id));
@@ -561,7 +698,7 @@ impl Project {
         if muted || (any_solo && !soloed) {
             0.0
         } else {
-            t.volume * g.map_or(1.0, |g| g.volume)
+            volume * g.map_or(1.0, |g| g.volume)
         }
     }
 
@@ -652,6 +789,11 @@ impl Project {
                 *t += 1;
             }
         }
+        for l in &mut self.automation {
+            if l.track > i {
+                l.track += 1;
+            }
+        }
         Some(i + 1)
     }
 
@@ -667,6 +809,13 @@ impl Project {
                 Some(t) if t == b => Some(a),
                 other => other,
             };
+        }
+        for l in &mut self.automation {
+            if l.track == a {
+                l.track = b;
+            } else if l.track == b {
+                l.track = a;
+            }
         }
     }
 
@@ -691,6 +840,12 @@ impl Project {
                 Some(t) if t > i => Some(t - 1),
                 other => other,
             };
+        }
+        self.automation.retain(|l| l.track != i);
+        for l in &mut self.automation {
+            if l.track > i {
+                l.track -= 1;
+            }
         }
     }
 
@@ -965,6 +1120,7 @@ impl Project {
             groups: Vec::new(),
             effects: Effects::DEFAULT,
             master: MASTER_DEFAULT,
+            automation: Vec::new(),
         };
         project.new_group(&[0, 1, 2, 3], "Drums");
         project.number_tracks();
@@ -1188,6 +1344,36 @@ mod tests {
         p.swap_tracks(LEAD + 1, LEAD);
         assert_eq!(p.tracks[LEAD].name, "Lead");
         assert_eq!(p.blocks[b].midi.as_ref().unwrap().track, Some(LEAD));
+    }
+
+    #[test]
+    fn automation_lanes_draw_a_line_through_their_points() {
+        let lane = AutoLane {
+            track: 0,
+            target: Target::Volume,
+            points: vec![
+                AutoPoint { at: 0, value: 0.0 },
+                AutoPoint {
+                    at: 16 * PPS,
+                    value: 1.0,
+                },
+                AutoPoint {
+                    at: 32 * PPS,
+                    value: 0.5,
+                },
+            ],
+        };
+        assert_eq!(lane.value_at(0.0), Some(0.0));
+        assert_eq!(lane.value_at((8 * PPS) as f32), Some(0.5), "halfway up");
+        assert_eq!(lane.value_at((24 * PPS) as f32), Some(0.75));
+        assert_eq!(lane.value_at((100 * PPS) as f32), Some(0.5), "holds after");
+        let empty = AutoLane {
+            points: Vec::new(),
+            ..lane
+        };
+        assert_eq!(empty.value_at(0.0), None);
+        assert_eq!(Target::Synth(synth::CUTOFF).param().name, "Cutoff");
+        assert_eq!(Target::Pan.param().min, -1.0);
     }
 
     #[test]

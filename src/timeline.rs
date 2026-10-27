@@ -14,7 +14,10 @@ use std::sync::atomic::Ordering::Relaxed;
 
 use eframe::egui::{self, Align2, Color32, CursorIcon, FontId, Pos2, Rect, Sense, Stroke, Vec2};
 
-use crate::project::{Clip, CHAIN_SLOTS, MAX_BLOCKS, MAX_PATTERNS, MAX_SONG_STEPS, PPS, STEPS};
+use crate::project::{
+    AutoLane, AutoPoint, Clip, Kind, Target, CHAIN_SLOTS, MAX_BLOCKS, MAX_PATTERNS, MAX_SONG_STEPS,
+    MIX_TARGETS, PPS, STEPS, SYNTH_TARGETS,
+};
 use crate::widgets::playhead;
 use crate::{App, Tab};
 
@@ -28,6 +31,10 @@ const MIN_ROWS: usize = 2;
 const MAX_ROWS: usize = 8;
 /// How close to a clip's edge (in points) a drag trims instead of moving.
 const EDGE: f32 = 6.0;
+/// Height of an automation lane.
+const LANE: f32 = 40.0;
+/// How close (in points) a press must be to grab an automation point.
+const GRAB: f32 = 7.0;
 const MIN_ZOOM: f32 = 1.5;
 const MAX_ZOOM: f32 = 24.0;
 
@@ -90,6 +97,10 @@ pub struct State {
     drag: Option<Drag>,
     /// The clip whose right-click menu is open.
     menu_clip: Option<usize>,
+    /// An automation point being dragged: (lane, point).
+    auto_drag: Option<(usize, usize)>,
+    /// The automation lane whose right-click menu is open.
+    auto_menu: Option<usize>,
 }
 
 impl Default for State {
@@ -101,6 +112,8 @@ impl Default for State {
             cursor: 0,
             drag: None,
             menu_clip: None,
+            auto_drag: None,
+            auto_menu: None,
         }
     }
 }
@@ -591,6 +604,8 @@ impl App {
             if ui.button("+").on_hover_text("Zoom in").clicked() {
                 self.timeline.zoom = (self.timeline.zoom * 1.5).min(MAX_ZOOM);
             }
+            ui.separator();
+            self.add_automation_menu(ui);
         });
 
         let rows = (self.project.clips.iter().map(|c| c.row + 2).max())
@@ -622,6 +637,7 @@ impl App {
                 }
                 self.timeline_input(ui, rect, &resp, rows);
                 self.paint_timeline(ui, rect, rows, playhead, playing && song_mode);
+                self.automation_lanes(ui, width, playhead, playing && song_mode);
                 if playing && song_mode {
                     // Keep the playhead in view.
                     let x = rect.left() + playhead as f32 * zoom;
@@ -631,6 +647,240 @@ impl App {
                     }
                 }
             });
+    }
+
+    /// + Automation: pick a track, then the knob to draw changes for.
+    fn add_automation_menu(&mut self, ui: &mut egui::Ui) {
+        let resp = ui.menu_button("+ Automation", |ui| {
+            for i in 0..self.project.tracks.len() {
+                let name = self.project.tracks[i].name.clone();
+                ui.menu_button(name, |ui| {
+                    let mut targets: Vec<Target> = MIX_TARGETS.iter().map(|(t, _)| *t).collect();
+                    if matches!(self.project.tracks[i].kind, Kind::Synth(_)) {
+                        targets.extend(SYNTH_TARGETS.iter().map(|&k| Target::Synth(k)));
+                    }
+                    for target in targets {
+                        if target == Target::Synth(SYNTH_TARGETS[0]) {
+                            ui.separator();
+                        }
+                        let taken = self
+                            .project
+                            .automation
+                            .iter()
+                            .any(|l| l.track == i && l.target == target);
+                        let button = egui::Button::new(target.label());
+                        if ui.add_enabled(!taken, button).clicked() {
+                            self.add_lane(i, target);
+                            ui.close_menu();
+                        }
+                    }
+                });
+            }
+        });
+        resp.response.on_hover_text(
+            "Draw a knob's changes over the song, like a filter opening or a\n\
+             fade out. Pick a track, then the knob.",
+        );
+    }
+
+    /// A new automation lane, holding the knob where it's set now.
+    fn add_lane(&mut self, track: usize, target: Target) {
+        let Some(t) = self.project.tracks.get(track) else {
+            return;
+        };
+        let now = match target {
+            Target::Volume => t.volume,
+            Target::Pan => t.pan,
+            Target::Reverb => t.reverb,
+            Target::Delay => t.delay,
+            Target::Synth(k) => match &t.kind {
+                Kind::Synth(v) => v[k],
+                Kind::Sampler { .. } => return,
+            },
+        };
+        self.project.automation.push(AutoLane {
+            track,
+            target,
+            points: vec![AutoPoint {
+                at: self.timeline.cursor as u32 * PPS,
+                value: target.param().to_unit(now).clamp(0.0, 1.0),
+            }],
+        });
+        self.dirty = true;
+    }
+
+    /// The automation lanes under the timeline: a line per knob. Click to
+    /// add a point, drag one to move it, right-click a point to remove it
+    /// (or empty space for the lane's menu).
+    fn automation_lanes(&mut self, ui: &mut egui::Ui, width: f32, playhead: usize, moving: bool) {
+        let n = self.project.automation.len();
+        if n == 0 {
+            return;
+        }
+        let size = Vec2::new(width, n as f32 * LANE);
+        let (rect, resp) = ui.allocate_exact_size(size, Sense::click_and_drag());
+        // Room for the scroll bar, so it doesn't cover the last lane.
+        ui.add_space(12.0);
+        let zoom = self.timeline.zoom;
+        let lane_rect = |l: usize| {
+            Rect::from_min_size(
+                Pos2::new(rect.left(), rect.top() + l as f32 * LANE),
+                Vec2::new(rect.width(), LANE),
+            )
+        };
+        let x_of = |at: u32| rect.left() + at as f32 / PPS as f32 * zoom;
+        let y_of = |l: usize, v: f32| {
+            let r = lane_rect(l).shrink(4.0);
+            r.bottom() - v.clamp(0.0, 1.0) * r.height()
+        };
+        let lane_at = |pos: Pos2| ((pos.y - rect.top()) / LANE).floor().max(0.0) as usize;
+        let point_at = |lanes: &[AutoLane], pos: Pos2| -> Option<(usize, usize)> {
+            let l = lane_at(pos).min(lanes.len().checked_sub(1)?);
+            lanes[l]
+                .points
+                .iter()
+                .position(|p| Pos2::new(x_of(p.at), y_of(l, p.value)).distance(pos) <= GRAB)
+                .map(|k| (l, k))
+        };
+        let shift = ui.input(|i| i.modifiers.shift);
+        let snap = if shift { 1 } else { self.timeline.snap.steps() };
+        // A point from where the pointer is: when, snapped, and how high.
+        let place = |l: usize, pos: Pos2| {
+            let step = snap_near((pos.x - rect.left()) / zoom, snap).min(MAX_SONG_STEPS);
+            let r = lane_rect(l).shrink(4.0);
+            AutoPoint {
+                at: step as u32 * PPS,
+                value: ((r.bottom() - pos.y) / r.height()).clamp(0.0, 1.0),
+            }
+        };
+
+        if resp.drag_started() {
+            let origin = ui.input(|i| i.pointer.press_origin());
+            if let Some(pos) = origin {
+                self.timeline.auto_drag = point_at(&self.project.automation, pos).or_else(|| {
+                    // Dragging empty space makes a point and moves it.
+                    let l = lane_at(pos).min(n - 1);
+                    let lane = &mut self.project.automation[l];
+                    lane.points.push(place(l, pos));
+                    lane.sort();
+                    let p = place(l, pos);
+                    lane.points.iter().position(|q| *q == p).map(|k| (l, k))
+                });
+            }
+        }
+        if let (Some((l, k)), Some(pos)) = (self.timeline.auto_drag, resp.interact_pointer_pos()) {
+            if let Some(lane) = self.project.automation.get_mut(l) {
+                let p = place(l, pos);
+                if lane.points.get(k).is_some_and(|q| *q != p) {
+                    lane.points[k] = p;
+                    lane.sort();
+                    // It may have moved past a neighbour.
+                    let k = lane.points.iter().position(|q| *q == p).unwrap_or(k);
+                    self.timeline.auto_drag = Some((l, k));
+                    self.dirty = true;
+                }
+            }
+        }
+        if resp.drag_stopped() {
+            self.timeline.auto_drag = None;
+        }
+        if resp.clicked() {
+            if let Some(pos) = resp.interact_pointer_pos() {
+                if point_at(&self.project.automation, pos).is_none() {
+                    let l = lane_at(pos).min(n - 1);
+                    let lane = &mut self.project.automation[l];
+                    lane.points.push(place(l, pos));
+                    lane.sort();
+                    self.dirty = true;
+                }
+            }
+        }
+        if resp.secondary_clicked() {
+            let pos = resp.interact_pointer_pos();
+            match pos.and_then(|pos| point_at(&self.project.automation, pos)) {
+                Some((l, k)) => {
+                    self.project.automation[l].points.remove(k);
+                    self.timeline.auto_menu = None;
+                    self.dirty = true;
+                }
+                None => self.timeline.auto_menu = pos.map(|pos| lane_at(pos).min(n - 1)),
+            }
+        }
+        if self.timeline.auto_menu.is_some() {
+            resp.context_menu(|ui| {
+                let Some(l) = self
+                    .timeline
+                    .auto_menu
+                    .filter(|&l| l < self.project.automation.len())
+                else {
+                    ui.close_menu();
+                    return;
+                };
+                if ui.button("Clear points").clicked() {
+                    self.project.automation[l].points.clear();
+                    self.dirty = true;
+                    ui.close_menu();
+                }
+                if ui.button("Delete lane").clicked() {
+                    self.project.automation.remove(l);
+                    self.timeline.auto_menu = None;
+                    self.timeline.auto_drag = None;
+                    self.dirty = true;
+                    ui.close_menu();
+                }
+            });
+        }
+
+        // Paint.
+        let painter = ui.painter_at(rect);
+        let visible = ui.clip_rect();
+        for (l, lane) in self.project.automation.iter().enumerate() {
+            let r = lane_rect(l);
+            let fill = if l % 2 == 0 { 28 } else { 33 };
+            painter.rect_filled(r, 0.0, Color32::from_gray(fill));
+            painter.line_segment(
+                [r.left_bottom(), r.right_bottom()],
+                Stroke::new(1.0_f32, Color32::from_gray(50)),
+            );
+            let color = Color32::from_rgb(230, 170, 60);
+            // The line: flat before the first point and after the last.
+            if let (Some(first), Some(last)) = (lane.points.first(), lane.points.last()) {
+                let mut line = vec![Pos2::new(r.left(), y_of(l, first.value))];
+                line.extend(
+                    lane.points
+                        .iter()
+                        .map(|p| Pos2::new(x_of(p.at), y_of(l, p.value))),
+                );
+                line.push(Pos2::new(r.right(), y_of(l, last.value)));
+                painter.add(egui::Shape::line(line, Stroke::new(1.5_f32, color)));
+                for p in &lane.points {
+                    painter.circle_filled(Pos2::new(x_of(p.at), y_of(l, p.value)), 3.5, color);
+                }
+            }
+            // Its name, kept in view at the left.
+            let track = self
+                .project
+                .tracks
+                .get(lane.track)
+                .map_or("?", |t| t.name.as_str());
+            painter.text(
+                Pos2::new(visible.left().max(r.left()) + 4.0, r.top() + 2.0),
+                Align2::LEFT_TOP,
+                format!("{track} · {}", lane.target.label()),
+                FontId::proportional(11.0),
+                Color32::from_gray(200),
+            );
+        }
+        let x = rect.left() + playhead as f32 * zoom;
+        let color = if moving {
+            Color32::WHITE
+        } else {
+            Color32::from_rgb(255, 140, 40)
+        };
+        painter.line_segment(
+            [Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())],
+            Stroke::new(1.5_f32, color),
+        );
     }
 
     /// Which clip is under a point, topmost first, and whether the point

@@ -154,6 +154,17 @@ const SECTIONS: &[(&str, &str)] = &[
          Ctrl+scroll or - and + zoom.",
     ),
     (
+        "Automation (Arrange)",
+        "Draws a knob's changes over the song, like a filter opening or a \
+         fade out.\n\n\
+         • + Automation (timeline bar): pick a track, then a knob. A lane \
+         opens under the timeline.\n\
+         • Click to add a point, drag one to move it, right-click a point to \
+         remove it. Right-click empty space to clear or delete the lane.\n\
+         • It plays while the timeline plays; stopped, the knobs are as \
+         you set them.",
+    ),
+    (
         "MIDI blocks (Arrange)",
         "Free notes for one track: any pitch, any length, starting anywhere.\n\n\
          • + MIDI in the Blocks drawer makes one for the selected track. \
