@@ -563,19 +563,20 @@ impl App {
                         _ => {}
                     }
                 }
-                // The sources this module offers, to drag onto knobs.
-                let chips: &[Source] = match title {
-                    "LFO" => &[Source::Lfo1],
-                    "LFO 2" => &[Source::Lfo2],
-                    "Mod envelope" => &[Source::ModEnv, Source::Velocity],
-                    _ => &[],
+                // The source this module offers, to drag onto knobs. Each
+                // sits with the knobs that shape it; Velocity has none, so
+                // it sits with how notes are played.
+                let chip = match title {
+                    "LFO" => Some((Source::Lfo1, "drag onto a knob")),
+                    "LFO 2" => Some((Source::Lfo2, "drag onto a knob")),
+                    "Mod envelope" => Some((Source::ModEnv, "drag onto a knob")),
+                    "Voice" => Some((Source::Velocity, "how hard you play: drag onto a knob")),
+                    _ => None,
                 };
-                if !chips.is_empty() {
+                if let Some((source, hint)) = chip {
                     ui.horizontal(|ui| {
-                        for &c in chips {
-                            source_chip(ui, c);
-                        }
-                        ui.weak("drag onto a knob");
+                        source_chip(ui, source);
+                        ui.weak(hint);
                     });
                 }
                 for (r, row) in m.rows.iter().enumerate() {
