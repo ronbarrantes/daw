@@ -271,6 +271,16 @@ struct TrackVoice {
     pos: f64,
     rate: f64,
     gain: f32,
+    /// The part of the sample it plays, in samples, and its fade: `env`
+    /// rises by `attack_step` each sample, and once released (unless it
+    /// rings out) falls by `release_coef` of itself.
+    begin: f64,
+    end: f64,
+    env: f32,
+    attack_step: f32,
+    release_coef: f32,
+    ring: bool,
+    releasing: bool,
     /// The note it's playing (or last played).
     note: u8,
     /// Which note this is, counting every note the engine starts, so a
@@ -293,6 +303,13 @@ impl TrackVoice {
             pos: 0.0,
             rate: 1.0,
             gain: 1.0,
+            begin: 0.0,
+            end: 0.0,
+            env: 1.0,
+            attack_step: 1.0,
+            release_coef: 0.0,
+            ring: true,
+            releasing: false,
             note: 0,
             generation: 0,
             on: false,
@@ -309,14 +326,24 @@ impl TrackVoice {
     fn sample_out(&mut self) -> f32 {
         let Some(s) = &self.sample else { return 0.0 };
         let i = self.pos as usize;
-        if i + 1 >= s.data.len() {
+        // Stop at the trimmed end (or start, playing backwards).
+        if self.pos < self.begin || self.pos + 1.0 >= self.end || i + 1 >= s.data.len() {
             self.sample = None;
             return 0.0;
         }
         // Linear interpolation, so pitched-up or -down samples stay smooth.
         let frac = (self.pos - i as f64) as f32;
         self.pos += self.rate;
-        s.data[i] + (s.data[i + 1] - s.data[i]) * frac
+        let out = s.data[i] + (s.data[i + 1] - s.data[i]) * frac;
+        if self.releasing && !self.ring {
+            self.env -= self.env * self.release_coef;
+            if self.env < 1e-4 {
+                self.sample = None;
+            }
+        } else if self.env < 1.0 {
+            self.env = (self.env + self.attack_step).min(1.0);
+        }
+        out * self.env
     }
 }
 
@@ -672,14 +699,31 @@ impl Engine {
         voice.live = false;
         match &track.kind {
             Kind::Synth(_) => voice.synth.note_on(note, mode != Mode::Poly, !legato),
-            Kind::Sampler { sample, pitched } => {
+            Kind::Sampler {
+                sample,
+                pitched,
+                shape,
+            } => {
                 let semis = if *pitched {
                     note as f32 - SAMPLE_ROOT as f32
                 } else {
                     0.0
                 };
-                voice.rate = (sample.rate / self.sr * 2f32.powf(semis / 12.0)) as f64;
-                voice.pos = 0.0;
+                let rate = (sample.rate / self.sr * 2f32.powf(semis / 12.0)) as f64;
+                let len = sample.data.len() as f64;
+                let (a, b) = (shape.start.min(shape.end), shape.start.max(shape.end));
+                voice.begin = (a as f64 * len).floor();
+                voice.end = (b as f64 * len).min(len);
+                (voice.pos, voice.rate) = if shape.reverse {
+                    (voice.end - 2.0, -rate)
+                } else {
+                    (voice.begin, rate)
+                };
+                voice.env = if shape.attack > 0.0 { 0.0 } else { 1.0 };
+                voice.attack_step = 1.0 / (shape.attack * self.sr).max(1.0);
+                voice.release_coef = 1.0 - (-1.0 / (shape.release.max(0.005) * self.sr)).exp();
+                voice.ring = shape.ring;
+                voice.releasing = false;
                 voice.sample = Some(sample.clone());
             }
         }
@@ -691,6 +735,7 @@ impl Engine {
         let voice = &mut self.voices[i][v];
         voice.on = false;
         voice.live = false;
+        voice.releasing = true;
         voice.synth.note_off();
         if let Some((note, ch)) = voice.held.take() {
             self.send(Msg::three(0x80 | ch, note, 0));
@@ -2293,6 +2338,81 @@ mod tests {
         // Twelve loud notes at once would clip; the limiter holds them.
         let loud = peak(1.0, &[36, 40, 43, 48, 52, 55, 60, 64, 67, 72, 76, 79]);
         assert!(loud <= crate::fx::LIMIT + 1e-4, "limited: {loud}");
+    }
+
+    /// A track playing a steady 1-second sample, with this shape.
+    fn shaped_sample(shape: crate::project::SampleShape) -> (Project, usize) {
+        let sample = Arc::new(Sample {
+            name: "ramp".into(),
+            // A ramp, so where it's playing shows in the value.
+            data: (0..48_000)
+                .map(|i| 0.1 + 0.8 * i as f32 / 48_000.0)
+                .collect(),
+            rate: 48_000.0,
+            builtin: None,
+        });
+        let mut project = quiet_demo();
+        let mut track = Track::sampler(sample, false);
+        if let Kind::Sampler { shape: s, .. } = &mut track.kind {
+            *s = shape;
+        }
+        track.volume = 1.0;
+        project.tracks.push(track);
+        let i = project.tracks.len() - 1;
+        (project, i)
+    }
+
+    #[test]
+    fn samples_play_their_trimmed_part_forwards_or_backwards() {
+        use crate::project::SampleShape;
+        let half = SampleShape {
+            start: 0.25,
+            end: 0.75,
+            ..SampleShape::DEFAULT
+        };
+        let (project, i) = shaped_sample(half);
+        let mut rig = Rig::new(project);
+        rig.send(Event::Preview { track: i, note: 60 });
+        let out = rig.run(48_000);
+        let sound: Vec<f32> = out.iter().copied().filter(|s| *s != 0.0).collect();
+        assert!(
+            (23_000..=24_100).contains(&sound.len()),
+            "half a second: {}",
+            sound.len()
+        );
+        assert!(sound[0] < sound[sound.len() - 1], "rising");
+        let (project, i) = shaped_sample(SampleShape {
+            reverse: true,
+            ..half
+        });
+        let mut rig = Rig::new(project);
+        rig.send(Event::Preview { track: i, note: 60 });
+        let sound: Vec<f32> = rig.run(48_000).into_iter().filter(|s| *s != 0.0).collect();
+        assert!(sound[0] > sound[sound.len() - 1], "falling: backwards");
+    }
+
+    #[test]
+    fn samples_fade_out_after_the_note_unless_they_ring() {
+        use crate::project::SampleShape;
+        let fade = SampleShape {
+            ring: false,
+            release: 0.01,
+            ..SampleShape::DEFAULT
+        };
+        let (project, i) = shaped_sample(fade);
+        let mut rig = Rig::new(project);
+        rig.send(hold(i, 60));
+        rig.run(4_800);
+        rig.send(Event::Release { track: i, note: 60 });
+        rig.run(4_800);
+        assert!(rig.run(100).iter().all(|s| s.abs() < 1e-3), "faded out");
+        let (project, i) = shaped_sample(SampleShape::DEFAULT);
+        let mut rig = Rig::new(project);
+        rig.send(hold(i, 60));
+        rig.run(4_800);
+        rig.send(Event::Release { track: i, note: 60 });
+        rig.run(4_800);
+        assert!(rig.run(100).iter().any(|s| s.abs() > 0.1), "rings on");
     }
 
     #[test]

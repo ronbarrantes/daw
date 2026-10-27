@@ -278,6 +278,12 @@ A S D F G H J K L         ← white keys (A = C)
 - **Pitched off:** plays as recorded, like a drum hit.
 - **Pitched on:** each note plays the sample higher or lower, like an
   instrument. C at octave 4 is the original pitch.
+- The **Sample** section shows its waveform. **Start** and **End** trim it
+  (the part that plays stays blue), **Fade in** softens the start,
+  **Reverse** plays it backwards (try it on a cymbal).
+- **Ring out** on (the default) plays to the end however short the note,
+  like a drum. Off, it fades out over **Release** when the note ends, for
+  sustained sounds you play like an instrument.
 
 On Arch, the **+ Sample…** file picker needs `xdg-desktop-portal` and
 `xdg-desktop-portal-gtk`. Drag and drop always works.
@@ -503,6 +509,7 @@ Done:
 - ~~Chord names on steps~~
 - ~~Tool bar: Draw, Select and Erase~~
 - ~~Duplicate and reorder tracks~~
+- ~~Sample trim, fade in, release and reverse~~
 
 Next:
 
@@ -517,7 +524,7 @@ Next:
    other than 16 steps
 8. Clip overrides: mute a track, transpose or change the volume of one
    block without unlinking it
-9. Sample editor: chop, trim, ADSR, fades, reverse
+9. Sample editor: chop a sample into slices
 10. A full mixer
 11. Freesound.org sample browser
 12. Mod matrix: connect any source (LFOs, envelopes, velocity) to any knob,

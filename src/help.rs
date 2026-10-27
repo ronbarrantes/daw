@@ -219,7 +219,11 @@ const SECTIONS: &[(&str, &str)] = &[
         "Sample tracks",
         "• Pitched off: plays as recorded, like a drum hit.\n\
          • Pitched on: plays higher or lower with each note, like an \
-         instrument. C at octave 4 is the original pitch.",
+         instrument. C at octave 4 is the original pitch.\n\
+         • Start and End trim the sample (see the waveform), Fade in softens \
+         it, Reverse plays it backwards.\n\
+         • Ring out plays to the end; off, it fades out over Release when \
+         the note ends.",
     ),
     (
         "MIDI gear",

@@ -61,7 +61,36 @@ pub enum Kind {
     Sampler {
         sample: Arc<Sample>,
         pitched: bool,
+        shape: SampleShape,
     },
+}
+
+/// How a sample track plays its sample: which part, and how it fades.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct SampleShape {
+    /// Where it starts and ends, 0-1 of the sample's length.
+    pub start: f32,
+    pub end: f32,
+    /// Fade-in time, in seconds.
+    pub attack: f32,
+    /// Fade-out time after the note ends, in seconds, unless it rings out.
+    pub release: f32,
+    /// Plays to the end however short the note (drums usually do).
+    pub ring: bool,
+    /// Plays backwards.
+    pub reverse: bool,
+}
+
+impl SampleShape {
+    /// The whole sample, ringing out: how sample tracks always played.
+    pub const DEFAULT: SampleShape = SampleShape {
+        start: 0.0,
+        end: 1.0,
+        attack: 0.0,
+        release: 0.1,
+        ring: true,
+        reverse: false,
+    };
 }
 
 /// Rows in the piano roll: one octave, C to B. Each row is its own lane,
@@ -201,7 +230,16 @@ impl Track {
     pub fn sampler(sample: Arc<Sample>, pitched: bool) -> Self {
         // Octave 4 puts C on SAMPLE_ROOT, so C plays the sample as recorded.
         let name = sample.name.clone();
-        Self::new(&name, Kind::Sampler { sample, pitched }, 4)
+        let shape = SampleShape::DEFAULT;
+        Self::new(
+            &name,
+            Kind::Sampler {
+                sample,
+                pitched,
+                shape,
+            },
+            4,
+        )
     }
 
     fn new(name: &str, kind: Kind, octave: u8) -> Self {

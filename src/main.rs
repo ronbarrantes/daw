@@ -40,7 +40,7 @@ use synth::{Param, Unit, PARAMS};
 use undo::Undo;
 use widgets::{
     disclosure_arrow, empty_fill, envelope, knob, lit_fill, meter, playhead, port_picker, scope,
-    DRUM_ON, NOTE_HELD, NOTE_NAMES, NOTE_ON, SCOPE_SPANS,
+    waveform, DRUM_ON, NOTE_HELD, NOTE_NAMES, NOTE_ON, SCOPE_SPANS,
 };
 
 const RECORDING: Color32 = Color32::from_rgb(220, 60, 60);
@@ -122,6 +122,39 @@ const DELAY_FEEDBACK: Param = Param {
     default: Effects::DEFAULT.delay_feedback,
     log: false,
     unit: Unit::Percent,
+};
+
+const SAMPLE_START: Param = Param {
+    name: "Start",
+    min: 0.0,
+    max: 1.0,
+    default: 0.0,
+    log: false,
+    unit: Unit::Percent,
+};
+
+const SAMPLE_END: Param = Param {
+    name: "End",
+    default: 1.0,
+    ..SAMPLE_START
+};
+
+const SAMPLE_ATTACK: Param = Param {
+    name: "Fade in",
+    min: 0.0,
+    max: 1.0,
+    default: 0.0,
+    log: false,
+    unit: Unit::Seconds,
+};
+
+const SAMPLE_RELEASE: Param = Param {
+    name: "Release",
+    min: 0.01,
+    max: 3.0,
+    default: 0.1,
+    log: true,
+    unit: Unit::Seconds,
 };
 
 const HUMANIZE: Param = Param {
@@ -2997,18 +3030,39 @@ impl App {
                     });
                 });
             }
-            Kind::Sampler { sample, pitched } => {
+            Kind::Sampler {
+                sample,
+                pitched,
+                shape,
+            } => {
                 sections.show(ui, "Sample", true, |ui| {
                     ui.label(format!("Sample: {}", sample.name));
                     ui.weak(format!("{:.2} s, {} Hz", sample.seconds(), sample.rate));
-                    ui.add_space(6.0);
-                    let hint = "Off: plays as recorded, like a drum.\n\
-                                On: plays at the pitch of each note, like an instrument (C4 = as recorded).";
-                    changed |= ui
-                        .checkbox(pitched, "Pitched")
-                        .on_hover_text(hint)
-                        .changed();
-                    ui.add_space(6.0);
+                    waveform(ui, &sample.data, shape.start, shape.end, shape.reverse);
+                    ui.horizontal(|ui| {
+                        let hint = "Off: plays as recorded, like a drum.\n\
+                                    On: plays at the pitch of each note, like an instrument (C4 = as recorded).";
+                        changed |= ui.checkbox(pitched, "Pitched").on_hover_text(hint).changed();
+                        changed |= ui
+                            .checkbox(&mut shape.reverse, "Reverse")
+                            .on_hover_text("Play the sample backwards")
+                            .changed();
+                        changed |= ui
+                            .checkbox(&mut shape.ring, "Ring out")
+                            .on_hover_text(
+                                "On: plays to the end however short the note, like a drum.\n\
+                                 Off: fades out (Release) when the note ends.",
+                            )
+                            .changed();
+                    });
+                    ui.horizontal(|ui| {
+                        changed |= knob(ui, &SAMPLE_START, &mut shape.start);
+                        changed |= knob(ui, &SAMPLE_END, &mut shape.end);
+                        changed |= knob(ui, &SAMPLE_ATTACK, &mut shape.attack);
+                        ui.add_enabled_ui(!shape.ring, |ui| {
+                            changed |= knob(ui, &SAMPLE_RELEASE, &mut shape.release);
+                        });
+                    });
                     changed |= knob(ui, &HUMANIZE, &mut track.humanize);
                 });
             }

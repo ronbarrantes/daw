@@ -25,8 +25,8 @@ use zip::{CompressionMethod, ZipArchive, ZipWriter};
 use crate::drums;
 use crate::project::{
     builtin_drums, default_patterns, Block, Clip, Effects, Group, Kind, MidiPart, Pattern, Project,
-    Sample, Step, Track, EMPTY_GRID, LANES, MAX_BLOCKS, MAX_NOTES, MAX_PATTERNS, MAX_SONG_STEPS,
-    MAX_TRACKS, NORMAL, PPS, STEPS,
+    Sample, SampleShape, Step, Track, EMPTY_GRID, LANES, MAX_BLOCKS, MAX_NOTES, MAX_PATTERNS,
+    MAX_SONG_STEPS, MAX_TRACKS, NORMAL, PPS, STEPS,
 };
 use crate::synth;
 
@@ -211,7 +211,28 @@ enum Instrument {
         sample: SampleRef,
         #[serde(default)]
         pitched: bool,
+        /// The part played (0-1), fades in seconds, ringing out and
+        /// playing backwards. Missing ones are the whole sample, ringing.
+        #[serde(default)]
+        start: f32,
+        #[serde(default = "one")]
+        end: f32,
+        #[serde(default)]
+        attack: f32,
+        #[serde(default = "default_release")]
+        release: f32,
+        #[serde(default = "yes")]
+        ring: bool,
+        #[serde(default)]
+        reverse: bool,
     },
+}
+
+fn default_release() -> f32 {
+    SampleShape::DEFAULT.release
+}
+fn yes() -> bool {
+    true
 }
 
 #[derive(Serialize, Deserialize)]
@@ -315,7 +336,11 @@ pub fn to_bytes(project: &Project, bpm: f32) -> Result<Vec<u8>, String> {
                     .map(|(p, v)| (p.name.to_string(), *v))
                     .collect(),
             },
-            Kind::Sampler { sample, pitched } => {
+            Kind::Sampler {
+                sample,
+                pitched,
+                shape,
+            } => {
                 let sample_ref = match sample.builtin {
                     Some(i) => SampleRef {
                         name: sample.name.clone(),
@@ -340,6 +365,12 @@ pub fn to_bytes(project: &Project, bpm: f32) -> Result<Vec<u8>, String> {
                 Instrument::Sampler {
                     sample: sample_ref,
                     pitched: *pitched,
+                    start: shape.start,
+                    end: shape.end,
+                    attack: shape.attack,
+                    release: shape.release,
+                    ring: shape.ring,
+                    reverse: shape.reverse,
                 }
             }
         };
@@ -557,7 +588,24 @@ fn read_zip(bytes: Vec<u8>) -> Result<Song, String> {
                 }
                 Kind::Synth(values)
             }
-            Instrument::Sampler { sample, pitched } => {
+            Instrument::Sampler {
+                sample,
+                pitched,
+                start,
+                end,
+                attack,
+                release,
+                ring,
+                reverse,
+            } => {
+                let shape = SampleShape {
+                    start: start.clamp(0.0, 1.0),
+                    end: end.clamp(0.0, 1.0),
+                    attack: attack.clamp(0.0, 1.0),
+                    release: release.clamp(0.01, 3.0),
+                    ring,
+                    reverse,
+                };
                 let sample = if let Some(name) = &sample.builtin {
                     let i = drums::NAMES
                         .iter()
@@ -576,7 +624,11 @@ fn read_zip(bytes: Vec<u8>) -> Result<Song, String> {
                 } else {
                     return Err(format!("track \"{}\" has no sound", t.name));
                 };
-                Kind::Sampler { sample, pitched }
+                Kind::Sampler {
+                    sample,
+                    pitched,
+                    shape,
+                }
             }
         };
         let mut track = Track::synth(&t.name);
@@ -897,6 +949,17 @@ mod tests {
         });
         project.add_track(Track::sampler(tone.clone(), true));
         project.add_track(Track::sampler(tone, false));
+        let shaped = SampleShape {
+            start: 0.2,
+            end: 0.9,
+            attack: 0.05,
+            release: 0.4,
+            ring: false,
+            reverse: true,
+        };
+        if let Some(Kind::Sampler { shape, .. }) = project.tracks.last_mut().map(|t| &mut t.kind) {
+            *shape = shaped;
+        }
 
         let path = temp("roundtrip");
         save(&path, &project, 97.0).unwrap();
@@ -933,6 +996,10 @@ mod tests {
         assert_eq!(p.groups[0].volume, 0.5);
         assert_eq!(p.effects, project.effects);
         assert_eq!(p.master, 0.55);
+        let Some(Kind::Sampler { shape, .. }) = p.tracks.last().map(|t| &t.kind) else {
+            panic!("a sample track")
+        };
+        assert_eq!(*shape, shaped);
 
         // Built-in drums aren't stored; the shared sample is stored once.
         assert_eq!(stored_samples, 1);
