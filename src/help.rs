@@ -82,7 +82,8 @@ const SECTIONS: &[(&str, &str)] = &[
     (
         "Piano roll",
         "• Click a cell to add a note; click it again to remove it. Several \
-         notes in one column make a chord.\n\
+         notes in one column make a chord; steps show its name (Cm, G7, C/E) \
+         and the title shows it in full.\n\
          • Drag from an empty cell along a row to paint notes; Ctrl-drag \
          erases them.\n\
          • Drag a note sideways to make it longer or shorter (the held part \

@@ -236,7 +236,10 @@ All of this goes out over MIDI too, with velocity.
 ### Piano roll
 
 - Click a cell to add a note; click it again to remove it. Several notes in
-  one column make a **chord**.
+  one column make a **chord**. Steps show the chord's name (Cm, G7, Dm7,
+  C/E for an inversion); long ones end with a dot (BM7·). Hover a step for
+  the full name, and the piano roll's title shows the chord under the
+  pointer or playing.
 - **Drag from an empty cell** along a row to paint notes; **Ctrl-drag**
   (Cmd on Mac) erases them.
 - **Drag a note sideways** to make it longer or shorter (the held part is a
@@ -488,6 +491,7 @@ Done:
 - ~~Arpeggiator~~
 - ~~Master volume, level meter and limiter~~
 - ~~Arp latch, and chords and scales from one note~~
+- ~~Chord names on steps~~
 
 Next:
 

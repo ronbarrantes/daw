@@ -2,6 +2,7 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod audio;
+mod chords;
 mod drums;
 mod export;
 mod file;
@@ -294,6 +295,9 @@ struct App {
     drone_hz: f32,
     /// The theremin pad's note while it's held: (track, MIDI note).
     theremin: Option<(usize, u8)>,
+    /// The piano-roll column the pointer was over last frame, for naming
+    /// its chord.
+    roll_hover: Option<usize>,
     /// Steps being painted or erased by dragging across them.
     paint: Option<Paint>,
     /// The oscilloscope and envelope drawing in the instrument panel.
@@ -402,6 +406,7 @@ impl App {
             notes: notes::State::default(),
             note_drag: None,
             paint: None,
+            roll_hover: None,
             drone: None,
             drone_hz: synth::midi_to_hz(48),
             theremin: None,
@@ -2109,6 +2114,7 @@ impl App {
             let melodic = track.is_melodic();
             let lanes = track.lanes();
             let on_color = if melodic { NOTE_ON } else { DRUM_ON };
+            let base = track.base_note();
             let grid = &mut track.patterns[pattern];
             let shift = ui.input(|i| i.modifiers.shift);
             let pointer = held_pointer(ui);
@@ -2118,9 +2124,19 @@ impl App {
                 // Every lane with something at this step, lowest note first.
                 let notes: Vec<usize> = (0..lanes).filter(|&l| grid[l][step].is_some()).collect();
                 let first = notes.iter().copied().find(|&l| Step::is_hit(&grid[l][step]));
-                // Melodic steps show their lowest note and how many more
-                // make the chord; groove settings show as marks.
+                // Melodic steps show their chord's name (or their lowest
+                // note and how many more); groove settings show as marks.
+                let chord = (melodic && notes.len() > 1)
+                    .then(|| {
+                        let pitches: Vec<u8> = notes.iter().map(|&l| base + l as u8).collect();
+                        chords::name(&pitches)
+                    })
+                    .flatten();
                 let text = match first.and_then(|l| grid[l][step].map(|s| (l, s))) {
+                    Some((_, s)) if chord.is_some() => {
+                        let short = chord.as_ref().map_or("", |c| c.short.as_str());
+                        format!("{}{}", chords::fit(short, 4), step_marks(&s))
+                    }
                     Some((l, s)) => {
                         let name = if melodic { NOTE_NAMES[l] } else { "" };
                         let more = match notes.len() {
@@ -2141,7 +2157,10 @@ impl App {
                     .fill(fill)
                     .stroke(playhead(current == Some(step)))
                     .min_size(Vec2::new(28.0, 26.0));
-                let resp = ui.add(pad);
+                let mut resp = ui.add(pad);
+                if let Some(c) = &chord {
+                    resp = resp.on_hover_text(&c.long);
+                }
                 // Pressing a step turns it on or off; dragging on along the
                 // row does the same to every step it passes.
                 // (A quick tap can press and release within one frame, so
@@ -2275,8 +2294,22 @@ impl App {
             }
         }
         let track = &mut self.project.tracks[i];
+        // The chord at the step playing, or else the column hovered last
+        // frame, named in full.
+        let shown = current.or(self.roll_hover.take());
+        let chord = shown.and_then(|step| {
+            let grid = &track.patterns[pattern];
+            let pitches: Vec<u8> = (0..LANES)
+                .filter(|&l| grid[l][step].is_some())
+                .map(|l| track.base_note() + l as u8)
+                .collect();
+            chords::name(&pitches)
+        });
         ui.horizontal(|ui| {
             ui.strong(format!("Piano roll · {}", track.name));
+            if let Some(c) = &chord {
+                ui.label(RichText::new(format!("Chord: {}", c.long)).color(NOTE_ON));
+            }
             ui.label("Octave");
             if ui
                 .add(egui::DragValue::new(&mut track.octave).range(0..=7))
@@ -2332,6 +2365,9 @@ impl App {
                         .sense(Sense::click_and_drag());
                     let resp = ui.add(cell);
                     columns[step] = resp.rect.center().x;
+                    if resp.hovered() {
+                        self.roll_hover = Some(step);
+                    }
                     let lane_steps = &mut grid[lane];
                     if value.is_some() && !command && self.paint.is_none() {
                         if resp.hovered() {
