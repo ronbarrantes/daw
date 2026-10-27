@@ -2864,7 +2864,10 @@ impl App {
             window = match rect {
                 // Only the scope and theremin have a size to keep; the
                 // others fit their knobs.
-                Some([x, y, w, h]) if big => window.default_pos([x, y]).default_size([w, h]),
+                // (Capped, in case an older version saved a runaway size.)
+                Some([x, y, w, h]) if big => window
+                    .default_pos([x, y])
+                    .default_size([w.min(900.0), h.min(600.0)]),
                 Some([x, y, ..]) => window.default_pos([x, y]),
                 None if big => window.default_size([480.0, 240.0]),
                 None => window,
@@ -3052,11 +3055,9 @@ impl App {
         };
         match title {
             "Scope" => {
-                let size = fill(ui, 80.0);
-                let size = Vec2::new(size.x, (size.y - 20.0).max(60.0));
-                if self.draw_scope(ui, size) {
-                    self.scope_span = (self.scope_span + 1) % SCOPE_SPANS.len();
-                }
+                // The switch first, so the scope can take exactly the room
+                // that's left: asking for more makes a popped-out window
+                // grow every frame.
                 ui.horizontal(|ui| {
                     ui.selectable_value(&mut self.spectrum, false, "Wave")
                         .on_hover_text("The wave's shape over time");
@@ -3065,6 +3066,9 @@ impl App {
                             "How loud each pitch is: low on the left, high on the right",
                         );
                 });
+                if self.draw_scope(ui, fill(ui, 80.0)) {
+                    self.scope_span = (self.scope_span + 1) % SCOPE_SPANS.len();
+                }
                 return;
             }
             "Theremin" => {

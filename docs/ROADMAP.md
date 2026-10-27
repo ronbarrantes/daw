@@ -76,6 +76,7 @@ menus).
 
 Newest first, by release.
 
+- v0.39.1: fix: the popped-out scope window kept growing
 - v0.39: Mutate, and A/B sounds with a morph slider
 - v0.38: filter curve, LFO shapes and a spectrum view
 - v0.37: Wavetable engine; presets can bring their own modulation
