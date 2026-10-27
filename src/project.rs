@@ -173,6 +173,41 @@ pub fn note_head(lane: &Lane, step: usize) -> Option<usize> {
 pub type Grid = [Lane; LANES];
 pub const EMPTY_GRID: Grid = [[None; STEPS]; LANES];
 
+/// How many steps the note starting at `head` lasts: it and its ties.
+pub fn note_len(lane: &Lane, head: usize) -> usize {
+    1 + lane[head + 1..]
+        .iter()
+        .take_while(|s| s.is_some_and(|s| s.tie))
+        .count()
+}
+
+/// Moves the note starting at `from` (lane, step) to start at `to`,
+/// keeping its length and settings, if the steps there are free (it may
+/// overlap where it was). Returns whether it moved.
+pub fn move_note(grid: &mut Grid, from: (usize, usize), to: (usize, usize)) -> bool {
+    let (lane, head) = from;
+    let (to_lane, to_head) = to;
+    if from == to || lane >= LANES || head >= STEPS || !Step::is_hit(&grid[lane][head]) {
+        return false;
+    }
+    let len = note_len(&grid[lane], head);
+    if to_lane >= LANES || to_head + len > STEPS {
+        return false;
+    }
+    let mut moved = *grid;
+    let mut note = [None; STEPS];
+    for (k, cell) in note.iter_mut().enumerate().take(len) {
+        *cell = moved[lane][head + k].take();
+    }
+    let target = &mut moved[to_lane][to_head..to_head + len];
+    if target.iter().any(|s| s.is_some()) {
+        return false;
+    }
+    target.copy_from_slice(&note[..len]);
+    *grid = moved;
+    true
+}
+
 #[derive(Clone)]
 pub struct Track {
     /// Tells tracks apart (not saved), so the engine knows when a slot
@@ -1111,6 +1146,35 @@ impl Project {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn notes_move_with_their_ties_and_settings() {
+        let mut grid = EMPTY_GRID;
+        let loud = Step {
+            velocity: ACCENT,
+            ..Step::HIT
+        };
+        grid[0][2] = Some(loud);
+        grid[0][3] = Some(Step::TIE);
+        grid[0][4] = Some(Step::TIE);
+        grid[5][8] = Some(Step::HIT);
+        assert_eq!(note_len(&grid[0], 2), 3);
+        // Up four rows and one step right, overlapping where it was.
+        assert!(move_note(&mut grid, (0, 2), (4, 3)));
+        assert_eq!(grid[0], [None; STEPS], "gone from where it was");
+        assert_eq!(grid[4][3], Some(loud));
+        assert_eq!(&grid[4][4..6], &[Some(Step::TIE); 2]);
+        // One step left along its own row, overlapping itself.
+        assert!(move_note(&mut grid, (4, 3), (4, 2)));
+        assert_eq!(grid[4][2], Some(loud));
+        assert_eq!(grid[4][5], None);
+        // Not onto another note, nor off the end.
+        assert!(!move_note(&mut grid, (4, 2), (5, 6)));
+        assert!(!move_note(&mut grid, (4, 2), (4, STEPS - 2)));
+        assert_eq!(grid[4][2], Some(loud), "stays put");
+        // Only a note's first step moves it.
+        assert!(!move_note(&mut grid, (4, 3), (4, 9)));
+    }
 
     const LEAD: usize = 4;
 

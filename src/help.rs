@@ -90,8 +90,9 @@ const SECTIONS: &[(&str, &str)] = &[
          and the title shows it in full.\n\
          • Drag from an empty cell along a row to paint notes; Ctrl-drag \
          erases them.\n\
-         • Drag a note sideways to make it longer or shorter (the held part \
-         is darker blue).\n\
+         • Drag a note to move it (up/down: pitch, left/right: time); drag \
+         its right edge to make it longer or shorter (the held part is \
+         darker blue). Both work while it plays.\n\
          • Right-click a note itself for its velocity, chance, ratchet and \
          nudge; shift-click for a ghost note.\n\
          • Octave moves the whole roll up or down.\n\
