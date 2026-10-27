@@ -191,6 +191,10 @@ fn hint(p: &Param) -> &'static str {
              mod envelope onto it to make it move by itself"
         }
         "Sub" => "A sine an octave below, for weight",
+        "LFO retrig" | "LFO 2 retrig" => {
+            "On: the LFO starts its cycle again at every new note, so each\n\
+             note wobbles the same way. Off: it keeps running on its own"
+        }
         "LFO 2 wave" | "LFO 2 rate" | "LFO 2 sync" => {
             "The second LFO's shape, speed and tempo sync. Drag its chip onto a\n\
              knob to make it move that knob"

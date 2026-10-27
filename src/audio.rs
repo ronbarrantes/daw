@@ -752,10 +752,17 @@ impl Engine {
         voice.on = true;
         voice.live = false;
         match &track.kind {
-            Kind::Synth(_) => {
+            Kind::Synth(values) => {
                 voice.synth.note_on(note, mode != Mode::Poly, !legato);
                 if !legato {
                     voice.mod_env.trigger();
+                    // Retrigger: the track's LFOs start their cycle again.
+                    if synth::choice(values[synth::LFO_RETRIG], 2) == 1 {
+                        self.lfos[i].restart();
+                    }
+                    if synth::choice(values[synth::LFO2_RETRIG], 2) == 1 {
+                        self.lfo2s[i].restart();
+                    }
                 }
                 voice.velocity = velocity as f32 / 127.0;
             }
@@ -2391,6 +2398,29 @@ mod tests {
             .iter()
             .fold((f32::MAX, 0.0_f32), |(lo, hi), w| (lo.min(*w), hi.max(*w)));
         assert!(hi > lo * 1.3, "the cutoff sweeps: {windows:?}");
+    }
+
+    #[test]
+    fn retrigger_restarts_the_lfo_at_each_note() {
+        let mut project = quiet_demo();
+        if let Kind::Synth(v) = &mut project.tracks[LEAD].kind {
+            v[synth::LFO_AMOUNT] = 0.5;
+            v[synth::LFO_RATE] = 1.0;
+        }
+        let phase_after_a_note = |project: Project| {
+            let mut rig = Rig::new(project);
+            rig.run(30_000); // the LFO runs on its own meanwhile
+            rig.send(hold(LEAD, 60));
+            rig.run(UPDATE_INTERVAL as usize * 2);
+            rig.engine.lfos[LEAD].phase()
+        };
+        let free = phase_after_a_note(project.clone());
+        assert!(free > 0.5, "free-running: well into its cycle ({free})");
+        if let Kind::Synth(v) = &mut project.tracks[LEAD].kind {
+            v[synth::LFO_RETRIG] = 1.0;
+        }
+        let retrig = phase_after_a_note(project);
+        assert!(retrig < 0.01, "retrigger: back at the top ({retrig})");
     }
 
     #[test]
