@@ -90,6 +90,7 @@ menus).
 
 Newest first, by release.
 
+- v0.43.2: fix: deleting the pattern being edited crashed the app
 - v0.43.1: roadmap: your own wavetables and more drums are next
 - v0.43: searchable drum sound browser; swap sounds while keeping patterns
 - v0.42.1: instrument panel and synth UI extracted into their own module;
