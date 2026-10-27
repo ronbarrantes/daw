@@ -398,7 +398,12 @@ it. Hover for what each one does. To keep scrolling down:
   chords), **Arp rate** how often (1/4 to 1/32, with triplets, in time with
   the tempo), **Octaves** how many octaves it climbs, **Arp gate** how long
   each note lasts. It works on anything held: keys, a MIDI controller, long
-  notes in a MIDI block or tied notes in the piano roll.
+  notes in a MIDI block, tied notes in the piano roll, or the Drone.
+  **Arp notes** picks what it plays: **Held** (the notes you hold), or a
+  chord (**Major**, **Minor**, **7th**, **Maj7**, **Min7**, **Sus4**) or
+  scale (**Major scale**, **Minor scale**, **Pentatonic**) built on the
+  lowest held note, so one finger plays a whole pattern. **Latch** keeps
+  it going after you let go, until you play a new chord or turn Latch off.
 - **Play a note** and **Drone** are at the top of the panel. Play a note
   plays one short note. **Drone** plays a note nonstop, so you can turn
   knobs and hear the sound change; click again to stop. Its slider sets the pitch anywhere, sliding
@@ -482,6 +487,7 @@ Done:
 - ~~Synth presets: piano, basses, strings, brass, organ, bell, pad and more~~
 - ~~Arpeggiator~~
 - ~~Master volume, level meter and limiter~~
+- ~~Arp latch, and chords and scales from one note~~
 
 Next:
 

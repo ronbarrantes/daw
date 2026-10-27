@@ -115,6 +115,33 @@ pub const ARP_MODES: [&str; 6] = ["Off", "Up", "Down", "Up/Down", "Random", "As 
 pub const ARP_RATES: [&str; 6] = ["1/4", "1/8", "1/16", "1/32", "1/8 T", "1/16 T"];
 pub const ARP_RATE_STEPS: [f32; 6] = [4.0, 2.0, 1.0, 0.5, 4.0 / 3.0, 2.0 / 3.0];
 pub const ARP_OCTAVE_CHOICES: [&str; 4] = ["1", "2", "3", "4"];
+pub const OFF_ON: [&str; 2] = ["Off", "On"];
+/// What the arpeggiator plays: the notes held, or a chord or scale built
+/// on the lowest held note, so one finger makes a whole pattern.
+pub const ARP_NOTE_SETS: [&str; 10] = [
+    "Held",
+    "Major",
+    "Minor",
+    "7th",
+    "Maj7",
+    "Min7",
+    "Sus4",
+    "Major scale",
+    "Minor scale",
+    "Pentatonic",
+];
+/// The semitones above the root for each of `ARP_NOTE_SETS` after Held.
+pub const ARP_INTERVALS: [&[u8]; 9] = [
+    &[0, 4, 7],
+    &[0, 3, 7],
+    &[0, 4, 7, 10],
+    &[0, 4, 7, 11],
+    &[0, 3, 7, 10],
+    &[0, 5, 7],
+    &[0, 2, 4, 5, 7, 9, 11],
+    &[0, 2, 3, 5, 7, 8, 10],
+    &[0, 2, 4, 7, 9],
+];
 const RANDOM: usize = 4;
 
 /// How a synth track plays overlapping notes.
@@ -167,6 +194,8 @@ pub const ARP_MODE: usize = 21;
 pub const ARP_RATE: usize = 22;
 pub const ARP_OCTAVES: usize = 23;
 pub const ARP_GATE: usize = 24;
+pub const ARP_LATCH: usize = 25;
+pub const ARP_NOTES: usize = 26;
 
 const fn param(
     name: &'static str,
@@ -189,7 +218,7 @@ const fn param(
 /// The knobs. Song files store them by name, so a renamed knob needs
 /// converting when old songs open (see `file`); the defaults sound like
 /// the synth did before each knob existed.
-pub const PARAMS: [Param; 25] = [
+pub const PARAMS: [Param; 27] = [
     param("Wave 1", 0.0, 4.0, SAW, false, Unit::Wave),
     param("Detune", 0.0, 1.0, 0.2, false, Unit::Percent),
     param("Cutoff", 60.0, 8000.0, 250.0, true, Unit::Hz),
@@ -222,6 +251,15 @@ pub const PARAMS: [Param; 25] = [
         Unit::Choice(&ARP_OCTAVE_CHOICES),
     ),
     param("Arp gate", 0.05, 1.0, 0.5, false, Unit::Percent),
+    param("Latch", 0.0, 1.0, 0.0, false, Unit::Choice(&OFF_ON)),
+    param(
+        "Arp notes",
+        0.0,
+        9.0,
+        0.0,
+        false,
+        Unit::Choice(&ARP_NOTE_SETS),
+    ),
 ];
 
 /// The attack aims past full volume so it actually gets there, then hands
