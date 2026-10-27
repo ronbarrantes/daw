@@ -36,11 +36,12 @@ use project::{
     note_head, set_note_length, Effects, Grid, Kind, Project, Row, Sample, Step, Track, ACCENT,
     EMPTY_GRID, GHOST, LANES, MAX_RATCHET, MAX_TRACKS, NORMAL, STEPS,
 };
-use synth::{Param, Unit, PARAMS};
+use synth::{Param, Source, Unit, PARAMS};
 use undo::Undo;
 use widgets::{
-    disclosure_arrow, empty_fill, envelope, knob, lit_fill, meter, playhead, port_picker, scope,
-    waveform, DRUM_ON, NOTE_HELD, NOTE_NAMES, NOTE_ON, SCOPE_SPANS,
+    disclosure_arrow, empty_fill, envelope, knob, lit_fill, meter, mod_knob, playhead, port_picker,
+    scope, source_chip, source_color, waveform, DRUM_ON, NOTE_HELD, NOTE_NAMES, NOTE_ON,
+    SCOPE_SPANS,
 };
 
 const RECORDING: Color32 = Color32::from_rgb(220, 60, 60);
@@ -622,6 +623,76 @@ fn starts_open(title: &str) -> bool {
     }
 }
 
+/// Synth knob `k`, showing the modulation on it: a ring per source, a
+/// dot where they have it now, a drop target for source chips, and a
+/// right-click menu to change or remove them. Returns whether anything
+/// changed.
+fn synth_knob(
+    ui: &mut egui::Ui,
+    k: usize,
+    value: &mut f32,
+    mods: &mut Vec<synth::Link>,
+    shared: &audio::Shared,
+) -> bool {
+    let rings: Vec<(Color32, f32, bool)> = mods
+        .iter()
+        .filter(|l| l.knob == k)
+        .map(|l| (source_color(l.source), l.amount, l.source.bipolar()))
+        .collect();
+    let (mut changed, resp) = mod_knob(ui, &PARAMS[k], value, &rings, shared.mod_live(k));
+    if !synth::movable(k) {
+        return changed;
+    }
+    if let Some(source) = resp.dnd_hover_payload::<Source>() {
+        let r = resp.rect.expand(4.0);
+        ui.painter().circle_stroke(
+            r.center(),
+            r.width() / 2.0,
+            egui::Stroke::new(2.0_f32, source_color(*source)),
+        );
+    }
+    if let Some(source) = resp.dnd_release_payload::<Source>() {
+        if !mods.iter().any(|l| l.knob == k && l.source == *source) {
+            mods.push(synth::Link {
+                source: *source,
+                knob: k,
+                amount: 0.25,
+            });
+            changed = true;
+        }
+    }
+    if !rings.is_empty() {
+        resp.context_menu(|ui| {
+            ui.label(RichText::new(format!("What moves {}", PARAMS[k].name)).strong());
+            let mut remove = None;
+            for (n, l) in mods.iter_mut().enumerate().filter(|(_, l)| l.knob == k) {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(l.source.name()).color(source_color(l.source)));
+                    let mut percent = l.amount * 100.0;
+                    let slider = egui::Slider::new(&mut percent, -100.0..=100.0).suffix("%");
+                    if ui
+                        .add(slider)
+                        .on_hover_text("How far it moves the knob, either way")
+                        .changed()
+                    {
+                        l.amount = percent / 100.0;
+                        changed = true;
+                    }
+                    if ui.small_button("Remove").clicked() {
+                        remove = Some(n);
+                    }
+                });
+            }
+            if let Some(n) = remove {
+                mods.remove(n);
+                changed = true;
+                ui.close_menu();
+            }
+        });
+    }
+    changed
+}
+
 /// Whether a panel section belongs on a synth track (`synth`) or a sample
 /// track.
 fn section_fits(title: &str, synth: bool) -> bool {
@@ -1025,7 +1096,9 @@ impl eframe::App for App {
         self.shared.scope_on.store(scope, Relaxed);
         // Only redraw continuously while playing (or the scope has sound
         // to show), to keep CPU low when idle.
-        if playing || (scope && self.scope_busy) {
+        // Knobs that modulation moves keep moving on screen.
+        let modulating = in_panel && self.shared.mod_live(0).is_some();
+        if playing || (scope && self.scope_busy) || modulating {
             ctx.request_repaint_after(Duration::from_millis(30));
         }
     }
@@ -2950,6 +3023,7 @@ impl App {
             _ => {}
         }
         let show_scope = self.show_scope;
+        let shared = self.shared.clone();
         let Some(track) = self.project.tracks.get_mut(self.selected) else {
             return;
         };
@@ -2958,10 +3032,26 @@ impl App {
             (_, Kind::Synth(values)) if synth::MODULES.iter().any(|m| m.name == title) => {
                 let m = synth::MODULES.iter().find(|m| m.name == title).unwrap();
                 let at = synth::first_knob(m);
+                // The sources this module offers, to drag onto knobs.
+                let chips: &[Source] = match title {
+                    "LFO" => &[Source::Lfo1],
+                    "LFO 2" => &[Source::Lfo2],
+                    "Mod envelope" => &[Source::ModEnv, Source::Velocity],
+                    _ => &[],
+                };
+                if !chips.is_empty() {
+                    ui.horizontal(|ui| {
+                        for &c in chips {
+                            source_chip(ui, c);
+                        }
+                        ui.weak("drag onto a knob");
+                    });
+                }
                 for (r, row) in m.rows.iter().enumerate() {
                     ui.horizontal(|ui| {
                         for &k in *row {
-                            changed |= knob(ui, &PARAMS[at + k], &mut values[at + k]);
+                            let k = at + k;
+                            changed |= synth_knob(ui, k, &mut values[k], &mut track.mods, &shared);
                         }
                         // Humanize is the track's, not the synth's, but
                         // it's about how notes play.

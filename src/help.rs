@@ -220,7 +220,10 @@ const SECTIONS: &[(&str, &str)] = &[
          while a note is held, Release fades out after.\n\
          • LFO: a wobble on Pitch (vibrato), Filter (wah), Volume \
          (tremolo) or Pan (left and right). Random jumps each cycle (random tones on pitch). LFO sync \
-         ties its speed to the tempo.\n\n\
+         ties its speed to the tempo.\n\
+         • Modulation: drag a coloured chip (LFO 1, LFO 2, Mod env, \
+         Velocity) onto any knob to make it move that knob; a ring shows \
+         how far. Right-click the knob to change how far or remove it.\n\n\
          Try: Cutoff down, Reso up, Env amt up, short F decay = acid bass. \
          Noise with a short decay and high cutoff = a shaker.\n\n\
          The green scope at the top of the panel shows the selected track's \

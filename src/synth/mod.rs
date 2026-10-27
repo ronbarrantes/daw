@@ -15,10 +15,15 @@ mod filter;
 #[cfg(test)]
 mod legacy;
 mod lfo;
+mod lfo2;
+mod modenv;
+pub mod modulation;
 mod osc;
 mod play;
 
 pub use lfo::Lfo;
+pub use modenv::ModEnv;
+pub use modulation::{Link, Source};
 pub use play::Mode;
 
 /// A user-facing synth control.
@@ -159,12 +164,14 @@ pub trait Module {
 /// Every module, in the order the panel shows them. A new module goes
 /// here, and nowhere else, to get its knobs, panel section, saving and
 /// automation.
-pub const MODULES: [&ModuleInfo; 6] = [
+pub const MODULES: [&ModuleInfo; 8] = [
     &osc::INFO,
     &play::INFO,
     &filter::INFO,
     &envelope::INFO,
     &lfo::INFO,
+    &lfo2::INFO,
+    &modenv::INFO,
     &arp::INFO,
 ];
 
@@ -230,9 +237,31 @@ pub const PARAMS: [Param; KNOB_COUNT] = {
     all
 };
 
-/// The knobs automation can move: all but the choices (which would jump).
+/// The knobs automation and modulation can move: all but the choices
+/// (which would jump).
 pub fn automatable() -> impl Iterator<Item = usize> {
-    (0..PARAMS.len()).filter(|&k| !matches!(PARAMS[k].unit, Unit::Choice(_)))
+    (0..PARAMS.len()).filter(|&k| movable(k))
+}
+
+/// Whether knob `k` can be automated or modulated.
+pub fn movable(k: usize) -> bool {
+    k < PARAMS.len() && !matches!(PARAMS[k].unit, Unit::Choice(_))
+}
+
+/// Track-wide modulation: what LFO 2 is doing (it runs once per track,
+/// like LFO 1).
+pub fn lfo2_step(v: &Values, sr: f32, beat: f32) -> f32 {
+    let k = knobs(v, &lfo2::INFO);
+    Lfo::step_with(k[lfo2::RATE], k[lfo2::SYNC], sr, beat)
+}
+
+pub fn lfo2_next(lfo: &mut Lfo, v: &Values, step: f32) -> f32 {
+    lfo.next_with(knobs(v, &lfo2::INFO)[lfo2::SHAPE], step)
+}
+
+/// Moves a voice's mod envelope on by `n` samples.
+pub fn mod_env_advance(env: &mut ModEnv, v: &Values, n: u32, sr: f32) {
+    env.advance(knobs(v, &modenv::INFO), n, sr);
 }
 
 /// The knobs by name across modules, for the rest of the app.
