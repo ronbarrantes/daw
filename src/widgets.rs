@@ -762,6 +762,29 @@ fn fft(re: &mut [f32], im: &mut [f32]) {
     }
 }
 
+/// A small button with an arrow pointing up and out, for popping a panel
+/// section into its own window; `size` matches the × beside it. (The ⬈
+/// glyph comes from the emoji font and draws far too big.)
+pub fn pop_out_button(ui: &mut egui::Ui, size: Vec2) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+    let visuals = ui.style().interact(&resp);
+    let painter = ui.painter();
+    painter.rect(
+        rect,
+        visuals.rounding,
+        visuals.weak_bg_fill,
+        visuals.bg_stroke,
+    );
+    let stroke = Stroke::new(1.5_f32, visuals.fg_stroke.color);
+    let r = rect.shrink2(Vec2::new(rect.width() * 0.3, rect.height() * 0.3));
+    let (from, to) = (r.left_bottom(), r.right_top());
+    painter.line_segment([from, to], stroke);
+    let head = r.width() * 0.6;
+    painter.line_segment([to, to - Vec2::new(head, 0.0)], stroke);
+    painter.line_segment([to, to + Vec2::new(0.0, head)], stroke);
+    resp
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

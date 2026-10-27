@@ -81,6 +81,7 @@ menus).
 
 Newest first, by release.
 
+- v0.41.1: smaller pop-out arrows
 - v0.41: presets reworked for the new engines, in groups, with modulation
   and velocity
 - v0.40.1: an icon for the web version on the iPad home screen
