@@ -23,12 +23,14 @@ pub mod modulation;
 mod osc;
 mod play;
 mod pluck;
+mod presets;
 mod wavetable;
 
 pub use lfo::Lfo;
 pub use modenv::ModEnv;
 pub use modulation::{Link, Source};
 pub use play::Mode;
+pub use presets::{preset, PRESETS, PRESET_GROUPS};
 
 /// A user-facing synth control.
 #[derive(Clone, Copy)]
@@ -81,104 +83,6 @@ impl Param {
     }
 }
 
-/// Ready-made sounds: each changes some knobs from their defaults. They're
-/// synth versions of the instruments, a starting point to adjust.
-#[rustfmt::skip]
-pub const PRESETS: [(&str, &[(usize, f32)]); 28] = [
-    ("Piano (synth)", &[(WAVE, 2.6), (WAVE_2, 1.0), (LEVEL_2, 0.5), (PITCH_2, 12.0), (DETUNE, 0.1),
-        (CUTOFF, 1800.0), (RESONANCE, 0.1), (ENV_AMOUNT, 0.5), (FILTER_DECAY, 0.4),
-        (ATTACK, 0.002), (DECAY, 0.9), (SUSTAIN, 0.0), (RELEASE, 0.4)]),
-    ("Electric piano", &[(WAVE, 0.0), (WAVE_2, 0.0), (LEVEL_2, 0.35), (PITCH_2, 12.0),
-        (CUTOFF, 3000.0), (RESONANCE, 0.0), (ENV_AMOUNT, 0.3), (FILTER_DECAY, 0.3),
-        (ATTACK, 0.002), (DECAY, 1.2), (SUSTAIN, 0.2), (RELEASE, 0.5),
-        (LFO_TARGET, 2.0), (LFO_AMOUNT, 0.15), (LFO_RATE, 4.0)]),
-    ("Guitar pluck", &[(WAVE, 2.0), (WAVE_2, 3.0), (LEVEL_2, 0.5), (DETUNE, 0.15),
-        (CUTOFF, 600.0), (RESONANCE, 0.25), (ENV_AMOUNT, 0.7), (FILTER_DECAY, 0.2),
-        (ATTACK, 0.001), (DECAY, 0.6), (SUSTAIN, 0.0), (RELEASE, 0.25)]),
-    ("Bass", &[(WAVE, 2.0), (WAVE_2, 3.0), (LEVEL_2, 0.7), (PITCH_2, -12.0),
-        (CUTOFF, 300.0), (RESONANCE, 0.3), (ENV_AMOUNT, 0.5), (FILTER_DECAY, 0.15),
-        (ATTACK, 0.002), (DECAY, 0.3), (SUSTAIN, 0.6), (RELEASE, 0.1), (VOICES, 1.0)]),
-    ("Sub bass", &[(WAVE, 0.0), (LEVEL_2, 0.0), (CUTOFF, 400.0), (RESONANCE, 0.0),
-        (ENV_AMOUNT, 0.0), (ATTACK, 0.005), (DECAY, 0.3), (SUSTAIN, 1.0), (RELEASE, 0.1),
-        (VOICES, 1.0)]),
-    ("Acid bass", &[(WAVE, 2.0), (LEVEL_2, 0.0), (CUTOFF, 180.0), (RESONANCE, 0.85),
-        (ENV_AMOUNT, 0.8), (FILTER_DECAY, 0.18), (ATTACK, 0.002), (DECAY, 0.2),
-        (SUSTAIN, 0.5), (RELEASE, 0.08), (VOICES, 2.0), (GLIDE, 0.08)]),
-    ("Strings", &[(WAVE, 2.0), (WAVE_2, 2.0), (DETUNE, 0.8), (CUTOFF, 1500.0),
-        (RESONANCE, 0.1), (ENV_AMOUNT, 0.1), (ATTACK, 0.35), (DECAY, 0.5), (SUSTAIN, 0.85),
-        (RELEASE, 0.7), (LFO_AMOUNT, 0.02), (LFO_RATE, 5.0)]),
-    ("Violin lead", &[(WAVE, 2.0), (WAVE_2, 2.0), (DETUNE, 0.3), (CUTOFF, 2200.0),
-        (RESONANCE, 0.15), (ENV_AMOUNT, 0.2), (ATTACK, 0.12), (SUSTAIN, 0.9),
-        (RELEASE, 0.3), (VOICES, 2.0), (GLIDE, 0.05), (LFO_AMOUNT, 0.03), (LFO_RATE, 5.5)]),
-    ("Brass", &[(WAVE, 2.0), (WAVE_2, 2.0), (DETUNE, 0.4), (CUTOFF, 500.0),
-        (RESONANCE, 0.2), (ENV_AMOUNT, 0.6), (FILTER_DECAY, 0.35), (ATTACK, 0.05),
-        (DECAY, 0.3), (SUSTAIN, 0.8), (RELEASE, 0.2)]),
-    ("Organ", &[(WAVE, 0.0), (WAVE_2, 0.0), (LEVEL_2, 0.7), (PITCH_2, 12.0),
-        (CUTOFF, 5000.0), (RESONANCE, 0.0), (ENV_AMOUNT, 0.0), (ATTACK, 0.005),
-        (DECAY, 0.1), (SUSTAIN, 1.0), (RELEASE, 0.05),
-        (LFO_TARGET, 2.0), (LFO_AMOUNT, 0.1), (LFO_RATE, 6.0)]),
-    ("Flute", &[(WAVE, 0.3), (WAVE_2, 4.0), (LEVEL_2, 0.08), (CUTOFF, 2500.0),
-        (RESONANCE, 0.0), (ENV_AMOUNT, 0.1), (ATTACK, 0.08), (SUSTAIN, 0.9),
-        (RELEASE, 0.2), (LFO_AMOUNT, 0.02), (LFO_RATE, 5.0)]),
-    ("Bell", &[(WAVE, 0.0), (WAVE_2, 0.0), (LEVEL_2, 0.6), (PITCH_2, 19.0), (DETUNE, 0.6),
-        (CUTOFF, 6000.0), (RESONANCE, 0.0), (ENV_AMOUNT, 0.2), (ATTACK, 0.001),
-        (DECAY, 1.8), (SUSTAIN, 0.0), (RELEASE, 1.5)]),
-    ("Warm pad", &[(WAVE, 2.5), (WAVE_2, 2.5), (DETUNE, 0.7), (CUTOFF, 700.0),
-        (RESONANCE, 0.2), (ENV_AMOUNT, 0.15), (FILTER_DECAY, 1.5), (ATTACK, 0.8),
-        (DECAY, 1.0), (SUSTAIN, 0.8), (RELEASE, 1.5),
-        (LFO_TARGET, 1.0), (LFO_AMOUNT, 0.15), (LFO_RATE, 0.3)]),
-    ("Shaker (noise)", &[(WAVE, 4.0), (LEVEL_2, 0.0), (CUTOFF, 7000.0), (RESONANCE, 0.2),
-        (ENV_AMOUNT, 0.0), (ATTACK, 0.005), (DECAY, 0.06), (SUSTAIN, 0.0), (RELEASE, 0.05)]),
-    // The Pluck and Mallet engines ring and die away by themselves, so
-    // their envelope just holds, and the filter stays open.
-    ("Nylon guitar (pluck)", &[(ENGINE, 1.0), (STRING_TONE, 0.45), (STRING_DECAY, 2.5),
-        (PICK_SPOT, 0.2), (CUTOFF, 6000.0), (RESONANCE, 0.0), (ENV_AMOUNT, 0.0),
-        (ATTACK, 0.001), (SUSTAIN, 1.0), (RELEASE, 0.3)]),
-    ("Harp (pluck)", &[(ENGINE, 1.0), (STRING_TONE, 0.7), (STRING_DECAY, 4.0),
-        (PICK_SPOT, 0.1), (CUTOFF, 8000.0), (RESONANCE, 0.0), (ENV_AMOUNT, 0.0),
-        (ATTACK, 0.001), (SUSTAIN, 1.0), (RELEASE, 1.0)]),
-    ("Koto (pluck)", &[(ENGINE, 1.0), (STRING_TONE, 0.85), (STRING_DECAY, 1.5),
-        (PICK_SPOT, 0.05), (CUTOFF, 8000.0), (RESONANCE, 0.0), (ENV_AMOUNT, 0.0),
-        (ATTACK, 0.001), (SUSTAIN, 1.0), (RELEASE, 0.4)]),
-    ("Marimba (mallet)", &[(ENGINE, 2.0), (MATERIAL, 0.0), (HARDNESS, 0.4), (RING, 0.8),
-        (CUTOFF, 8000.0), (RESONANCE, 0.0), (ENV_AMOUNT, 0.0), (ATTACK, 0.001),
-        (SUSTAIN, 1.0), (RELEASE, 0.5)]),
-    ("Vibes (mallet)", &[(ENGINE, 2.0), (MATERIAL, 1.0), (HARDNESS, 0.5), (RING, 3.0),
-        (CUTOFF, 8000.0), (RESONANCE, 0.0), (ENV_AMOUNT, 0.0), (ATTACK, 0.001),
-        (SUSTAIN, 1.0), (RELEASE, 1.0), (LFO_TARGET, 2.0), (LFO_AMOUNT, 0.25),
-        (LFO_RATE, 5.0)]),
-    ("Glass (mallet)", &[(ENGINE, 2.0), (MATERIAL, 2.0), (HARDNESS, 0.7), (RING, 2.5),
-        (CUTOFF, 8000.0), (RESONANCE, 0.0), (ENV_AMOUNT, 0.0), (ATTACK, 0.001),
-        (SUSTAIN, 1.0), (RELEASE, 1.0)]),
-    ("Church bell (mallet)", &[(ENGINE, 2.0), (MATERIAL, 3.0), (HARDNESS, 0.8), (RING, 6.0),
-        (CUTOFF, 8000.0), (RESONANCE, 0.0), (ENV_AMOUNT, 0.0), (ATTACK, 0.001),
-        (SUSTAIN, 1.0), (RELEASE, 2.0)]),
-    ("FM electric piano", &[(ENGINE, 3.0), (FM_RATIO, 1.0), (FM_DEPTH, 0.3), (FM_DECAY, 0.8),
-        (CUTOFF, 6000.0), (RESONANCE, 0.0), (ENV_AMOUNT, 0.0), (ATTACK, 0.002),
-        (DECAY, 1.5), (SUSTAIN, 0.3), (RELEASE, 0.4), (LFO_TARGET, 2.0), (LFO_AMOUNT, 0.12),
-        (LFO_RATE, 4.5)]),
-    ("FM bell", &[(ENGINE, 3.0), (FM_RATIO, 3.5), (FM_DEPTH, 0.5), (FM_DECAY, 2.5),
-        (CUTOFF, 8000.0), (RESONANCE, 0.0), (ENV_AMOUNT, 0.0), (ATTACK, 0.001),
-        (DECAY, 2.0), (SUSTAIN, 0.0), (RELEASE, 2.0)]),
-    ("FM bass", &[(ENGINE, 3.0), (FM_RATIO, 1.0), (FM_DEPTH, 0.55), (FM_DECAY, 0.15),
-        (FM_FEEDBACK, 0.3), (CUTOFF, 2500.0), (RESONANCE, 0.0), (ENV_AMOUNT, 0.0),
-        (ATTACK, 0.002), (DECAY, 0.4), (SUSTAIN, 0.6), (RELEASE, 0.1), (VOICES, 1.0)]),
-    ("Glassy keys (FM)", &[(ENGINE, 3.0), (FM_RATIO, 2.0), (FM_DEPTH, 0.35), (FM_DECAY, 1.2),
-        (CUTOFF, 8000.0), (RESONANCE, 0.0), (ENV_AMOUNT, 0.0), (ATTACK, 0.002),
-        (DECAY, 1.2), (SUSTAIN, 0.4), (RELEASE, 0.6)]),
-    // Wavetables are best moving: these come with LFO 2 or the mod
-    // envelope on Position (see `preset_mods`).
-    ("Morphing pad (wavetable)", &[(ENGINE, 4.0), (WT_TABLE, 0.0), (WT_POSITION, 0.4),
-        (CUTOFF, 3000.0), (RESONANCE, 0.1), (ENV_AMOUNT, 0.0), (ATTACK, 0.6), (DECAY, 1.0),
-        (SUSTAIN, 0.85), (RELEASE, 1.2)]),
-    ("Talking lead (wavetable)", &[(ENGINE, 4.0), (WT_TABLE, 1.0), (WT_POSITION, 0.2),
-        (CUTOFF, 5000.0), (RESONANCE, 0.0), (ENV_AMOUNT, 0.0), (ATTACK, 0.01), (SUSTAIN, 0.9),
-        (RELEASE, 0.2), (VOICES, 2.0), (GLIDE, 0.06)]),
-    ("Wavetable bass", &[(ENGINE, 4.0), (WT_TABLE, 2.0), (WT_POSITION, 0.6), (WT_SUB, 0.6),
-        (CUTOFF, 1200.0), (RESONANCE, 0.2), (ENV_AMOUNT, 0.4), (FILTER_DECAY, 0.2),
-        (ATTACK, 0.002), (DECAY, 0.3), (SUSTAIN, 0.7), (RELEASE, 0.1), (VOICES, 1.0)]),
-];
-
 /// Nudges every knob that can move (but the synth's Volume, and Pitch 2,
 /// which would just go out of tune) by up to
 /// `amount` of its sweep, either way, for happy accidents. Modules named
@@ -220,30 +124,6 @@ pub fn morph(a: &Values, b: &Values, t: f32) -> Values {
         };
     }
     out
-}
-
-/// Modulation that comes with some presets, by preset name.
-pub fn preset_mods(name: &str) -> Vec<Link> {
-    let link = |source, knob, amount| Link {
-        source,
-        knob,
-        amount,
-    };
-    match name {
-        "Morphing pad (wavetable)" => vec![link(Source::Lfo2, WT_POSITION, 0.4)],
-        "Talking lead (wavetable)" => vec![link(Source::ModEnv, WT_POSITION, 0.6)],
-        "Wavetable bass" => vec![link(Source::ModEnv, WT_POSITION, -0.4)],
-        _ => Vec::new(),
-    }
-}
-
-/// The knobs for preset `i`: the defaults with its changes.
-pub fn preset(i: usize) -> Values {
-    let mut values = PARAMS.map(|p| p.default);
-    for &(knob, value) in PRESETS[i].1 {
-        values[knob] = value;
-    }
-    values
 }
 
 pub use arp::{
@@ -431,9 +311,12 @@ pub const LFO_TARGET: usize = first_knob(&lfo::INFO) + lfo::TARGET;
 pub const LFO_SHAPE: usize = first_knob(&lfo::INFO) + lfo::SHAPE;
 pub const LFO_AMOUNT: usize = first_knob(&lfo::INFO) + lfo::AMOUNT;
 pub const LFO_RATE: usize = first_knob(&lfo::INFO) + lfo::RATE;
-#[cfg(test)]
 pub const LFO_SYNC: usize = first_knob(&lfo::INFO) + lfo::SYNC;
 pub const LFO2_SHAPE: usize = first_knob(&lfo2::INFO) + lfo2::SHAPE;
+pub const LFO2_RATE: usize = first_knob(&lfo2::INFO) + lfo2::RATE;
+pub const MOD_ATTACK: usize = first_knob(&modenv::INFO) + modenv::ATTACK;
+pub const MOD_DECAY: usize = first_knob(&modenv::INFO) + modenv::DECAY;
+pub const MOD_SUSTAIN: usize = first_knob(&modenv::INFO) + modenv::SUSTAIN;
 pub const LFO_RETRIG: usize = first_knob(&lfo::INFO) + lfo::RETRIG;
 pub const LFO2_RETRIG: usize = first_knob(&lfo2::INFO) + lfo2::RETRIG;
 pub const ARP_MODE: usize = first_knob(&arp::INFO) + arp::MODE;
@@ -718,11 +601,21 @@ mod tests {
 
     #[test]
     fn presets_stay_within_each_knob_and_make_sound() {
-        for (i, (name, _)) in PRESETS.iter().enumerate() {
-            let values = preset(i);
+        for (i, pre) in PRESETS.iter().enumerate() {
+            let (name, values) = (pre.name, preset(i));
+            assert!(
+                PRESET_GROUPS.contains(&pre.group),
+                "{name}: group {}",
+                pre.group
+            );
             for (p, v) in PARAMS.iter().zip(values) {
                 assert!((p.min..=p.max).contains(&v), "{name}: {} = {v}", p.name);
             }
+            for l in pre.links() {
+                assert!(movable(l.knob), "{name}: modulates {}", PARAMS[l.knob].name);
+            }
+            let named = PRESETS.iter().filter(|q| q.name == name).count();
+            assert_eq!(named, 1, "{name}: one preset per name");
             let out = play(&values, 60, 4_800);
             let peak = out.iter().fold(0.0_f32, |m, s| m.max(s.abs()));
             assert!(peak > 0.01 && peak < 1.0, "{name}: peak {peak}");
@@ -898,7 +791,7 @@ mod tests {
         let mut v = preset(
             PRESETS
                 .iter()
-                .position(|p| p.0.starts_with("Nylon"))
+                .position(|p| p.name.starts_with("Nylon"))
                 .unwrap(),
         );
         v[STRING_DECAY] = 0.5;
@@ -921,7 +814,7 @@ mod tests {
         let mut v = preset(
             PRESETS
                 .iter()
-                .position(|p| p.0.starts_with("Marimba"))
+                .position(|p| p.name.starts_with("Marimba"))
                 .unwrap(),
         );
         v[HARDNESS] = 0.0; // soft: mostly the main partial
@@ -943,7 +836,7 @@ mod tests {
         let v = preset(
             PRESETS
                 .iter()
-                .position(|p| p.0 == "FM electric piano")
+                .position(|p| p.name == "Electric piano")
                 .unwrap(),
         );
         let out = play(&v, 57, 48_000);
@@ -970,7 +863,7 @@ mod tests {
         let mut v = preset(
             PRESETS
                 .iter()
-                .position(|p| p.0 == "Wavetable bass")
+                .position(|p| p.name == "Wavetable bass")
                 .unwrap(),
         );
         v[WT_SUB] = 0.0;

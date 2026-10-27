@@ -426,10 +426,14 @@ it. Hover for what each one does. To keep scrolling down:
   Popped-out windows and where they sit are remembered too.
 
 - **Preset:** shows which preset the knobs match (Custom once you've
-  changed one). Pick a starting sound: Piano (synth), Electric piano, Guitar
-  pluck, Bass, Sub bass, Acid bass, Strings, Violin lead, Brass, Organ,
-  Flute, Bell, Warm pad or Shaker (noise). They're synth versions of the
-  instruments; every knob can be adjusted from there, and Ctrl+Z undoes it.
+  changed one). Pick a starting sound, in groups: **Keys** (piano,
+  electric piano, organ...), **Plucks** (guitars, harp, koto), **Mallets &
+  bells**, **Bass**, **Strings & pads**, **Leads** (brass, violin,
+  flute...) and **Effects** (shaker, wind, random bleeps). Each uses
+  whichever engine suits it, and most bring modulation with them: slow
+  movement on pads and strings, a swell on brass, and Velocity, so notes
+  played harder on a MIDI keyboard come out brighter. Every knob can be
+  adjusted from there, and Ctrl+Z undoes it.
 - **Oscillators:** two of them. **Wave 1** and **Wave 2** each go from
   **sine** (smooth) through **triangle**, **saw** (buzzy) and **square**
   (hollow) to **noise** (hiss); in between blends two shapes. **Level 2**

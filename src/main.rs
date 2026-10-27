@@ -611,7 +611,7 @@ fn preset_name(values: &synth::Values) -> &'static str {
     }
     (0..synth::PRESETS.len())
         .find(|&i| synth::preset(i) == *values)
-        .map_or("Custom", |i| synth::PRESETS[i].0)
+        .map_or("Custom", |i| synth::PRESETS[i].name)
 }
 
 /// A pitch in Hz as a MIDI note to hold and how far to bend it (0-1
@@ -3295,13 +3295,18 @@ impl App {
                 egui::ComboBox::from_id_salt("preset")
                     .selected_text(preset_name(values))
                     .width(150.0)
+                    .height(500.0)
                     .show_ui(ui, |ui| {
-                        for (i, (name, _)) in synth::PRESETS.iter().enumerate() {
-                            if ui.selectable_label(false, *name).clicked() {
-                                *values = synth::preset(i);
-                                // A preset is a whole sound, modulation too.
-                                track.mods = synth::preset_mods(name);
-                                changed = true;
+                        for group in synth::PRESET_GROUPS {
+                            ui.label(RichText::new(group).small().strong().weak());
+                            let presets = synth::PRESETS.iter().enumerate();
+                            for (i, p) in presets.filter(|(_, p)| p.group == group) {
+                                if ui.selectable_label(false, p.name).clicked() {
+                                    *values = synth::preset(i);
+                                    // A preset is a whole sound, modulation too.
+                                    track.mods = p.links();
+                                    changed = true;
+                                }
                             }
                         }
                     })

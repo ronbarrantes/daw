@@ -194,9 +194,10 @@ const SECTIONS: &[(&str, &str)] = &[
          > Instrument panel sections) brings it back. ⬈ pops a section out \
          into its own window to put anywhere (the Scope and Theremin can be \
          made big); its × puts it back.\n\n\
-         • Preset: a starting sound (piano, electric piano, guitar pluck, \
-         basses, strings, violin, brass, organ, flute, bell, pad, shaker), \
-         then adjust any knob.\n\
+         • Preset: a starting sound, in groups (keys, plucks, mallets and \
+         bells, bass, strings and pads, leads, effects). Most bring \
+         modulation too, like Velocity for brighter notes when you play \
+         harder. Then adjust any knob.\n\
          • Oscillators: Wave 1 and Wave 2 go from sine (smooth) through \
          triangle, saw (buzzy) and square (hollow) to noise (hiss). Level 2 \
          is the second one's volume, Pitch 2 its pitch in semitones, Detune \
