@@ -12,12 +12,12 @@ popular synths (Vital, Serum, Drift, Minilogue: you see the sound move, and
 drag an LFO onto a knob; Surge, Massive X, Wavestate: clutter, clicks and
 menus).
 
-1. [ ] **Modules.** Restructure the synth into modules (oscillators, filter,
-   envelopes, LFOs, arpeggiator...) that all follow one contract: their
-   knobs, their inputs and outputs, and how they draw. Same sound, same
-   knobs; old songs load the same. A new module is then one piece of code
-   added to a list, and it gets a panel section, pop-out, saving and
-   modulation for free. See [MODULES.md](MODULES.md) once it exists.
+1. [x] **Modules** (v0.33). The synth is now modules (Oscillators, Voice,
+   Filter, Envelope, LFO, Arpeggiator) that all follow one contract: their
+   knobs, how they're laid out, and the code that reads them. Same sound,
+   same knobs; old songs load the same. A new module gets a panel section,
+   pop-out, saving and automation for free. How to write one:
+   [MODULES.md](MODULES.md).
 2. [ ] **Drag-and-drop modulation.** Drag a source (LFO 1, LFO 2, a mod
    envelope, velocity...) onto any knob. A coloured ring on the knob shows
    how far it moves, and it moves live while the drone plays. One colour
@@ -70,6 +70,7 @@ menus).
 
 Newest first, by release.
 
+- v0.33: the synth is made of modules (same sound); new Voice section
 - v0.32: pop any panel section out into its own window
 - v0.31: automation: draw knob changes over the song
 - v0.30: sample trim, fade in, release and reverse

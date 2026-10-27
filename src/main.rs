@@ -606,18 +606,21 @@ fn free_pitch(hz: f32) -> (u8, f32) {
     (note as u8, exact - note)
 }
 
-/// Every section the instrument panel can show, in order.
-const SECTIONS: [&str; 9] = [
-    "Scope",
-    "Oscillators",
-    "Filter",
-    "Envelope (ADSR)",
-    "LFO",
-    "Arpeggiator",
-    "Sample",
-    "Mix",
-    "Theremin",
-];
+/// Every section the instrument panel can show, in order: the scope, a
+/// section per synth module, then the rest.
+fn section_titles() -> impl Iterator<Item = &'static str> {
+    std::iter::once("Scope")
+        .chain(synth::MODULES.iter().map(|m| m.name))
+        .chain(["Sample", "Mix", "Theremin"])
+}
+
+/// Whether a section starts unfolded.
+fn starts_open(title: &str) -> bool {
+    match synth::MODULES.iter().find(|m| m.name == title) {
+        Some(m) => m.open,
+        None => title != "Theremin",
+    }
+}
 
 /// Whether a panel section belongs on a synth track (`synth`) or a sample
 /// track.
@@ -1655,7 +1658,7 @@ impl App {
                     "Scope and envelope (instrument panel)",
                 );
                 ui.menu_button("Instrument panel sections", |ui| {
-                    for t in SECTIONS {
+                    for t in section_titles() {
                         let mut on = !self.closed_sections.iter().any(|c| c == t);
                         if ui.checkbox(&mut on, t).changed() {
                             self.closed_sections.retain(|c| c != t);
@@ -2952,38 +2955,22 @@ impl App {
         };
         let mut changed = false;
         match (title, &mut track.kind) {
-            ("Oscillators", Kind::Synth(values)) => {
-                ui.horizontal(|ui| {
-                    for i in [synth::WAVE, synth::WAVE_2, synth::LEVEL_2, synth::PITCH_2] {
-                        changed |= knob(ui, &PARAMS[i], &mut values[i]);
-                    }
-                });
-                ui.horizontal(|ui| {
-                    for i in [synth::DETUNE, synth::VOICES, synth::GLIDE] {
-                        changed |= knob(ui, &PARAMS[i], &mut values[i]);
-                    }
-                    changed |= knob(ui, &HUMANIZE, &mut track.humanize);
-                });
-            }
-            ("Filter", Kind::Synth(values)) => {
-                ui.horizontal(|ui| {
-                    for i in [
-                        synth::CUTOFF,
-                        synth::RESONANCE,
-                        synth::ENV_AMOUNT,
-                        synth::FILTER_DECAY,
-                    ] {
-                        changed |= knob(ui, &PARAMS[i], &mut values[i]);
-                    }
-                });
-            }
-            ("Envelope (ADSR)", Kind::Synth(values)) => {
-                ui.horizontal(|ui| {
-                    for i in [synth::ATTACK, synth::DECAY, synth::SUSTAIN, synth::RELEASE] {
-                        changed |= knob(ui, &PARAMS[i], &mut values[i]);
-                    }
-                });
-                if show_scope {
+            (_, Kind::Synth(values)) if synth::MODULES.iter().any(|m| m.name == title) => {
+                let m = synth::MODULES.iter().find(|m| m.name == title).unwrap();
+                let at = synth::first_knob(m);
+                for (r, row) in m.rows.iter().enumerate() {
+                    ui.horizontal(|ui| {
+                        for &k in *row {
+                            changed |= knob(ui, &PARAMS[at + k], &mut values[at + k]);
+                        }
+                        // Humanize is the track's, not the synth's, but
+                        // it's about how notes play.
+                        if title == "Voice" && r + 1 == m.rows.len() {
+                            changed |= knob(ui, &HUMANIZE, &mut track.humanize);
+                        }
+                    });
+                }
+                if show_scope && title == "Envelope (ADSR)" {
                     envelope(
                         ui,
                         values[synth::ATTACK],
@@ -2992,39 +2979,6 @@ impl App {
                         values[synth::RELEASE],
                     );
                 }
-            }
-            ("LFO", Kind::Synth(values)) => {
-                ui.horizontal(|ui| {
-                    for i in [
-                        synth::LFO_TARGET,
-                        synth::LFO_SHAPE,
-                        synth::LFO_AMOUNT,
-                        synth::LFO_RATE,
-                    ] {
-                        changed |= knob(ui, &PARAMS[i], &mut values[i]);
-                    }
-                });
-                ui.horizontal(|ui| {
-                    let i = synth::LFO_SYNC;
-                    changed |= knob(ui, &PARAMS[i], &mut values[i]);
-                });
-            }
-            ("Arpeggiator", Kind::Synth(values)) => {
-                ui.horizontal(|ui| {
-                    for i in [
-                        synth::ARP_MODE,
-                        synth::ARP_RATE,
-                        synth::ARP_OCTAVES,
-                        synth::ARP_GATE,
-                    ] {
-                        changed |= knob(ui, &PARAMS[i], &mut values[i]);
-                    }
-                });
-                ui.horizontal(|ui| {
-                    for i in [synth::ARP_NOTES, synth::ARP_LATCH] {
-                        changed |= knob(ui, &PARAMS[i], &mut values[i]);
-                    }
-                });
             }
             (
                 "Sample",
@@ -3177,18 +3131,18 @@ impl App {
         if changed {
             self.dirty = true;
         }
-        for title in SECTIONS.into_iter().skip(1) {
+        for title in section_titles().skip(1) {
             if here(self, title) {
-                let open = !matches!(title, "Arpeggiator" | "Theremin");
-                sections.show(ui, title, open, |ui| self.section(ui, title, false));
+                sections.show(ui, title, starts_open(title), |ui| {
+                    self.section(ui, title, false)
+                });
             }
         }
 
         ui.add_space(12.0);
         ui.horizontal(|ui| {
             // Closed sections that belong on this kind of track.
-            let reopen: Vec<&str> = SECTIONS
-                .into_iter()
+            let reopen: Vec<&str> = section_titles()
                 .filter(|t| section_fits(t, synth) && !sections.is_open(t))
                 .collect();
             if !reopen.is_empty() {
