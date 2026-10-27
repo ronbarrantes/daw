@@ -12,6 +12,7 @@
 mod arp;
 mod envelope;
 mod filter;
+mod fm;
 #[cfg(test)]
 mod legacy;
 mod lfo;
@@ -53,6 +54,8 @@ pub enum Unit {
     Wave,
     /// Semitones, shown as +7 or -12.
     Semitones,
+    /// A multiple, shown as x2 or x3.5.
+    Ratio,
     /// One of a list, by rounded index.
     Choice(&'static [&'static str]),
 }
@@ -80,7 +83,7 @@ impl Param {
 /// Ready-made sounds: each changes some knobs from their defaults. They're
 /// synth versions of the instruments, a starting point to adjust.
 #[rustfmt::skip]
-pub const PRESETS: [(&str, &[(usize, f32)]); 21] = [
+pub const PRESETS: [(&str, &[(usize, f32)]); 25] = [
     ("Piano (synth)", &[(WAVE, 2.6), (WAVE_2, 1.0), (LEVEL_2, 0.5), (PITCH_2, 12.0), (DETUNE, 0.1),
         (CUTOFF, 1800.0), (RESONANCE, 0.1), (ENV_AMOUNT, 0.5), (FILTER_DECAY, 0.4),
         (ATTACK, 0.002), (DECAY, 0.9), (SUSTAIN, 0.0), (RELEASE, 0.4)]),
@@ -149,6 +152,19 @@ pub const PRESETS: [(&str, &[(usize, f32)]); 21] = [
     ("Church bell (mallet)", &[(ENGINE, 2.0), (MATERIAL, 3.0), (HARDNESS, 0.8), (RING, 6.0),
         (CUTOFF, 8000.0), (RESONANCE, 0.0), (ENV_AMOUNT, 0.0), (ATTACK, 0.001),
         (SUSTAIN, 1.0), (RELEASE, 2.0)]),
+    ("FM electric piano", &[(ENGINE, 3.0), (FM_RATIO, 1.0), (FM_DEPTH, 0.3), (FM_DECAY, 0.8),
+        (CUTOFF, 6000.0), (RESONANCE, 0.0), (ENV_AMOUNT, 0.0), (ATTACK, 0.002),
+        (DECAY, 1.5), (SUSTAIN, 0.3), (RELEASE, 0.4), (LFO_TARGET, 2.0), (LFO_AMOUNT, 0.12),
+        (LFO_RATE, 4.5)]),
+    ("FM bell", &[(ENGINE, 3.0), (FM_RATIO, 3.5), (FM_DEPTH, 0.5), (FM_DECAY, 2.5),
+        (CUTOFF, 8000.0), (RESONANCE, 0.0), (ENV_AMOUNT, 0.0), (ATTACK, 0.001),
+        (DECAY, 2.0), (SUSTAIN, 0.0), (RELEASE, 2.0)]),
+    ("FM bass", &[(ENGINE, 3.0), (FM_RATIO, 1.0), (FM_DEPTH, 0.55), (FM_DECAY, 0.15),
+        (FM_FEEDBACK, 0.3), (CUTOFF, 2500.0), (RESONANCE, 0.0), (ENV_AMOUNT, 0.0),
+        (ATTACK, 0.002), (DECAY, 0.4), (SUSTAIN, 0.6), (RELEASE, 0.1), (VOICES, 1.0)]),
+    ("Glassy keys (FM)", &[(ENGINE, 3.0), (FM_RATIO, 2.0), (FM_DEPTH, 0.35), (FM_DECAY, 1.2),
+        (CUTOFF, 8000.0), (RESONANCE, 0.0), (ENV_AMOUNT, 0.0), (ATTACK, 0.002),
+        (DECAY, 1.2), (SUSTAIN, 0.4), (RELEASE, 0.6)]),
 ];
 
 /// The knobs for preset `i`: the defaults with its changes.
@@ -166,7 +182,7 @@ pub use arp::{
 };
 pub use lfo::PAN as LFO_PAN;
 pub use osc::{SAW, WAVES};
-pub use play::{ANALOG, ENGINES, MALLET, PLUCK};
+pub use play::{ANALOG, ENGINES, FM, MALLET, PLUCK};
 
 /// What a module is: its name (the heading of its section in the
 /// instrument panel), its knobs, and how they're laid out.
@@ -205,11 +221,12 @@ pub trait Module {
 /// Every module, in the order the panel shows them. A new module goes
 /// here, and nowhere else, to get its knobs, panel section, saving and
 /// automation.
-pub const MODULES: [&ModuleInfo; 10] = [
+pub const MODULES: [&ModuleInfo; 11] = [
     &play::INFO,
     &osc::INFO,
     &pluck::INFO,
     &mallet::INFO,
+    &fm::INFO,
     &filter::INFO,
     &envelope::INFO,
     &lfo::INFO,
@@ -323,6 +340,10 @@ pub const PICK_SPOT: usize = first_knob(&pluck::INFO) + pluck::POSITION;
 pub const MATERIAL: usize = first_knob(&mallet::INFO) + mallet::MATERIAL;
 pub const HARDNESS: usize = first_knob(&mallet::INFO) + mallet::HARDNESS;
 pub const RING: usize = first_knob(&mallet::INFO) + mallet::DECAY;
+pub const FM_RATIO: usize = first_knob(&fm::INFO) + fm::RATIO;
+pub const FM_DEPTH: usize = first_knob(&fm::INFO) + fm::DEPTH;
+pub const FM_DECAY: usize = first_knob(&fm::INFO) + fm::DECAY;
+pub const FM_FEEDBACK: usize = first_knob(&fm::INFO) + fm::FEEDBACK;
 pub const CUTOFF: usize = first_knob(&filter::INFO) + filter::CUTOFF;
 pub const RESONANCE: usize = first_knob(&filter::INFO) + filter::RESONANCE;
 pub const ENV_AMOUNT: usize = first_knob(&filter::INFO) + filter::ENV_AMOUNT;
@@ -402,6 +423,7 @@ pub struct Voice {
     osc: osc::Osc,
     pluck: pluck::Pluck,
     mallet: mallet::Mallet,
+    fm: fm::Fm,
     /// Which of `ENGINES` makes the sound.
     engine: usize,
     filter: filter::Filter,
@@ -431,6 +453,7 @@ impl Voice {
             osc: osc::Osc::default(),
             pluck: pluck::Pluck::default(),
             mallet: mallet::Mallet::default(),
+            fm: fm::Fm::default(),
             engine: ANALOG,
             filter: filter::Filter::default(),
             env: envelope::Envelope::default(),
@@ -453,6 +476,7 @@ impl Voice {
         self.osc.set_knobs(knobs(v, &osc::INFO), sr);
         self.pluck.set_knobs(knobs(v, &pluck::INFO), sr);
         self.mallet.set_knobs(knobs(v, &mallet::INFO), sr);
+        self.fm.set_knobs(knobs(v, &fm::INFO), sr);
         self.engine = engine(v);
         self.filter.set_knobs(knobs(v, &filter::INFO), sr);
         self.env.set_knobs(knobs(v, &envelope::INFO), sr);
@@ -494,6 +518,7 @@ impl Voice {
             match self.engine {
                 PLUCK => self.pluck.trigger(self.target, self.sr),
                 MALLET => self.mallet.trigger(),
+                FM => self.fm.trigger(),
                 _ => {}
             }
         }
@@ -542,6 +567,7 @@ impl Voice {
         let osc = match self.engine {
             PLUCK => self.pluck.next(freq, self.sr),
             MALLET => self.mallet.next(freq, self.sr),
+            FM => self.fm.next(freq, self.sr),
             _ => self.osc.next(freq, self.sr),
         };
         let low = self.filter.process(osc, cutoff_octaves, self.sr);
@@ -829,5 +855,32 @@ mod tests {
             .iter()
             .fold(0.0_f32, |m, s| m.max(s.abs()));
         assert!(quiet < 0.01, "a short ring dies: {quiet}");
+    }
+
+    #[test]
+    fn fm_plays_in_tune_and_mellows_as_it_rings() {
+        let v = preset(
+            PRESETS
+                .iter()
+                .position(|p| p.0 == "FM electric piano")
+                .unwrap(),
+        );
+        let out = play(&v, 57, 48_000);
+        let hz = pitch_of(&out[480..10_000]);
+        assert!((hz / midi_to_hz(57) - 1.0).abs() < 0.03, "{hz} Hz");
+        // Brightness: how much the wave jumps from sample to sample,
+        // relative to how loud it is.
+        let bright = |o: &[f32]| {
+            let jumps: f32 = o.windows(2).map(|w| (w[1] - w[0]).abs()).sum();
+            jumps / o.iter().map(|s| s.abs()).sum::<f32>()
+        };
+        let mut deep = v;
+        deep[FM_DEPTH] = 1.0;
+        deep[FM_DECAY] = 0.2;
+        deep[SUSTAIN] = 1.0;
+        deep[LFO_AMOUNT] = 0.0;
+        let out = play(&deep, 45, 48_000);
+        let (early, late) = (bright(&out[200..2_600]), bright(&out[40_000..42_400]));
+        assert!(early > late * 1.2, "mellows: {early} then {late}");
     }
 }

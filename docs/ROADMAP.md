@@ -27,7 +27,8 @@ menus).
    - [x] Pluck and Mallet engines (v0.35): a plucked string
      (Karplus-Strong) and a struck bar, glass or bell (modal), picked with
      Voice > Engine, with presets. Written from scratch, small and light.
-   - [ ] FM engine (electric piano, bells, glassy keys, bass)
+   - [x] FM engine (v0.36): two operators with ratio, depth, a decay that
+     mellows each note, and feedback; four presets
    - [ ] Wavetable engine
    - [ ] Visuals: a filter curve that moves, the LFO's shape, a spectrum
    - [ ] Mutate (nudge knobs by an amount, with locks), A/B snapshots and a
@@ -70,6 +71,7 @@ menus).
 
 Newest first, by release.
 
+- v0.36: FM engine (electric piano, bells, basses, glassy keys)
 - v0.35: Pluck and Mallet engines (strings, marimba, vibes, glass, bells)
 - v0.34: drag-and-drop modulation; LFO 2 and the Mod envelope
 - v0.33: the synth is made of modules (same sound); new Voice section

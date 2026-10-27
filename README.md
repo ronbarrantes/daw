@@ -432,8 +432,8 @@ it. Hover for what each one does. To keep scrolling down:
   out of tune to thicken the sound.
 - **Voice:** what makes the sound and how notes play. **Engine** picks
   the sound: **Analog** (the two oscillators below), **Pluck** (a plucked
-  string) or **Mallet** (a struck bar, glass or bell); each shows its own
-  section. **Voices** on **Poly** plays chords, **Mono**
+  string), **Mallet** (a struck bar, glass or bell) or **FM** (electric
+  piano, bells, basses); each shows its own section. **Voices** on **Poly** plays chords, **Mono**
   one note at a time, and **Legato** one at a time where a note played
   while another is held just changes pitch without restarting. **Glide**
   slides between notes in Mono and Legato (portamento). **Humanize** varies
@@ -447,6 +447,11 @@ it. Hover for what each one does. To keep scrolling down:
   (harder brings out the higher ringing), **Ring** how long it rings. Try
   the presets ending in (pluck) and (mallet), which open the filter up:
   with the filter low these sound muffled.
+- **FM** (Engine on FM): one wave bends another's pitch so fast it makes
+  new tones, bright at the start of each note and mellowing as it rings.
+  **FM ratio** sets the character (x1 and x2 like instruments, x3.5 like
+  a bell), **FM depth** how bright, **FM decay** how fast it mellows,
+  **FM feedback** adds grit. Try the FM presets.
 - **Arpeggiator** (folded; click it open): plays held notes one at a time
   in a pattern instead of together. **Arp** picks the pattern (**Up**,
   **Down**, **Up/Down**, **Random**, **As played**, or **Off** for normal

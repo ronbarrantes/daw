@@ -143,6 +143,14 @@ pub fn format_value(p: &Param, v: f32) -> String {
             0 => "0".into(),
             n => format!("{n:+}"),
         },
+        Unit::Ratio => {
+            let snapped = (v * 2.0).round() / 2.0;
+            if (v - snapped).abs() < 0.06 {
+                format!("x{snapped}")
+            } else {
+                format!("x{v:.2}")
+            }
+        }
         Unit::Choice(names) => names[choice(v, names.len())].into(),
     }
 }
@@ -156,6 +164,32 @@ fn hint(p: &Param) -> &'static str {
         "Level 2" => "How loud the second oscillator is; 0 = just oscillator 1",
         "Pitch 2" => "Second oscillator's pitch in semitones: +12 = an octave up, +7 = a fifth",
         "Detune" => "Fine pitch difference between the two oscillators; higher = thicker",
+        "Engine" => {
+            "What makes the sound: Analog (two oscillators), Pluck (a plucked\n\
+             string), Mallet (marimba, vibes, glass, bell) or FM (electric piano,\n\
+             bells, basses). Each has its own section below."
+        }
+        "String tone" => "Dull (low) to bright (high), like plucking with a thumb or a pick",
+        "String decay" => "How long the string rings",
+        "Pick spot" => "Where it's plucked: near the end is bright, near the middle hollow",
+        "Material" => "What's struck: marimba, vibraphone, glass or a bell",
+        "Hardness" => "A soft or hard mallet: harder brings out the higher ringing",
+        "Ring" => "How long it rings after the strike",
+        "FM ratio" => {
+            "The modulator's pitch, times the note's. Whole numbers (x1, x2, x3)\n\
+             sound like instruments; odd ones like x3.5 sound like bells"
+        }
+        "FM depth" => "How much it changes the tone: 0 is a pure sine, more is brighter",
+        "FM decay" => "How fast the bright start mellows",
+        "FM feedback" => "Feeds the modulator back into itself: grittier, up to noisy",
+        "LFO 2 wave" | "LFO 2 rate" | "LFO 2 sync" => {
+            "The second LFO's shape, speed and tempo sync. Drag its chip onto a\n\
+             knob to make it move that knob"
+        }
+        "Mod attack" | "Mod decay" | "Mod sustain" => {
+            "The mod envelope: rises over Attack when a note starts, falls over\n\
+             Decay to Sustain. Drag its chip onto a knob to make it move that knob"
+        }
         "LFO rate" => "How fast the LFO wobbles (when LFO sync is off)",
         "LFO amt" => "How much the LFO wobbles its target; 0 = off",
         "LFO wave" => {
