@@ -201,9 +201,10 @@ const SECTIONS: &[(&str, &str)] = &[
          is the second one's volume, Pitch 2 its pitch in semitones, Detune \
          thickens.\n\
          • Voice: Engine picks the sound: Analog (two oscillators), Pluck \
-         (a plucked string), Mallet (marimba, vibes, glass, bell) or FM \
+         (a plucked string), Mallet (marimba, vibes, glass, bell), FM \
          (electric piano, bells, basses: Ratio sets the character, Depth the \
-         brightness). Try the (pluck), (mallet) and FM presets. Voices is Poly (chords), Mono (one note at a time) or Legato (one \
+         brightness) or Wavetable (sweep Position, or drag LFO 2 onto it). \
+         Try the (pluck), (mallet), FM and wavetable presets. Voices is Poly (chords), Mono (one note at a time) or Legato (one \
          at a time, overlapping notes don't restart). Glide slides between \
          notes in Mono and Legato.\n\
          • Arpeggiator: plays held notes one at a time in a pattern (Up, \

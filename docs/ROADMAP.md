@@ -29,7 +29,9 @@ menus).
      Voice > Engine, with presets. Written from scratch, small and light.
    - [x] FM engine (v0.36): two operators with ratio, depth, a decay that
      mellows each note, and feedback; four presets
-   - [ ] Wavetable engine
+   - [x] Wavetable engine (v0.37): four built-in tables (Basic, Vocal,
+     Hollow, Metal) with Position and Sub, band-limited per octave;
+     presets that come with modulation on Position
    - [ ] Visuals: a filter curve that moves, the LFO's shape, a spectrum
    - [ ] Mutate (nudge knobs by an amount, with locks), A/B snapshots and a
      pad that morphs between them
@@ -71,6 +73,7 @@ menus).
 
 Newest first, by release.
 
+- v0.37: Wavetable engine; presets can bring their own modulation
 - v0.36: FM engine (electric piano, bells, basses, glassy keys)
 - v0.35: Pluck and Mallet engines (strings, marimba, vibes, glass, bells)
 - v0.34: drag-and-drop modulation; LFO 2 and the Mod envelope

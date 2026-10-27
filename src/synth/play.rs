@@ -1,6 +1,6 @@
 //! The Voice module: how the synth plays its notes. Engine picks what
 //! makes the sound (Analog oscillators, a plucked string, a struck
-//! mallet, FM). Poly plays chords; Mono and Legato play one note at a time,
+//! mallet, FM, a wavetable). Poly plays chords; Mono and Legato play one note at a time,
 //! and Glide slides between them.
 //! Volume is the synth's own level (automation can move it; the track's
 //! Mix volume comes after).
@@ -14,11 +14,12 @@ pub const ENGINE: usize = 3;
 
 pub const MODES: [&str; 3] = ["Poly", "Mono", "Legato"];
 /// What makes the sound; each has its own panel section.
-pub const ENGINES: [&str; 4] = ["Analog", "Pluck", "Mallet", "FM"];
+pub const ENGINES: [&str; 5] = ["Analog", "Pluck", "Mallet", "FM", "Wavetable"];
 pub const ANALOG: usize = 0;
 pub const PLUCK: usize = 1;
 pub const MALLET: usize = 2;
 pub const FM: usize = 3;
+pub const WAVETABLE: usize = 4;
 
 pub const INFO: ModuleInfo = ModuleInfo {
     name: "Voice",
@@ -26,7 +27,7 @@ pub const INFO: ModuleInfo = ModuleInfo {
         param("Voices", 0.0, 2.0, 0.0, false, Unit::Choice(&MODES)),
         param("Glide", 0.0, 1.0, 0.0, false, Unit::Seconds),
         param("Volume", 0.0, 1.0, 0.7, false, Unit::Percent),
-        param("Engine", 0.0, 3.0, 0.0, false, Unit::Choice(&ENGINES)),
+        param("Engine", 0.0, 4.0, 0.0, false, Unit::Choice(&ENGINES)),
     ],
     rows: &[&[ENGINE, VOICES, GLIDE]],
     open: true,

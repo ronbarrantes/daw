@@ -13,6 +13,7 @@ engine, a visual, an effect) plugs in without touching the rest of the app.
 | Pluck | `src/synth/pluck.rs` | the Pluck engine: a plucked string (Karplus-Strong) |
 | Mallet | `src/synth/mallet.rs` | the Mallet engine: struck bar, glass or bell (modal) |
 | FM | `src/synth/fm.rs` | the FM engine: two sine operators, with feedback |
+| Wavetable | `src/synth/wavetable.rs` | the Wavetable engine: built-in tables, band-limited (built by `warm_up` before the engine starts) |
 | Filter | `src/synth/filter.rs` | resonant low-pass with its own decay envelope |
 | Envelope (ADSR) | `src/synth/envelope.rs` | each note's volume over time |
 | LFO | `src/synth/lfo.rs` | a wobble on pitch, filter, volume or pan (one per track) |
