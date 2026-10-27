@@ -200,7 +200,9 @@ const SECTIONS: &[(&str, &str)] = &[
          triangle, saw (buzzy) and square (hollow) to noise (hiss). Level 2 \
          is the second one's volume, Pitch 2 its pitch in semitones, Detune \
          thickens.\n\
-         • Voice: Voices is Poly (chords), Mono (one note at a time) or Legato (one \
+         • Voice: Engine picks the sound: Analog (two oscillators), Pluck \
+         (a plucked string) or Mallet (marimba, vibes, glass, bell). Try \
+         the (pluck) and (mallet) presets. Voices is Poly (chords), Mono (one note at a time) or Legato (one \
          at a time, overlapping notes don't restart). Glide slides between \
          notes in Mono and Legato.\n\
          • Arpeggiator: plays held notes one at a time in a pattern (Up, \

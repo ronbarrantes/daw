@@ -2789,6 +2789,16 @@ impl App {
         scope(ui, &samples, rate, SCOPE_SPANS[self.scope_span], size)
     }
 
+    /// The engine a section belongs to, if the selected track has picked
+    /// a different one (so the section is hidden).
+    fn other_engine(&self, title: &str) -> Option<&'static str> {
+        let m = synth::MODULES.iter().find(|m| m.name == title)?;
+        match &self.project.tracks.get(self.selected)?.kind {
+            Kind::Synth(v) if !synth::shown(m, v) => m.engine.map(|e| synth::ENGINES[e]),
+            _ => None,
+        }
+    }
+
     fn is_popped(&self, title: &str) -> bool {
         self.popped.iter().any(|(t, _)| t == title)
     }
@@ -2840,6 +2850,10 @@ impl App {
                 inner = Some(ui.available_size());
                 if name.is_none() {
                     ui.weak("Add a track to get started.");
+                } else if let Some(engine) = self.other_engine(&title) {
+                    ui.weak(format!(
+                        "Pick the {engine} engine (in the Voice section) to use this."
+                    ));
                 } else if !section_fits(&title, synth) {
                     let kind = if title == "Sample" { "sample" } else { "synth" };
                     ui.weak(format!("Select a {kind} track to see its {title}."));
@@ -3153,7 +3167,10 @@ impl App {
         // A section shows here unless it doesn't fit this kind of track or
         // it's popped out into its own window.
         let here = |app: &Self, t: &str| {
-            section_fits(t, synth) && !app.is_popped(t) && (t != "Scope" || app.show_scope)
+            section_fits(t, synth)
+                && !app.is_popped(t)
+                && (t != "Scope" || app.show_scope)
+                && app.other_engine(t).is_none()
         };
         if here(self, "Scope") {
             sections.show(ui, "Scope", true, |ui| self.section(ui, "Scope", false));

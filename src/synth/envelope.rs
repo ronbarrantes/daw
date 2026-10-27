@@ -19,6 +19,7 @@ pub const INFO: ModuleInfo = ModuleInfo {
     ],
     rows: &[&[ATTACK, DECAY, SUSTAIN, RELEASE]],
     open: true,
+    engine: None,
 };
 
 /// The attack aims past full volume so it actually gets there, then hands

@@ -16,10 +16,12 @@ mod filter;
 mod legacy;
 mod lfo;
 mod lfo2;
+mod mallet;
 mod modenv;
 pub mod modulation;
 mod osc;
 mod play;
+mod pluck;
 
 pub use lfo::Lfo;
 pub use modenv::ModEnv;
@@ -78,7 +80,7 @@ impl Param {
 /// Ready-made sounds: each changes some knobs from their defaults. They're
 /// synth versions of the instruments, a starting point to adjust.
 #[rustfmt::skip]
-pub const PRESETS: [(&str, &[(usize, f32)]); 14] = [
+pub const PRESETS: [(&str, &[(usize, f32)]); 21] = [
     ("Piano (synth)", &[(WAVE, 2.6), (WAVE_2, 1.0), (LEVEL_2, 0.5), (PITCH_2, 12.0), (DETUNE, 0.1),
         (CUTOFF, 1800.0), (RESONANCE, 0.1), (ENV_AMOUNT, 0.5), (FILTER_DECAY, 0.4),
         (ATTACK, 0.002), (DECAY, 0.9), (SUSTAIN, 0.0), (RELEASE, 0.4)]),
@@ -123,6 +125,30 @@ pub const PRESETS: [(&str, &[(usize, f32)]); 14] = [
         (LFO_TARGET, 1.0), (LFO_AMOUNT, 0.15), (LFO_RATE, 0.3)]),
     ("Shaker (noise)", &[(WAVE, 4.0), (LEVEL_2, 0.0), (CUTOFF, 7000.0), (RESONANCE, 0.2),
         (ENV_AMOUNT, 0.0), (ATTACK, 0.005), (DECAY, 0.06), (SUSTAIN, 0.0), (RELEASE, 0.05)]),
+    // The Pluck and Mallet engines ring and die away by themselves, so
+    // their envelope just holds, and the filter stays open.
+    ("Nylon guitar (pluck)", &[(ENGINE, 1.0), (STRING_TONE, 0.45), (STRING_DECAY, 2.5),
+        (PICK_SPOT, 0.2), (CUTOFF, 6000.0), (RESONANCE, 0.0), (ENV_AMOUNT, 0.0),
+        (ATTACK, 0.001), (SUSTAIN, 1.0), (RELEASE, 0.3)]),
+    ("Harp (pluck)", &[(ENGINE, 1.0), (STRING_TONE, 0.7), (STRING_DECAY, 4.0),
+        (PICK_SPOT, 0.1), (CUTOFF, 8000.0), (RESONANCE, 0.0), (ENV_AMOUNT, 0.0),
+        (ATTACK, 0.001), (SUSTAIN, 1.0), (RELEASE, 1.0)]),
+    ("Koto (pluck)", &[(ENGINE, 1.0), (STRING_TONE, 0.85), (STRING_DECAY, 1.5),
+        (PICK_SPOT, 0.05), (CUTOFF, 8000.0), (RESONANCE, 0.0), (ENV_AMOUNT, 0.0),
+        (ATTACK, 0.001), (SUSTAIN, 1.0), (RELEASE, 0.4)]),
+    ("Marimba (mallet)", &[(ENGINE, 2.0), (MATERIAL, 0.0), (HARDNESS, 0.4), (RING, 0.8),
+        (CUTOFF, 8000.0), (RESONANCE, 0.0), (ENV_AMOUNT, 0.0), (ATTACK, 0.001),
+        (SUSTAIN, 1.0), (RELEASE, 0.5)]),
+    ("Vibes (mallet)", &[(ENGINE, 2.0), (MATERIAL, 1.0), (HARDNESS, 0.5), (RING, 3.0),
+        (CUTOFF, 8000.0), (RESONANCE, 0.0), (ENV_AMOUNT, 0.0), (ATTACK, 0.001),
+        (SUSTAIN, 1.0), (RELEASE, 1.0), (LFO_TARGET, 2.0), (LFO_AMOUNT, 0.25),
+        (LFO_RATE, 5.0)]),
+    ("Glass (mallet)", &[(ENGINE, 2.0), (MATERIAL, 2.0), (HARDNESS, 0.7), (RING, 2.5),
+        (CUTOFF, 8000.0), (RESONANCE, 0.0), (ENV_AMOUNT, 0.0), (ATTACK, 0.001),
+        (SUSTAIN, 1.0), (RELEASE, 1.0)]),
+    ("Church bell (mallet)", &[(ENGINE, 2.0), (MATERIAL, 3.0), (HARDNESS, 0.8), (RING, 6.0),
+        (CUTOFF, 8000.0), (RESONANCE, 0.0), (ENV_AMOUNT, 0.0), (ATTACK, 0.001),
+        (SUSTAIN, 1.0), (RELEASE, 2.0)]),
 ];
 
 /// The knobs for preset `i`: the defaults with its changes.
@@ -140,6 +166,7 @@ pub use arp::{
 };
 pub use lfo::PAN as LFO_PAN;
 pub use osc::{SAW, WAVES};
+pub use play::{ANALOG, ENGINES, MALLET, PLUCK};
 
 /// What a module is: its name (the heading of its section in the
 /// instrument panel), its knobs, and how they're laid out.
@@ -153,6 +180,20 @@ pub struct ModuleInfo {
     pub rows: &'static [&'static [usize]],
     /// Whether its section starts unfolded.
     pub open: bool,
+    /// For a sound engine's module, which of `play::ENGINES` it belongs
+    /// to: its section only shows while that engine is picked.
+    pub engine: Option<usize>,
+}
+
+/// Whether module `m`'s section shows for these knobs (an engine's only
+/// while it's the one picked).
+pub fn shown(m: &ModuleInfo, v: &Values) -> bool {
+    m.engine.is_none_or(|e| e == engine(v))
+}
+
+/// The sound engine picked, as an index into `ENGINES`.
+pub fn engine(v: &Values) -> usize {
+    choice(v[ENGINE], play::ENGINES.len())
 }
 
 /// A module that makes or shapes sound, one per voice.
@@ -164,9 +205,11 @@ pub trait Module {
 /// Every module, in the order the panel shows them. A new module goes
 /// here, and nowhere else, to get its knobs, panel section, saving and
 /// automation.
-pub const MODULES: [&ModuleInfo; 8] = [
-    &osc::INFO,
+pub const MODULES: [&ModuleInfo; 10] = [
     &play::INFO,
+    &osc::INFO,
+    &pluck::INFO,
+    &mallet::INFO,
     &filter::INFO,
     &envelope::INFO,
     &lfo::INFO,
@@ -273,6 +316,13 @@ pub const DETUNE: usize = first_knob(&osc::INFO) + osc::DETUNE;
 pub const VOICES: usize = first_knob(&play::INFO) + play::VOICES;
 pub const GLIDE: usize = first_knob(&play::INFO) + play::GLIDE;
 pub const VOLUME: usize = first_knob(&play::INFO) + play::VOLUME;
+pub const ENGINE: usize = first_knob(&play::INFO) + play::ENGINE;
+pub const STRING_TONE: usize = first_knob(&pluck::INFO) + pluck::TONE;
+pub const STRING_DECAY: usize = first_knob(&pluck::INFO) + pluck::DECAY;
+pub const PICK_SPOT: usize = first_knob(&pluck::INFO) + pluck::POSITION;
+pub const MATERIAL: usize = first_knob(&mallet::INFO) + mallet::MATERIAL;
+pub const HARDNESS: usize = first_knob(&mallet::INFO) + mallet::HARDNESS;
+pub const RING: usize = first_knob(&mallet::INFO) + mallet::DECAY;
 pub const CUTOFF: usize = first_knob(&filter::INFO) + filter::CUTOFF;
 pub const RESONANCE: usize = first_knob(&filter::INFO) + filter::RESONANCE;
 pub const ENV_AMOUNT: usize = first_knob(&filter::INFO) + filter::ENV_AMOUNT;
@@ -350,6 +400,10 @@ pub struct Voice {
     /// The pitch a glide is heading for.
     target: f32,
     osc: osc::Osc,
+    pluck: pluck::Pluck,
+    mallet: mallet::Mallet,
+    /// Which of `ENGINES` makes the sound.
+    engine: usize,
     filter: filter::Filter,
     env: envelope::Envelope,
     // Derived from the knob values by `set_params`.
@@ -375,6 +429,9 @@ impl Voice {
             freq: 220.0,
             target: 220.0,
             osc: osc::Osc::default(),
+            pluck: pluck::Pluck::default(),
+            mallet: mallet::Mallet::default(),
+            engine: ANALOG,
             filter: filter::Filter::default(),
             env: envelope::Envelope::default(),
             lfo_amount: 0.0,
@@ -394,6 +451,9 @@ impl Voice {
     pub fn set_params(&mut self, v: &Values) {
         let sr = self.sr;
         self.osc.set_knobs(knobs(v, &osc::INFO), sr);
+        self.pluck.set_knobs(knobs(v, &pluck::INFO), sr);
+        self.mallet.set_knobs(knobs(v, &mallet::INFO), sr);
+        self.engine = engine(v);
         self.filter.set_knobs(knobs(v, &filter::INFO), sr);
         self.env.set_knobs(knobs(v, &envelope::INFO), sr);
         let lfo = knobs(v, &lfo::INFO);
@@ -431,6 +491,11 @@ impl Voice {
         if retrigger || self.env.is_releasing() {
             self.env.trigger();
             self.filter.trigger();
+            match self.engine {
+                PLUCK => self.pluck.trigger(self.target, self.sr),
+                MALLET => self.mallet.trigger(),
+                _ => {}
+            }
         }
     }
 
@@ -473,7 +538,12 @@ impl Voice {
         }
         let amp = self.env.next();
         self.filter.decay();
-        let osc = self.osc.next(self.freq * pitch, self.sr);
+        let freq = self.freq * pitch;
+        let osc = match self.engine {
+            PLUCK => self.pluck.next(freq, self.sr),
+            MALLET => self.mallet.next(freq, self.sr),
+            _ => self.osc.next(freq, self.sr),
+        };
         let low = self.filter.process(osc, cutoff_octaves, self.sr);
         low * amp * self.volume * 0.5 * level
     }
@@ -643,7 +713,11 @@ mod tests {
     fn modules_sound_exactly_like_the_old_synth() {
         use legacy::{Lfo as OldLfo, Voice as OldVoice, PARAMS as OLD_PARAMS};
         let sr = 48_000.0;
-        let mut patches: Vec<Values> = (0..PRESETS.len()).map(preset).collect();
+        // The old synth only had the analog oscillators.
+        let mut patches: Vec<Values> = (0..PRESETS.len())
+            .map(preset)
+            .filter(|v| engine(v) == ANALOG)
+            .collect();
         for (i, p) in patches.clone().iter().enumerate() {
             let mut p = *p;
             p[LFO_AMOUNT] = 0.6;
@@ -693,5 +767,67 @@ mod tests {
             }
             assert_eq!(new_voice.is_idle(), old_voice.is_idle());
         }
+    }
+
+    /// The pitch of a sound: the gap (40 Hz to 2 kHz) at which it best
+    /// matches itself.
+    fn pitch_of(out: &[f32]) -> f32 {
+        let score = |lag: usize| -> f32 {
+            let n = out.len() - lag;
+            out[..n]
+                .iter()
+                .zip(&out[lag..])
+                .map(|(a, b)| a * b)
+                .sum::<f32>()
+        };
+        let best = (24..1_200)
+            .max_by(|&a, &b| score(a).total_cmp(&score(b)))
+            .unwrap();
+        48_000.0 / best as f32
+    }
+
+    #[test]
+    fn a_plucked_string_rings_in_tune_and_dies_away() {
+        let mut v = preset(
+            PRESETS
+                .iter()
+                .position(|p| p.0.starts_with("Nylon"))
+                .unwrap(),
+        );
+        v[STRING_DECAY] = 0.5;
+        for note in [45, 57, 69] {
+            let out = play(&v, note, 48_000);
+            let hz = pitch_of(&out[2_400..12_000]);
+            let want = midi_to_hz(note);
+            assert!(
+                (hz / want - 1.0).abs() < 0.03,
+                "note {note}: {hz} Hz, want {want}"
+            );
+            let loud = |o: &[f32]| o.iter().map(|s| s.abs()).sum::<f32>();
+            let (start, end) = (loud(&out[..4_800]), loud(&out[43_200..]));
+            assert!(end < start * 0.05, "dies away: {start} then {end}");
+        }
+    }
+
+    #[test]
+    fn a_mallet_rings_at_its_note_and_materials_differ() {
+        let mut v = preset(
+            PRESETS
+                .iter()
+                .position(|p| p.0.starts_with("Marimba"))
+                .unwrap(),
+        );
+        v[HARDNESS] = 0.0; // soft: mostly the main partial
+        let out = play(&v, 60, 24_000);
+        let hz = pitch_of(&out[480..12_000]);
+        assert!((hz / midi_to_hz(60) - 1.0).abs() < 0.03, "{hz} Hz");
+        let mut bell = v;
+        bell[MATERIAL] = 3.0;
+        bell[HARDNESS] = 1.0;
+        assert_ne!(play(&bell, 60, 4_800), play(&v, 60, 4_800));
+        let quiet = play(&v, 60, 96_000)[90_000..]
+            .iter()
+            .fold(0.0_f32, |m, s| m.max(s.abs()));
+        assert!(quiet < 0.01, "a short ring dies: {quiet}");
     }
 }

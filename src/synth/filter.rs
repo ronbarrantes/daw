@@ -21,6 +21,7 @@ pub const INFO: ModuleInfo = ModuleInfo {
     ],
     rows: &[&[CUTOFF, RESONANCE, ENV_AMOUNT, DECAY]],
     open: true,
+    engine: None,
 };
 
 /// One voice's filter.

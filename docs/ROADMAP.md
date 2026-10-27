@@ -24,9 +24,9 @@ menus).
    change or remove it. LFO 1 keeps its own "LFO to" too. Next for it: a
    preview while hovering, and dragging the ring to set the amount.
 3. [ ] **New modules**, each on its own:
-   - [ ] Pluck and Mallet engines (strings, marimba, bells: natural sounds
-     without samples), likely from Mutable Instruments' open-source Plaits
-     code (MIT, already ported to Rust)
+   - [x] Pluck and Mallet engines (v0.35): a plucked string
+     (Karplus-Strong) and a struck bar, glass or bell (modal), picked with
+     Voice > Engine, with presets. Written from scratch, small and light.
    - [ ] FM engine (electric piano, bells, glassy keys, bass)
    - [ ] Wavetable engine
    - [ ] Visuals: a filter curve that moves, the LFO's shape, a spectrum
@@ -70,6 +70,7 @@ menus).
 
 Newest first, by release.
 
+- v0.35: Pluck and Mallet engines (strings, marimba, vibes, glass, bells)
 - v0.34: drag-and-drop modulation; LFO 2 and the Mod envelope
 - v0.33: the synth is made of modules (same sound); new Voice section
 - v0.32: pop any panel section out into its own window

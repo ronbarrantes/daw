@@ -17,4 +17,5 @@ pub const INFO: ModuleInfo = ModuleInfo {
     ],
     rows: &[&[SHAPE, RATE, SYNC]],
     open: true,
+    engine: None,
 };

@@ -18,6 +18,7 @@ pub const INFO: ModuleInfo = ModuleInfo {
     ],
     rows: &[&[ATTACK, DECAY, SUSTAIN]],
     open: true,
+    engine: None,
 };
 
 /// One voice's mod envelope, 0-1. It moves in steps of `n` samples, as
