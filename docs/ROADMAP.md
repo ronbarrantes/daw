@@ -81,6 +81,8 @@ menus).
 
 Newest first, by release.
 
+- v0.43: searchable drum sound browser; swap sounds while keeping patterns.
+
 - v0.42.1: instrument panel and synth UI extracted into their own module;
   controls, sound and saved layouts behave as before.
 

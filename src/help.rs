@@ -245,7 +245,8 @@ const SECTIONS: &[(&str, &str)] = &[
     ),
     (
         "Sample tracks",
-        "• Pitched off: plays as recorded, like a drum hit.\n\
+        "• Browse drum sounds searches built-in drums and loaded song samples. Click to swap, then Play a note to hear it. Notes and routing stay; trim/fades reset. Ctrl+Z undoes. Add files with + Sample.\n\
+         • Pitched off: plays as recorded, like a drum hit.\n\
          • Pitched on: plays higher or lower with each note, like an \
          instrument. C at octave 4 is the original pitch.\n\
          • Start and End trim the sample (see the waveform), Fade in softens \
