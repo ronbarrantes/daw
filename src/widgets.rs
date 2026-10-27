@@ -166,8 +166,8 @@ fn hint(p: &Param) -> &'static str {
         "Detune" => "Fine pitch difference between the two oscillators; higher = thicker",
         "Engine" => {
             "What makes the sound: Analog (two oscillators), Pluck (a plucked\n\
-             string), Mallet (marimba, vibes, glass, bell) or FM (electric piano,\n\
-             bells, basses). Each has its own section below."
+             string), Mallet (marimba, vibes, glass, bell), FM (electric piano,\n\
+             bells, basses) or Wavetable (morphing waves). Each has its own section."
         }
         "String tone" => "Dull (low) to bright (high), like plucking with a thumb or a pick",
         "String decay" => "How long the string rings",
@@ -182,6 +182,15 @@ fn hint(p: &Param) -> &'static str {
         "FM depth" => "How much it changes the tone: 0 is a pure sine, more is brighter",
         "FM decay" => "How fast the bright start mellows",
         "FM feedback" => "Feeds the modulator back into itself: grittier, up to noisy",
+        "Table" => {
+            "Which set of waves: Basic (sine to square), Vocal (vowel-like),\n\
+             Hollow (clarinet-like to bright) or Metal (clangy)"
+        }
+        "Position" => {
+            "Where in the table: sweep it to morph the sound. Drag LFO 2 or the\n\
+             mod envelope onto it to make it move by itself"
+        }
+        "Sub" => "A sine an octave below, for weight",
         "LFO 2 wave" | "LFO 2 rate" | "LFO 2 sync" => {
             "The second LFO's shape, speed and tempo sync. Drag its chip onto a\n\
              knob to make it move that knob"

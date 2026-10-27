@@ -23,6 +23,7 @@ pub mod modulation;
 mod osc;
 mod play;
 mod pluck;
+mod wavetable;
 
 pub use lfo::Lfo;
 pub use modenv::ModEnv;
@@ -83,7 +84,7 @@ impl Param {
 /// Ready-made sounds: each changes some knobs from their defaults. They're
 /// synth versions of the instruments, a starting point to adjust.
 #[rustfmt::skip]
-pub const PRESETS: [(&str, &[(usize, f32)]); 25] = [
+pub const PRESETS: [(&str, &[(usize, f32)]); 28] = [
     ("Piano (synth)", &[(WAVE, 2.6), (WAVE_2, 1.0), (LEVEL_2, 0.5), (PITCH_2, 12.0), (DETUNE, 0.1),
         (CUTOFF, 1800.0), (RESONANCE, 0.1), (ENV_AMOUNT, 0.5), (FILTER_DECAY, 0.4),
         (ATTACK, 0.002), (DECAY, 0.9), (SUSTAIN, 0.0), (RELEASE, 0.4)]),
@@ -165,7 +166,33 @@ pub const PRESETS: [(&str, &[(usize, f32)]); 25] = [
     ("Glassy keys (FM)", &[(ENGINE, 3.0), (FM_RATIO, 2.0), (FM_DEPTH, 0.35), (FM_DECAY, 1.2),
         (CUTOFF, 8000.0), (RESONANCE, 0.0), (ENV_AMOUNT, 0.0), (ATTACK, 0.002),
         (DECAY, 1.2), (SUSTAIN, 0.4), (RELEASE, 0.6)]),
+    // Wavetables are best moving: these come with LFO 2 or the mod
+    // envelope on Position (see `preset_mods`).
+    ("Morphing pad (wavetable)", &[(ENGINE, 4.0), (WT_TABLE, 0.0), (WT_POSITION, 0.4),
+        (CUTOFF, 3000.0), (RESONANCE, 0.1), (ENV_AMOUNT, 0.0), (ATTACK, 0.6), (DECAY, 1.0),
+        (SUSTAIN, 0.85), (RELEASE, 1.2)]),
+    ("Talking lead (wavetable)", &[(ENGINE, 4.0), (WT_TABLE, 1.0), (WT_POSITION, 0.2),
+        (CUTOFF, 5000.0), (RESONANCE, 0.0), (ENV_AMOUNT, 0.0), (ATTACK, 0.01), (SUSTAIN, 0.9),
+        (RELEASE, 0.2), (VOICES, 2.0), (GLIDE, 0.06)]),
+    ("Wavetable bass", &[(ENGINE, 4.0), (WT_TABLE, 2.0), (WT_POSITION, 0.6), (WT_SUB, 0.6),
+        (CUTOFF, 1200.0), (RESONANCE, 0.2), (ENV_AMOUNT, 0.4), (FILTER_DECAY, 0.2),
+        (ATTACK, 0.002), (DECAY, 0.3), (SUSTAIN, 0.7), (RELEASE, 0.1), (VOICES, 1.0)]),
 ];
+
+/// Modulation that comes with some presets, by preset name.
+pub fn preset_mods(name: &str) -> Vec<Link> {
+    let link = |source, knob, amount| Link {
+        source,
+        knob,
+        amount,
+    };
+    match name {
+        "Morphing pad (wavetable)" => vec![link(Source::Lfo2, WT_POSITION, 0.4)],
+        "Talking lead (wavetable)" => vec![link(Source::ModEnv, WT_POSITION, 0.6)],
+        "Wavetable bass" => vec![link(Source::ModEnv, WT_POSITION, -0.4)],
+        _ => Vec::new(),
+    }
+}
 
 /// The knobs for preset `i`: the defaults with its changes.
 pub fn preset(i: usize) -> Values {
@@ -182,7 +209,8 @@ pub use arp::{
 };
 pub use lfo::PAN as LFO_PAN;
 pub use osc::{SAW, WAVES};
-pub use play::{ANALOG, ENGINES, FM, MALLET, PLUCK};
+pub use play::{ANALOG, ENGINES, FM, MALLET, PLUCK, WAVETABLE};
+pub use wavetable::warm_up;
 
 /// What a module is: its name (the heading of its section in the
 /// instrument panel), its knobs, and how they're laid out.
@@ -221,12 +249,13 @@ pub trait Module {
 /// Every module, in the order the panel shows them. A new module goes
 /// here, and nowhere else, to get its knobs, panel section, saving and
 /// automation.
-pub const MODULES: [&ModuleInfo; 11] = [
+pub const MODULES: [&ModuleInfo; 12] = [
     &play::INFO,
     &osc::INFO,
     &pluck::INFO,
     &mallet::INFO,
     &fm::INFO,
+    &wavetable::INFO,
     &filter::INFO,
     &envelope::INFO,
     &lfo::INFO,
@@ -344,6 +373,9 @@ pub const FM_RATIO: usize = first_knob(&fm::INFO) + fm::RATIO;
 pub const FM_DEPTH: usize = first_knob(&fm::INFO) + fm::DEPTH;
 pub const FM_DECAY: usize = first_knob(&fm::INFO) + fm::DECAY;
 pub const FM_FEEDBACK: usize = first_knob(&fm::INFO) + fm::FEEDBACK;
+pub const WT_TABLE: usize = first_knob(&wavetable::INFO) + wavetable::TABLE;
+pub const WT_POSITION: usize = first_knob(&wavetable::INFO) + wavetable::POSITION;
+pub const WT_SUB: usize = first_knob(&wavetable::INFO) + wavetable::SUB;
 pub const CUTOFF: usize = first_knob(&filter::INFO) + filter::CUTOFF;
 pub const RESONANCE: usize = first_knob(&filter::INFO) + filter::RESONANCE;
 pub const ENV_AMOUNT: usize = first_knob(&filter::INFO) + filter::ENV_AMOUNT;
@@ -424,6 +456,7 @@ pub struct Voice {
     pluck: pluck::Pluck,
     mallet: mallet::Mallet,
     fm: fm::Fm,
+    wavetable: wavetable::Wavetable,
     /// Which of `ENGINES` makes the sound.
     engine: usize,
     filter: filter::Filter,
@@ -454,6 +487,7 @@ impl Voice {
             pluck: pluck::Pluck::default(),
             mallet: mallet::Mallet::default(),
             fm: fm::Fm::default(),
+            wavetable: wavetable::Wavetable::default(),
             engine: ANALOG,
             filter: filter::Filter::default(),
             env: envelope::Envelope::default(),
@@ -477,6 +511,7 @@ impl Voice {
         self.pluck.set_knobs(knobs(v, &pluck::INFO), sr);
         self.mallet.set_knobs(knobs(v, &mallet::INFO), sr);
         self.fm.set_knobs(knobs(v, &fm::INFO), sr);
+        self.wavetable.set_knobs(knobs(v, &wavetable::INFO), sr);
         self.engine = engine(v);
         self.filter.set_knobs(knobs(v, &filter::INFO), sr);
         self.env.set_knobs(knobs(v, &envelope::INFO), sr);
@@ -568,6 +603,7 @@ impl Voice {
             PLUCK => self.pluck.next(freq, self.sr),
             MALLET => self.mallet.next(freq, self.sr),
             FM => self.fm.next(freq, self.sr),
+            WAVETABLE => self.wavetable.next(freq, self.sr),
             _ => self.osc.next(freq, self.sr),
         };
         let low = self.filter.process(osc, cutoff_octaves, self.sr);
@@ -882,5 +918,38 @@ mod tests {
         let out = play(&deep, 45, 48_000);
         let (early, late) = (bright(&out[200..2_600]), bright(&out[40_000..42_400]));
         assert!(early > late * 1.2, "mellows: {early} then {late}");
+    }
+
+    #[test]
+    fn wavetables_play_in_tune_and_position_changes_the_sound() {
+        let mut v = preset(
+            PRESETS
+                .iter()
+                .position(|p| p.0 == "Wavetable bass")
+                .unwrap(),
+        );
+        v[WT_SUB] = 0.0;
+        for table in 0..4 {
+            v[WT_TABLE] = table as f32;
+            v[WT_POSITION] = 0.0;
+            let start = play(&v, 48, 9_600);
+            if table != 3 {
+                // Metal's partials are mostly high, so its pitch is murky.
+                let hz = pitch_of(&start[2_400..]);
+                assert!(
+                    (hz / midi_to_hz(48) - 1.0).abs() < 0.03,
+                    "table {table}: {hz} Hz"
+                );
+            }
+            v[WT_POSITION] = 1.0;
+            assert_ne!(
+                play(&v, 48, 9_600),
+                start,
+                "table {table}: Position moves it"
+            );
+        }
+        // High notes use waves with fewer harmonics: still a clean tone.
+        let high = play(&v, 96, 4_800);
+        assert!(high.iter().all(|s| s.is_finite() && s.abs() < 2.0));
     }
 }

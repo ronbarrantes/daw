@@ -432,8 +432,9 @@ it. Hover for what each one does. To keep scrolling down:
   out of tune to thicken the sound.
 - **Voice:** what makes the sound and how notes play. **Engine** picks
   the sound: **Analog** (the two oscillators below), **Pluck** (a plucked
-  string), **Mallet** (a struck bar, glass or bell) or **FM** (electric
-  piano, bells, basses); each shows its own section. **Voices** on **Poly** plays chords, **Mono**
+  string), **Mallet** (a struck bar, glass or bell), **FM** (electric
+  piano, bells, basses) or **Wavetable** (waves that morph); each shows
+  its own section. **Voices** on **Poly** plays chords, **Mono**
   one note at a time, and **Legato** one at a time where a note played
   while another is held just changes pitch without restarting. **Glide**
   slides between notes in Mono and Legato (portamento). **Humanize** varies
@@ -452,6 +453,12 @@ it. Hover for what each one does. To keep scrolling down:
   **FM ratio** sets the character (x1 and x2 like instruments, x3.5 like
   a bell), **FM depth** how bright, **FM decay** how fast it mellows,
   **FM feedback** adds grit. Try the FM presets.
+- **Wavetable** (Engine on Wavetable): a set of waves to sweep through.
+  **Table** picks the set (**Basic** sine to square, **Vocal**, **Hollow**,
+  **Metal**), **Position** where in it, **Sub** adds a sine an octave
+  down. It comes alive when something moves Position: drag **LFO 2** or
+  **Mod env** onto it. The wavetable presets come with that set up
+  (picking a preset sets its modulation too).
 - **Arpeggiator** (folded; click it open): plays held notes one at a time
   in a pattern instead of together. **Arp** picks the pattern (**Up**,
   **Down**, **Up/Down**, **Random**, **As played**, or **Off** for normal

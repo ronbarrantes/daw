@@ -544,6 +544,8 @@ impl Engine {
         midi_out: SyncSender<Msg>,
         sr: f32,
     ) -> Self {
+        // Built here, before any sound, since building allocates.
+        synth::warm_up();
         let voices = (0..MAX_TRACKS)
             .map(|_| (0..POLYPHONY).map(|_| TrackVoice::new(sr)).collect())
             .collect();

@@ -3223,6 +3223,8 @@ impl App {
                         for (i, (name, _)) in synth::PRESETS.iter().enumerate() {
                             if ui.selectable_label(false, *name).clicked() {
                                 *values = synth::preset(i);
+                                // A preset is a whole sound, modulation too.
+                                track.mods = synth::preset_mods(name);
                                 changed = true;
                             }
                         }
