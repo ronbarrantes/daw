@@ -24,6 +24,10 @@ engine, a visual, an effect) plugs in without touching the rest of the app.
 `src/synth/mod.rs` lists them in `MODULES` and wires one voice together
 (`Voice`).
 
+The instrument panel, pop-out windows, modulation controls, scope, drone,
+theremin and A/B morphing live in `src/synth_ui.rs`. `App` keeps ownership
+of UI state and publishes edits; `main.rs` handles the app shell.
+
 ## The contract
 
 A module file has:
@@ -78,7 +82,7 @@ live on each track (`Track::mods`) and are saved by name. Every
 with the links applied (`modulation::apply`) and gives them to the voice
 (`Voice::set_params`), and publishes the selected track's for the knobs to
 draw. A new source needs a `Source` variant, a colour (`widgets::source_color`),
-a chip in its module's section (`section` in `main.rs`) and its value in
+a chip in its module's section (`section` in `synth_ui.rs`) and its value in
 `Engine::apply_modulation`.
 
 ## Rules for the sound code

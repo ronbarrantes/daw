@@ -81,6 +81,9 @@ menus).
 
 Newest first, by release.
 
+- v0.42.1: instrument panel and synth UI extracted into their own module;
+  controls, sound and saved layouts behave as before.
+
 - v0.42: Click wave; the Drone goes from 0.1 to 20,000 Hz
 - v0.41.2: drawings sit above the knobs
 - v0.41.1: smaller pop-out arrows
