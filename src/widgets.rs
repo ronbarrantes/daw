@@ -210,6 +210,9 @@ fn hint(p: &Param) -> &'static str {
         "Tone" => "Reverb brightness: low is muffled, high is airy",
         "Time" => "Time between echoes, in 16th notes",
         "Feedback" => "How many times each echo repeats",
+        "Start" => "Where in the sample it starts playing",
+        "End" => "Where in the sample it stops",
+        "Fade in" => "How long the sample takes to fade in; 0 = full punch",
         "Humanize" => "Random small changes to each hit's timing and loudness",
         _ => "",
     }
@@ -288,6 +291,59 @@ pub fn meter(ui: &mut egui::Ui, levels: [f32; 2], limiting: f32) -> egui::Respon
     )
     .on_hover_text("Lights up when the mix is too loud and the limiter is turning it down.\nTurn Master or some tracks down a little.");
     resp.on_hover_text("Output level, left and right")
+}
+
+/// A sample's waveform, with the parts outside `start`..`end` (0-1)
+/// dimmed, so trimming shows what's left. An arrow-ish marker shows the
+/// direction when it plays backwards.
+pub fn waveform(ui: &mut egui::Ui, data: &[f32], start: f32, end: f32, reverse: bool) {
+    let size = Vec2::new(ui.available_width().min(270.0), 46.0);
+    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+    let painter = ui.painter_at(rect);
+    painter.rect_filled(rect, 3.0, Color32::from_rgb(16, 22, 30));
+    let columns = rect.width() as usize;
+    if data.is_empty() || columns == 0 {
+        return;
+    }
+    let (a, b) = (start.min(end), start.max(end));
+    let mid = rect.center().y;
+    let half = rect.height() / 2.0 - 2.0;
+    for c in 0..columns {
+        let from = c * data.len() / columns;
+        let to = ((c + 1) * data.len() / columns)
+            .max(from + 1)
+            .min(data.len());
+        let (lo, hi) = data[from..to]
+            .iter()
+            .fold((0.0_f32, 0.0_f32), |(lo, hi), s| (lo.min(*s), hi.max(*s)));
+        let t = c as f32 / columns as f32;
+        let color = if (a..=b).contains(&t) {
+            Color32::from_rgb(90, 170, 230)
+        } else {
+            Color32::from_gray(60)
+        };
+        let x = rect.left() + c as f32 + 0.5;
+        painter.line_segment(
+            [Pos2::new(x, mid - hi * half), Pos2::new(x, mid - lo * half)],
+            Stroke::new(1.0_f32, color),
+        );
+    }
+    for edge in [a, b] {
+        let x = rect.left() + edge * rect.width();
+        painter.line_segment(
+            [Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())],
+            Stroke::new(1.5_f32, Color32::from_rgb(230, 200, 60)),
+        );
+    }
+    if reverse {
+        painter.text(
+            rect.left_top() + Vec2::new(4.0, 2.0),
+            egui::Align2::LEFT_TOP,
+            "reversed",
+            egui::FontId::proportional(10.0),
+            Color32::from_gray(180),
+        );
+    }
 }
 
 /// How much time the scope shows, in milliseconds; click the scope to cycle.
