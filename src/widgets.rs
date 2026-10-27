@@ -249,6 +249,39 @@ pub fn knob(ui: &mut egui::Ui, p: &Param, value: &mut f32) -> bool {
     changed
 }
 
+/// A stereo level meter: two thin bars, green, then yellow near the top,
+/// red at the limit. `levels` are peaks, 0-1. A red LIMIT light shows
+/// while the limiter is turning the mix down noticeably.
+pub fn meter(ui: &mut egui::Ui, levels: [f32; 2], limiting: f32) -> egui::Response {
+    let size = Vec2::new(70.0, 14.0);
+    let (rect, resp) = ui.allocate_exact_size(size, Sense::hover());
+    let painter = ui.painter_at(rect);
+    painter.rect_filled(rect, 2.0, Color32::from_gray(40));
+    painter.rect_stroke(rect, 2.0, Stroke::new(1.0_f32, Color32::from_gray(70)));
+    let bar_h = (rect.height() - 3.0) / 2.0;
+    for (i, level) in levels.iter().enumerate() {
+        let top = rect.top() + 1.0 + i as f32 * (bar_h + 1.0);
+        let width = level.clamp(0.0, 1.0) * rect.width();
+        let color = if *level >= 0.94 {
+            Color32::from_rgb(230, 70, 60)
+        } else if *level >= 0.7 {
+            Color32::from_rgb(230, 200, 60)
+        } else {
+            Color32::from_rgb(80, 200, 110)
+        };
+        let bar = egui::Rect::from_min_size(Pos2::new(rect.left(), top), Vec2::new(width, bar_h));
+        painter.rect_filled(bar, 1.0, color);
+    }
+    let limit = limiting > 0.05;
+    ui.label(
+        RichText::new("LIMIT")
+            .small()
+            .color(if limit { Color32::from_rgb(230, 70, 60) } else { Color32::from_gray(70) }),
+    )
+    .on_hover_text("Lights up when the mix is too loud and the limiter is turning it down.\nTurn Master or some tracks down a little.");
+    resp.on_hover_text("Output level, left and right")
+}
+
 /// How much time the scope shows, in milliseconds; click the scope to cycle.
 pub const SCOPE_SPANS: [f32; 4] = [5.0, 10.0, 20.0, 50.0];
 

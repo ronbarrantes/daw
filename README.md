@@ -137,6 +137,11 @@ To build it yourself: `rustup target add wasm32-unknown-unknown`,
 Press **F1** (or **Help → How to use**) for the built-in guide.
 
 - **Space** or **▶ Play** starts and stops. Drag **BPM** to change the tempo.
+- **Master** (top bar) is the volume of the whole song. The meter next to
+  it shows the output level, green to yellow to red. A **limiter** keeps
+  the mix from ever clipping; **LIMIT** lights up when it's working hard,
+  a sign to turn Master or some tracks down a little. Exports get the same
+  volume and limiter.
 - **Ctrl+Z** (Cmd+Z on Mac) undoes; **Ctrl+Shift+Z** or **Ctrl+Y** redoes.
   Also in the **Edit** menu. A whole knob drag is one step.
 
@@ -476,6 +481,7 @@ Done:
 - ~~Free pitch: Drone slider and theremin pad; closable panel sections~~
 - ~~Synth presets: piano, basses, strings, brass, organ, bell, pad and more~~
 - ~~Arpeggiator~~
+- ~~Master volume, level meter and limiter~~
 
 Next:
 

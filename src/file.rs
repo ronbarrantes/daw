@@ -73,6 +73,8 @@ struct SongFile {
     groups: Vec<GroupFile>,
     #[serde(default)]
     effects: EffectsFile,
+    #[serde(default = "default_master")]
+    master_volume: f32,
     #[serde(default)]
     tracks: Vec<TrackFile>,
 }
@@ -241,6 +243,9 @@ struct Note {
     nudge: i8,
 }
 
+fn default_master() -> f32 {
+    crate::project::MASTER_DEFAULT
+}
 fn default_bpm() -> f32 {
     120.0
 }
@@ -422,6 +427,7 @@ pub fn to_bytes(project: &Project, bpm: f32) -> Result<Vec<u8>, String> {
                 volume: g.volume,
             })
             .collect(),
+        master_volume: project.master,
         effects: EffectsFile {
             reverb_size: project.effects.reverb_size,
             reverb_tone: project.effects.reverb_tone,
@@ -617,6 +623,7 @@ fn read_zip(bytes: Vec<u8>) -> Result<Song, String> {
     project.number_tracks();
     project.swing = song.swing.clamp(0.0, 1.0);
     let fx = &song.effects;
+    project.master = song.master_volume.clamp(0.0, 1.0);
     project.effects = Effects {
         reverb_size: fx.reverb_size.clamp(0.0, 1.0),
         reverb_tone: fx.reverb_tone.clamp(0.0, 1.0),
@@ -880,6 +887,7 @@ mod tests {
         project.tracks[4].delay = 0.6;
         project.effects.delay_steps = 6.0;
         project.effects.reverb_size = 0.8;
+        project.master = 0.55;
         // A loaded sample, used by two tracks.
         let tone = Arc::new(Sample {
             name: "tone".into(),
@@ -924,6 +932,7 @@ mod tests {
         assert!(p.groups[0].collapsed);
         assert_eq!(p.groups[0].volume, 0.5);
         assert_eq!(p.effects, project.effects);
+        assert_eq!(p.master, 0.55);
 
         // Built-in drums aren't stored; the shared sample is stored once.
         assert_eq!(stored_samples, 1);

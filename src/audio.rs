@@ -29,7 +29,7 @@ use cpal::traits::StreamTrait;
 use cpal::traits::{DeviceTrait, HostTrait};
 use cpal::{FromSample, SampleFormat, SizedSample};
 
-use crate::fx::{Delay, Reverb};
+use crate::fx::{Delay, Limiter, Reverb};
 use crate::midi::{self, Msg};
 use crate::project::{
     Block, Kind, MidiPart, Project, Sample, Step, MAX_TRACKS, NORMAL, PPS, SAMPLE_ROOT, STEPS,
@@ -70,6 +70,8 @@ const CLICK_DECAY: f32 = 0.015;
 /// The effects keep running this long after their input goes quiet, so
 /// long reverb tails and echoes can finish.
 const FX_TAIL_SECONDS: f32 = 10.0;
+/// How often the engine reports levels to the meter, in samples.
+const METER_INTERVAL: u32 = 256;
 
 /// Requests from the UI or MIDI in.
 pub enum Event {
@@ -147,6 +149,12 @@ pub struct Shared {
     scope_pos: AtomicUsize,
     /// The engine's sample rate, for the scope's time scale.
     pub sample_rate: AtomicU32,
+    /// The loudest left and right samples since the UI last looked, as
+    /// `f32` bits (`take_meter` reads and resets them).
+    meter: [AtomicU32; 2],
+    /// The most the limiter turned the mix down since the UI last looked,
+    /// 0-1, as `f32` bits.
+    limiting: AtomicU32,
 }
 
 /// How many samples the scope keeps: about 85 ms at 48 kHz.
@@ -180,6 +188,8 @@ impl Shared {
             scope: (0..SCOPE_LEN).map(|_| AtomicU32::new(0)).collect(),
             scope_pos: AtomicUsize::new(0),
             sample_rate: AtomicU32::new(48_000),
+            meter: [AtomicU32::new(0), AtomicU32::new(0)],
+            limiting: AtomicU32::new(0),
         }
     }
 
@@ -197,6 +207,25 @@ impl Shared {
         let pos = self.scope_pos.load(Relaxed);
         self.scope[pos % SCOPE_LEN].store(value.to_bits(), Relaxed);
         self.scope_pos.store(pos.wrapping_add(1), Relaxed);
+    }
+
+    /// The peak left and right levels and how much the limiter worked
+    /// since the last call (all 0-1).
+    pub fn take_meter(&self) -> ([f32; 2], f32) {
+        let peak = self
+            .meter
+            .each_ref()
+            .map(|m| f32::from_bits(m.swap(0, Relaxed)));
+        (peak, f32::from_bits(self.limiting.swap(0, Relaxed)))
+    }
+
+    /// Positive floats keep their order as bits, so `fetch_max` works.
+    fn report_meter(&self, peak: [f32; 2], limiting: f32) {
+        for (m, p) in self.meter.iter().zip(peak) {
+            m.fetch_max(p.max(0.0).to_bits(), Relaxed);
+        }
+        self.limiting
+            .fetch_max(limiting.max(0.0).to_bits(), Relaxed);
     }
 
     pub fn project(&self) -> Arc<Project> {
@@ -417,6 +446,12 @@ struct Engine {
     sends: [[f32; 2]; MAX_TRACKS],
     reverb: Reverb,
     delay: Delay,
+    limiter: Limiter,
+    /// Peaks and limiting gathered for the meter, sent every
+    /// `METER_INTERVAL` samples.
+    meter_peak: [f32; 2],
+    meter_limiting: f32,
+    meter_count: u32,
     /// Samples since anything was sent to the effects.
     fx_quiet: u32,
     /// The timeline step playing, in Song mode.
@@ -466,6 +501,10 @@ impl Engine {
             sends: [[0.0; 2]; MAX_TRACKS],
             reverb: Reverb::new(sr),
             delay: Delay::new(sr),
+            limiter: Limiter::new(sr),
+            meter_peak: [0.0; 2],
+            meter_limiting: 0.0,
+            meter_count: 0,
             fx_quiet: u32::MAX,
             song_step: 0,
             restart_song: true,
@@ -1285,7 +1324,23 @@ impl Engine {
             self.shared.write_scope(scope);
         }
         let click = self.click.next_sample();
-        mix.map(|m| (m * 0.8 + click).clamp(-1.0, 1.0))
+        // Master volume, then the limiter so it never clips. The click
+        // isn't part of the song, so it goes on after.
+        let master = self.project.master;
+        let out = self.limiter.process(mix.map(|m| m * master));
+        for (p, o) in self.meter_peak.iter_mut().zip(out) {
+            *p = p.max(o.abs());
+        }
+        self.meter_limiting = self.meter_limiting.max(1.0 - self.limiter.gain);
+        self.meter_count += 1;
+        if self.meter_count >= METER_INTERVAL {
+            self.shared
+                .report_meter(self.meter_peak, self.meter_limiting);
+            self.meter_peak = [0.0; 2];
+            self.meter_limiting = 0.0;
+            self.meter_count = 0;
+        }
+        out.map(|o| (o + click).clamp(-1.0, 1.0))
     }
 }
 
@@ -2115,6 +2170,36 @@ mod tests {
         assert_eq!(rig.sounding(last), 0, "the new track starts silent");
         let out = rig.run(4_800);
         assert!(out.iter().all(|s| *s == 0.0), "and stays quiet");
+    }
+
+    #[test]
+    fn master_volume_scales_the_mix_and_the_limiter_stops_clipping() {
+        let peak = |master: f32, notes: &[u8]| {
+            let mut project = quiet_demo();
+            project.master = master;
+            if let Kind::Synth(v) = &mut project.tracks[LEAD].kind {
+                v[synth::SUSTAIN] = 1.0;
+                v[synth::VOLUME] = 1.0;
+                v[synth::CUTOFF] = 8000.0;
+            }
+            project.tracks[LEAD].volume = 1.0;
+            let mut rig = Rig::new(project);
+            for &n in notes {
+                rig.send(hold(LEAD, n));
+            }
+            rig.run_stereo(24_000)
+                .iter()
+                .fold(0.0_f32, |m, [l, r]| m.max(l.abs()).max(r.abs()))
+        };
+        let full = peak(0.8, &[48]);
+        let half = peak(0.4, &[48]);
+        assert!(
+            (half / full - 0.5).abs() < 0.05,
+            "half volume: {full} {half}"
+        );
+        // Twelve loud notes at once would clip; the limiter holds them.
+        let loud = peak(1.0, &[36, 40, 43, 48, 52, 55, 60, 64, 67, 72, 76, 79]);
+        assert!(loud <= crate::fx::LIMIT + 1e-4, "limited: {loud}");
     }
 
     #[test]

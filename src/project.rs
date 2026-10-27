@@ -457,6 +457,9 @@ fn free_name(base: &str, taken: impl Fn(&str) -> bool) -> String {
         .expect("some number is free")
 }
 
+/// The master volume a new song starts with: the level songs always had.
+pub const MASTER_DEFAULT: f32 = 0.8;
+
 /// Bars in a chain (a jam block).
 pub const CHAIN_SLOTS: usize = 32;
 pub const MAX_BLOCKS: usize = 64;
@@ -483,6 +486,8 @@ pub struct Project {
     pub swing: f32,
     pub groups: Vec<Group>,
     pub effects: Effects,
+    /// Master volume, 0-1, before the limiter.
+    pub master: f32,
 }
 
 impl Project {
@@ -495,6 +500,7 @@ impl Project {
             swing: 0.0,
             groups: Vec::new(),
             effects: Effects::DEFAULT,
+            master: MASTER_DEFAULT,
         }
     }
 
@@ -887,6 +893,7 @@ impl Project {
             swing: 0.0,
             groups: Vec::new(),
             effects: Effects::DEFAULT,
+            master: MASTER_DEFAULT,
         };
         project.new_group(&[0, 1, 2, 3], "Drums");
         project.number_tracks();

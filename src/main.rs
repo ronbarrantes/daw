@@ -38,8 +38,8 @@ use project::{
 use synth::{Param, Unit, PARAMS};
 use undo::Undo;
 use widgets::{
-    disclosure_arrow, empty_fill, envelope, knob, lit_fill, playhead, port_picker, scope, DRUM_ON,
-    NOTE_HELD, NOTE_NAMES, NOTE_ON, SCOPE_SPANS,
+    disclosure_arrow, empty_fill, envelope, knob, lit_fill, meter, playhead, port_picker, scope,
+    DRUM_ON, NOTE_HELD, NOTE_NAMES, NOTE_ON, SCOPE_SPANS,
 };
 
 const RECORDING: Color32 = Color32::from_rgb(220, 60, 60);
@@ -300,6 +300,10 @@ struct App {
     show_scope: bool,
     /// The scope is in its own window instead of the instrument panel.
     scope_popped: bool,
+    /// What the level meter shows: recent peaks, falling slowly, and how
+    /// hard the limiter is working.
+    meter_levels: [f32; 2],
+    meter_limiting: f32,
     /// Instrument panel sections closed with their ×, by title.
     closed_sections: Vec<String>,
     /// `closed_sections` changed and should be remembered.
@@ -403,6 +407,8 @@ impl App {
             theremin: None,
             show_scope: true,
             scope_popped: false,
+            meter_levels: [0.0; 2],
+            meter_limiting: 0.0,
             closed_sections: file::closed_sections(),
             sections_changed: false,
             scope_span: 1,
@@ -1577,6 +1583,8 @@ impl App {
                     ui.close_menu();
                 }
             });
+            ui.separator();
+            ui.weak("Space = play · A–K = notes · Z/X = octave · F1 = help");
         });
     }
 
@@ -1806,7 +1814,28 @@ impl App {
                 self.show_fx = !self.show_fx;
             }
             ui.separator();
-            ui.weak("Space = play · A–K = notes · Z/X = octave · F1 = help");
+            // Master volume and the output meter.
+            ui.label("Master");
+            let mut master = self.project.master * 100.0;
+            let drag = egui::DragValue::new(&mut master)
+                .range(0.0..=100.0)
+                .speed(0.5)
+                .suffix("%");
+            let hint = "Volume of the whole song. A limiter after it keeps the mix from clipping.";
+            if ui.add(drag).on_hover_text(hint).changed() {
+                self.project.master = master / 100.0;
+                self.dirty = true;
+            }
+            let (peak, limiting) = s.take_meter();
+            for (shown, new) in self.meter_levels.iter_mut().zip(peak) {
+                *shown = new.max(*shown * 0.85);
+            }
+            self.meter_limiting = limiting.max(self.meter_limiting * 0.9);
+            meter(ui, self.meter_levels, self.meter_limiting);
+            if self.meter_levels.iter().any(|l| *l > 0.001) {
+                // Keep the meter falling after the sound stops.
+                ui.ctx().request_repaint_after(Duration::from_millis(30));
+            }
         });
     }
 
