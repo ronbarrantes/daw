@@ -30,6 +30,15 @@ in the same PR as the change that needs it.
   force-push to the work branch is fine), so merged commits don't come
   along again.
 
+## Keep the docs in step
+
+Every PR that changes what the app does also updates, in the same PR:
+
+- **[ROADMAP.md](ROADMAP.md):** tick off what's done (with its version)
+  and drop or reword anything that's no longer the plan.
+- **The guides:** the README's *Use* section and the F1 guide
+  (`src/help.rs`) say how to use the new thing, in plain words.
+
 ## Before every push
 
 ```sh
