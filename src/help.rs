@@ -225,6 +225,9 @@ const SECTIONS: &[(&str, &str)] = &[
          • LFO: a wobble on Pitch (vibrato), Filter (wah), Volume \
          (tremolo) or Pan (left and right). Random jumps each cycle (random tones on pitch). LFO sync \
          ties its speed to the tempo.\n\
+         • Mutate nudges every knob a little for a new variation (right-click \
+         it to leave sections alone). Keep A and Keep B remember two sounds; \
+         the slider between them morphs from one to the other.\n\
          • Modulation: drag a coloured chip (LFO 1, LFO 2, Mod env, \
          Velocity) onto any knob to make it move that knob; a ring shows \
          how far. Right-click the knob to change how far or remove it.\n\n\

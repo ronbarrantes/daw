@@ -358,6 +358,13 @@ struct App {
     scope_span: usize,
     /// The scope shows the spectrum (loudness per pitch) instead.
     spectrum: bool,
+    /// How far Mutate moves each knob (0-1 of its sweep), the modules it
+    /// leaves alone, and its xorshift state.
+    mutate_amount: f32,
+    mutate_locked: Vec<&'static str>,
+    rng: u32,
+    /// Each synth track's two remembered sounds (not saved with the song).
+    snapshots: Vec<Snapshot>,
     /// The scope had something to show last frame, so keep it moving.
     scope_busy: bool,
     /// Waiting for "save changes first?" to be answered.
@@ -464,6 +471,10 @@ impl App {
             sections_changed: false,
             scope_span: 1,
             spectrum: false,
+            mutate_amount: 0.15,
+            mutate_locked: vec!["Voice", "Arpeggiator"],
+            rng: 0x9e37_79b9,
+            snapshots: Vec::new(),
             scope_busy: false,
             confirm: None,
             picked: Vec::new(),
@@ -608,6 +619,15 @@ fn free_pitch(hz: f32) -> (u8, f32) {
     let exact = (69.0 + 12.0 * (hz / 440.0).log2()).clamp(0.0, 127.0);
     let note = exact.floor();
     (note as u8, exact - note)
+}
+
+/// Two sounds remembered for a synth track (by `Track::id`), and where
+/// the morph between them is (0 = A, 1 = B).
+struct Snapshot {
+    track: u32,
+    a: Option<synth::Values>,
+    b: Option<synth::Values>,
+    t: f32,
 }
 
 /// Every section the instrument panel can show, in order: the scope, a
@@ -3274,6 +3294,94 @@ impl App {
                         "Start from an instrument sound, then adjust any knob.\n\
                          Ctrl+Z undoes it.",
                     );
+            });
+            // Happy accidents: nudge everything a little.
+            ui.horizontal(|ui| {
+                let mutate = ui.button("Mutate").on_hover_text(
+                    "Nudges every knob a little, for a new take on the sound.\n\
+                     Ctrl+Z undoes it. Right-click to leave some sections alone.",
+                );
+                if mutate.clicked() {
+                    synth::mutate(
+                        values,
+                        self.mutate_amount,
+                        &mut self.rng,
+                        &self.mutate_locked,
+                    );
+                    changed = true;
+                }
+                mutate.context_menu(|ui| {
+                    ui.label(RichText::new("Mutate leaves these alone:").strong());
+                    for m in synth::MODULES
+                        .iter()
+                        .filter(|m| m.rows.iter().any(|r| !r.is_empty()))
+                    {
+                        let mut locked = self.mutate_locked.contains(&m.name);
+                        if ui.checkbox(&mut locked, m.name).changed() {
+                            self.mutate_locked.retain(|n| *n != m.name);
+                            if locked {
+                                self.mutate_locked.push(m.name);
+                            }
+                        }
+                    }
+                });
+                let mut percent = self.mutate_amount * 100.0;
+                let drag = egui::DragValue::new(&mut percent)
+                    .range(1.0..=60.0)
+                    .suffix("%");
+                if ui
+                    .add(drag)
+                    .on_hover_text("How far Mutate moves each knob")
+                    .changed()
+                {
+                    self.mutate_amount = percent / 100.0;
+                }
+            });
+            // Two sounds to slide between.
+            let id = track.id;
+            let at = match self.snapshots.iter().position(|s| s.track == id) {
+                Some(at) => at,
+                None => {
+                    self.snapshots.push(Snapshot {
+                        track: id,
+                        a: None,
+                        b: None,
+                        t: 0.0,
+                    });
+                    self.snapshots.len() - 1
+                }
+            };
+            let snap = &mut self.snapshots[at];
+            ui.horizontal(|ui| {
+                if ui
+                    .button("Keep A")
+                    .on_hover_text("Remember the sound as it is now, as A")
+                    .clicked()
+                {
+                    snap.a = Some(*values);
+                    snap.t = 0.0;
+                }
+                if ui
+                    .button("Keep B")
+                    .on_hover_text("Remember the sound as it is now, as B")
+                    .clicked()
+                {
+                    snap.b = Some(*values);
+                    snap.t = 1.0;
+                }
+                if let (Some(a), Some(b)) = (snap.a, snap.b) {
+                    ui.label("A");
+                    let slider = egui::Slider::new(&mut snap.t, 0.0..=1.0).show_value(false);
+                    if ui
+                        .add(slider)
+                        .on_hover_text("Slide between sound A and sound B")
+                        .changed()
+                    {
+                        *values = synth::morph(&a, &b, snap.t);
+                        changed = true;
+                    }
+                    ui.label("B");
+                }
             });
             ui.add_space(4.0);
         }

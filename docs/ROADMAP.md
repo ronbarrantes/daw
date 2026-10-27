@@ -34,8 +34,10 @@ menus).
      presets that come with modulation on Position
    - [x] Visuals (v0.38): a filter curve (with where modulation has it
      now), each LFO's shape with a moving dot, and a spectrum view
-   - [ ] Mutate (nudge knobs by an amount, with locks), A/B snapshots and a
-     pad that morphs between them
+   - [x] Mutate (v0.39): nudge knobs by an amount, with sections left
+     alone; Keep A / Keep B and a slider that morphs between them. Later:
+     an X/Y pad to morph between four sounds, and saving A and B with the
+     song.
 4. [ ] **Sound packs.** A file with presets, patches built from daw's own
    modules and visual styles. Import it and it works; share it or keep a
    library of them. (This is also "save your own presets".)
@@ -74,6 +76,7 @@ menus).
 
 Newest first, by release.
 
+- v0.39: Mutate, and A/B sounds with a morph slider
 - v0.38: filter curve, LFO shapes and a spectrum view
 - v0.37: Wavetable engine; presets can bring their own modulation
 - v0.36: FM engine (electric piano, bells, basses, glassy keys)

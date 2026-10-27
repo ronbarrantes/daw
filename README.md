@@ -496,6 +496,14 @@ it. Hover for what each one does. To keep scrolling down:
   when a note starts (**Mod attack**), falls (**Mod decay**) and holds
   (**Mod sustain**).
 
+**Mutate and A/B:** under the preset, **Mutate** nudges every knob a
+little (how far: the % next to it) for a new take on the sound; Ctrl+Z
+undoes it. Right-click it to leave some sections alone (Voice and the
+Arpeggiator are left alone to start with). **Keep A** and **Keep B**
+remember the sound as it is; once both are kept, the slider between A and
+B morphs from one to the other. (A and B are forgotten when the app
+closes.)
+
 **Modulation: make any knob move.** The coloured chips (**LFO 1** in the
 LFO section, **LFO 2**, **Mod env** and **Velocity** in theirs) are
 sources. Drag one onto any knob that isn't a pick-one knob: a ring in the
