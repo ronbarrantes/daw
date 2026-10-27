@@ -534,29 +534,6 @@ const fn mix_param(name: &'static str, min: f32, max: f32, unit: synth::Unit) ->
     }
 }
 
-/// The synth knobs worth drawing changes for, in the panel's order (the
-/// pick-one knobs like Voices and LFO wave are left out).
-pub const SYNTH_TARGETS: [usize; 18] = [
-    synth::WAVE,
-    synth::WAVE_2,
-    synth::LEVEL_2,
-    synth::PITCH_2,
-    synth::DETUNE,
-    synth::GLIDE,
-    synth::CUTOFF,
-    synth::RESONANCE,
-    synth::ENV_AMOUNT,
-    synth::FILTER_DECAY,
-    synth::ATTACK,
-    synth::DECAY,
-    synth::SUSTAIN,
-    synth::RELEASE,
-    synth::LFO_RATE,
-    synth::LFO_AMOUNT,
-    synth::ARP_GATE,
-    synth::VOLUME,
-];
-
 impl Target {
     /// Its name in menus and on lanes; the synth's own Volume is told
     /// apart from the track's.

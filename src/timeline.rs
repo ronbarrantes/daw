@@ -16,7 +16,7 @@ use eframe::egui::{self, Align2, Color32, CursorIcon, FontId, Pos2, Rect, Sense,
 
 use crate::project::{
     AutoLane, AutoPoint, Clip, Kind, Target, CHAIN_SLOTS, MAX_BLOCKS, MAX_PATTERNS, MAX_SONG_STEPS,
-    MIX_TARGETS, PPS, STEPS, SYNTH_TARGETS,
+    MIX_TARGETS, PPS, STEPS,
 };
 use crate::widgets::playhead;
 use crate::{App, Tab};
@@ -657,10 +657,11 @@ impl App {
                 ui.menu_button(name, |ui| {
                     let mut targets: Vec<Target> = MIX_TARGETS.iter().map(|(t, _)| *t).collect();
                     if matches!(self.project.tracks[i].kind, Kind::Synth(_)) {
-                        targets.extend(SYNTH_TARGETS.iter().map(|&k| Target::Synth(k)));
+                        targets.extend(crate::synth::automatable().map(Target::Synth));
                     }
                     for target in targets {
-                        if target == Target::Synth(SYNTH_TARGETS[0]) {
+                        if target == Target::Synth(crate::synth::automatable().next().unwrap_or(0))
+                        {
                             ui.separator();
                         }
                         let taken = self
