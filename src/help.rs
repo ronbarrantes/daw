@@ -161,6 +161,8 @@ const SECTIONS: &[(&str, &str)] = &[
          duplicates, arrows move (Shift: octave or bar), Esc deselects.\n\
          • Snap: 1/4 to 1/32, 1/8 and 1/16 triplets, or Off. Hold Shift \
          while dragging to go off the grid.\n\
+         • Length sets how long new notes are (1/16 to 4 bars) and changes \
+         the selected notes to it; easier than dragging on a touch screen.\n\
          • Velocity sets how loud the selected notes (or new ones) are.\n\
          • Scroll to move around; Ctrl+scroll or - and + zoom.",
     ),
@@ -183,7 +185,8 @@ const SECTIONS: &[(&str, &str)] = &[
          • Arpeggiator: plays held notes one at a time in a pattern (Up, \
          Down, Up/Down, Random, As played) at a rate tied to the tempo, over \
          1-4 octaves. Hold a chord on the keys, or draw long notes.\n\
-         • Drone plays a note nonstop so you can turn knobs and listen; its \
+         • Play a note and Drone are at the top of the panel. Drone plays a \
+         note nonstop so you can turn knobs and listen; its \
          slider sets the pitch anywhere, between notes too.\n\
          • Theremin (bottom of the panel): hold the mouse down on the pad \
          and move. Left to right slides the pitch smoothly, bottom to top \

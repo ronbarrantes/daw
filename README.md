@@ -353,6 +353,10 @@ chords that don't fit a one-bar pattern.
   **Esc** deselects.
 - **Snap** goes from 1/4 to 1/32, with **1/8 and 1/16 triplets**, or Off;
   hold **Shift** while dragging to go off the grid.
+- **Length** sets how long new notes are, from 1/16 to 4 bars (Grid: one
+  snap step), and changes the selected notes to it. Handy for long notes
+  for the arpeggiator, and on a touch screen where dragging a note's end
+  is fiddly.
 - **Velocity** sets how loud the selected notes are (or new ones).
 - Scroll to move around, **Ctrl+scroll** or **-** / **+** to zoom.
 
@@ -368,7 +372,8 @@ it. Hover for what each one does. To keep scrolling down:
   bottom of the panel) or **View → Instrument panel sections** brings it
   back. Closed sections are remembered next time you open the app.
 
-- **Preset:** pick a starting sound: Piano (synth), Electric piano, Guitar
+- **Preset:** shows which preset the knobs match (Custom once you've
+  changed one). Pick a starting sound: Piano (synth), Electric piano, Guitar
   pluck, Bass, Sub bass, Acid bass, Strings, Violin lead, Brass, Organ,
   Flute, Bell, Warm pad or Shaker (noise). They're synth versions of the
   instruments; every knob can be adjusted from there, and Ctrl+Z undoes it.
@@ -389,8 +394,9 @@ it. Hover for what each one does. To keep scrolling down:
   the tempo), **Octaves** how many octaves it climbs, **Arp gate** how long
   each note lasts. It works on anything held: keys, a MIDI controller, long
   notes in a MIDI block or tied notes in the piano roll.
-- **Drone** plays a note nonstop, so you can turn knobs and hear the sound
-  change; click again to stop. Its slider sets the pitch anywhere, sliding
+- **Play a note** and **Drone** are at the top of the panel. Play a note
+  plays one short note. **Drone** plays a note nonstop, so you can turn
+  knobs and hear the sound change; click again to stop. Its slider sets the pitch anywhere, sliding
   smoothly between notes too (it shows the Hz and the nearest note). For a
   drone in a song, put one long note in a MIDI block.
 - **Theremin** (folded at the bottom of the panel; click it open): hold the

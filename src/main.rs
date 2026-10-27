@@ -481,6 +481,17 @@ fn erase_note(lane: &mut project::Lane, step: usize) {
     }
 }
 
+/// The preset whose sound the knobs are set to, or "Custom" once any
+/// knob differs from every preset.
+fn preset_name(values: &synth::Values) -> &'static str {
+    if *values == PARAMS.map(|p| p.default) {
+        return "Default";
+    }
+    (0..synth::PRESETS.len())
+        .find(|&i| synth::preset(i) == *values)
+        .map_or("Custom", |i| synth::PRESETS[i].0)
+}
+
 /// A pitch in Hz as a MIDI note to hold and how far to bend it (0-1
 /// semitones), for pitches between the usual notes.
 fn free_pitch(hz: f32) -> (u8, f32) {
@@ -2581,6 +2592,57 @@ impl App {
         }
     }
 
+    /// The Drone button and its pitch slider: holds a note on the selected
+    /// synth nonstop, at any pitch, to shape the sound by ear.
+    fn drone_controls(&mut self, ui: &mut egui::Ui) {
+        let i = self.selected;
+        let on = self.drone.is_some_and(|(t, _)| t == i);
+        let mut toggle = on;
+        let hint = "Play a note nonstop, so you can turn knobs and hear\n\
+                                the sound change. Click again to stop.";
+        let flip = ui.toggle_value(&mut toggle, "Drone").on_hover_text(hint);
+        // Any pitch, sliding smoothly: the note it's held on
+        // is bent the rest of the way.
+        let pick = egui::Slider::new(&mut self.drone_hz, 30.0..=2000.0)
+            .logarithmic(true)
+            .show_value(false);
+        let moved = ui
+            .add(pick)
+            .on_hover_text("The drone's pitch: slide anywhere, between notes too")
+            .changed();
+        let (base, semis) = free_pitch(self.drone_hz);
+        ui.label(
+            RichText::new(format!(
+                "{:.0} Hz  {}",
+                self.drone_hz,
+                notes::note_name((base as f32 + semis).round() as u8)
+            ))
+            .small(),
+        );
+        if flip.clicked() {
+            if let Some((t, note)) = self.drone.take() {
+                let _ = self.events.try_send(Event::Release { track: t, note });
+            }
+            if toggle {
+                self.drone = Some((i, base));
+                let _ = self.events.try_send(Event::Hold {
+                    track: i,
+                    note: base,
+                    velocity: NORMAL,
+                });
+            }
+        }
+        if let Some((t, note)) = self.drone.filter(|_| moved || flip.clicked()) {
+            let semis = semis + base as f32 - note as f32;
+            let _ = self.events.try_send(Event::Bend {
+                track: t,
+                note,
+                semis,
+                filter: 0.0,
+            });
+        }
+    }
+
     /// The scope's foldable section in the instrument panel, unless it's
     /// popped out or turned off.
     fn panel_scope(&mut self, ui: &mut egui::Ui, sections: &mut Sections) {
@@ -2613,6 +2675,17 @@ impl App {
             .font(egui::TextStyle::Heading)
             .desired_width(200.0);
         changed |= ui.add(name).changed();
+        ui.add_space(4.0);
+        // Hear the track: a quick note, or a drone that keeps playing.
+        let synth = matches!(self.project.tracks[self.selected].kind, Kind::Synth(_));
+        ui.horizontal(|ui| {
+            if ui.button("Play a note").clicked() {
+                self.preview(self.selected, 0);
+            }
+            if synth {
+                self.drone_controls(ui);
+            }
+        });
         ui.add_space(4.0);
         let mut sections = Sections {
             closed: std::mem::take(&mut self.closed_sections),
@@ -2661,7 +2734,7 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.label("Preset");
                     egui::ComboBox::from_id_salt("preset")
-                        .selected_text("Pick a sound…")
+                        .selected_text(preset_name(values))
                         .width(150.0)
                         .show_ui(ui, |ui| {
                             for (i, (name, _)) in synth::PRESETS.iter().enumerate() {
@@ -2689,55 +2762,6 @@ impl App {
                             changed |= knob(ui, &PARAMS[i], &mut values[i]);
                         }
                         changed |= knob(ui, &HUMANIZE, &mut track.humanize);
-                    });
-                    // Drone: hold a note nonstop, to shape the sound by ear.
-                    ui.horizontal(|ui| {
-                        let i = self.selected;
-                        let on = self.drone.is_some_and(|(t, _)| t == i);
-                        let mut toggle = on;
-                        let hint = "Play a note nonstop, so you can turn knobs and hear\n\
-                                the sound change. Click again to stop.";
-                        let flip = ui.toggle_value(&mut toggle, "Drone").on_hover_text(hint);
-                        // Any pitch, sliding smoothly: the note it's held on
-                        // is bent the rest of the way.
-                        let pick = egui::Slider::new(&mut self.drone_hz, 30.0..=2000.0)
-                            .logarithmic(true)
-                            .show_value(false);
-                        let moved = ui
-                            .add(pick)
-                            .on_hover_text("The drone's pitch: slide anywhere, between notes too")
-                            .changed();
-                        let (base, semis) = free_pitch(self.drone_hz);
-                        ui.label(
-                            RichText::new(format!(
-                                "{:.0} Hz  {}",
-                                self.drone_hz,
-                                notes::note_name((base as f32 + semis).round() as u8)
-                            ))
-                            .small(),
-                        );
-                        if flip.clicked() {
-                            if let Some((t, note)) = self.drone.take() {
-                                let _ = self.events.try_send(Event::Release { track: t, note });
-                            }
-                            if toggle {
-                                self.drone = Some((i, base));
-                                let _ = self.events.try_send(Event::Hold {
-                                    track: i,
-                                    note: base,
-                                    velocity: NORMAL,
-                                });
-                            }
-                        }
-                        if let Some((t, note)) = self.drone.filter(|_| moved || flip.clicked()) {
-                            let semis = semis + base as f32 - note as f32;
-                            let _ = self.events.try_send(Event::Bend {
-                                track: t,
-                                note,
-                                semis,
-                                filter: 0.0,
-                            });
-                        }
                     });
                 });
                 let rows: [(&str, [usize; 4]); 3] = [
@@ -2828,16 +2852,12 @@ impl App {
         if changed {
             self.dirty = true;
         }
-        let synth = matches!(self.project.tracks[self.selected].kind, Kind::Synth(_));
         if synth {
             sections.show(ui, "Theremin", false, |ui| self.theremin_pad(ui));
         }
 
         ui.add_space(12.0);
         ui.horizontal(|ui| {
-            if ui.button("Play a note").clicked() {
-                self.preview(self.selected, 0);
-            }
             // Closed sections that belong on this kind of track.
             let fits = |t: &str| match t {
                 "Sample" => !synth,
