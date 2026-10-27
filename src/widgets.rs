@@ -181,6 +181,14 @@ fn hint(p: &Param) -> &'static str {
         }
         "Arp rate" => "How often the arpeggiator plays a note, in time with the tempo",
         "Octaves" => "How many octaves the pattern climbs through",
+        "Latch" => {
+            "Keeps arpeggiating after you let go. Play a new chord to\n\
+                    change it, or turn Latch off to stop"
+        }
+        "Arp notes" => {
+            "Held: the notes you hold. A chord or scale: one held note\n\
+                        becomes that chord or scale, so one finger plays a pattern"
+        }
         "Arp gate" => "How long each arpeggiated note lasts: short is staccato",
         "Voices" => {
             "Poly: chords. Mono: one note at a time.\n\

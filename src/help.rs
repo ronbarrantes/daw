@@ -187,7 +187,9 @@ const SECTIONS: &[(&str, &str)] = &[
          notes in Mono and Legato.\n\
          • Arpeggiator: plays held notes one at a time in a pattern (Up, \
          Down, Up/Down, Random, As played) at a rate tied to the tempo, over \
-         1-4 octaves. Hold a chord on the keys, or draw long notes.\n\
+         1-4 octaves. Hold a chord on the keys, or draw long notes. Arp notes \
+         turns one held note into a chord or scale (Major, Minor, 7th, \
+         Pentatonic...); Latch keeps it going after you let go.\n\
          • Play a note and Drone are at the top of the panel. Drone plays a \
          note nonstop so you can turn knobs and listen; its \
          slider sets the pitch anywhere, between notes too.\n\

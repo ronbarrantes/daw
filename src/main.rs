@@ -2852,6 +2852,11 @@ impl App {
                             changed |= knob(ui, &PARAMS[i], &mut values[i]);
                         }
                     });
+                    ui.horizontal(|ui| {
+                        for i in [synth::ARP_NOTES, synth::ARP_LATCH] {
+                            changed |= knob(ui, &PARAMS[i], &mut values[i]);
+                        }
+                    });
                 });
             }
             Kind::Sampler { sample, pitched } => {

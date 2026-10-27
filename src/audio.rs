@@ -364,6 +364,8 @@ struct ArpNote {
     /// Ends it, like a voice's generation, when the sequencer's note ends.
     generation: u32,
     live: bool,
+    /// Let go, but Latch keeps it playing until a new chord starts.
+    released: bool,
 }
 
 /// A track's arpeggiator: the held notes, in the order they came, and
@@ -546,6 +548,14 @@ impl Engine {
             if !self.arp_on(i) {
                 self.arps[i].count = 0;
             }
+            // Latch off: notes already let go stop.
+            let latch = match project.tracks.get(i).map(|t| &t.kind) {
+                Some(Kind::Synth(v)) => synth::choice(v[synth::ARP_LATCH], 2) == 1,
+                _ => false,
+            };
+            if !latch {
+                while self.arps[i].remove(|h| h.released) {}
+            }
         }
         for (lanes, track) in self.voices.iter_mut().zip(&project.tracks) {
             if let Kind::Synth(values) = &track.kind {
@@ -717,6 +727,11 @@ impl Engine {
         let generation = self.next_generation;
         self.next_generation = generation.wrapping_add(1);
         let arp = &mut self.arps[i];
+        // With Latch, the first note after letting go of everything starts
+        // a new chord.
+        if arp.held[..arp.count].iter().all(|h| h.released) {
+            arp.count = 0;
+        }
         arp.remove(|h| h.note == note);
         if arp.count == ARP_MAX {
             arp.remove(|_| true);
@@ -731,9 +746,33 @@ impl Engine {
             velocity,
             generation,
             live,
+            released: false,
         };
         arp.count += 1;
         generation
+    }
+
+    /// Lets go of an arpeggiator note: with Latch on it keeps playing
+    /// (until a new chord), otherwise it's dropped. Returns whether one
+    /// matched.
+    fn arp_release(&mut self, i: usize, matches: impl Fn(&ArpNote) -> bool) -> bool {
+        let latch = match self.project.tracks.get(i).map(|t| &t.kind) {
+            Some(Kind::Synth(v)) => synth::choice(v[synth::ARP_LATCH], 2) == 1,
+            _ => false,
+        };
+        let arp = &mut self.arps[i];
+        if latch {
+            let n = arp.count;
+            match arp.held[..n].iter_mut().find(|h| !h.released && matches(h)) {
+                Some(h) => {
+                    h.released = true;
+                    true
+                }
+                None => false,
+            }
+        } else {
+            arp.remove(matches)
+        }
     }
 
     /// Plays the arpeggiator's next note on each track whose time has come.
@@ -755,15 +794,25 @@ impl Engine {
             let octaves = synth::choice(v[synth::ARP_OCTAVES], 4) + 1;
             let gate = v[synth::ARP_GATE];
             let every = synth::ARP_RATE_STEPS[rate] * step_len;
-            // The held notes, lowest first unless it's As played.
+            // The held notes, lowest first unless it's As played; or a
+            // chord or scale on the lowest one.
             let arp = self.arps[i];
-            let n = arp.count;
+            let mut n = arp.count;
             let mut order = [(0u8, 0u8); ARP_MAX];
             for (o, h) in order.iter_mut().zip(&arp.held[..n]) {
                 *o = (h.note, h.velocity);
             }
             if mode != 5 {
                 order[..n].sort_unstable_by_key(|o| o.0);
+            }
+            let set = synth::choice(v[synth::ARP_NOTES], synth::ARP_NOTE_SETS.len());
+            if set > 0 {
+                let root = *order[..n].iter().min_by_key(|o| o.0).expect("a note");
+                let intervals = synth::ARP_INTERVALS[set - 1];
+                for (o, step) in order.iter_mut().zip(intervals) {
+                    *o = (root.0.saturating_add(*step).min(127), root.1);
+                }
+                n = intervals.len();
             }
             let len = n * octaves;
             let at = arp.pos % len.max(1);
@@ -795,7 +844,7 @@ impl Engine {
     /// Ends the note with this generation, if it's still held and nobody
     /// is playing it live.
     fn generation_off(&mut self, i: usize, generation: u32) {
-        if i < MAX_TRACKS && self.arps[i].remove(|h| h.generation == generation) {
+        if i < MAX_TRACKS && self.arp_release(i, |h| h.generation == generation) {
             return;
         }
         let v = self.voices[i]
@@ -867,7 +916,7 @@ impl Engine {
                     }
                 }
                 Event::Release { track, note } if track < MAX_TRACKS => {
-                    self.arps[track].remove(|h| h.live && h.note == note);
+                    self.arp_release(track, |h| h.live && h.note == note);
                     // The track may have been deleted; then any voice
                     // holding the note will do.
                     let held = self.holding(track, self.key(track, note), true);
@@ -1739,6 +1788,50 @@ mod tests {
         // Off: the chord plays together, once.
         let chord = arp_notes(arp_lead(0.0, 0.0), &[48, 52, 55], 4);
         assert_eq!(chord, [48, 52, 55]);
+    }
+
+    #[test]
+    fn one_note_can_play_a_chord_or_scale() {
+        let mut project = arp_lead(1.0, 0.0);
+        if let Kind::Synth(v) = &mut project.tracks[LEAD].kind {
+            v[synth::ARP_NOTES] = 2.0; // minor
+        }
+        assert_eq!(arp_notes(project, &[48], 4), [48, 51, 55, 48]);
+        let mut project = arp_lead(1.0, 0.0);
+        if let Kind::Synth(v) = &mut project.tracks[LEAD].kind {
+            v[synth::ARP_NOTES] = 9.0; // pentatonic
+        }
+        assert_eq!(arp_notes(project, &[60], 6), [60, 62, 64, 67, 69, 60]);
+    }
+
+    #[test]
+    fn latch_keeps_playing_after_letting_go_until_a_new_chord() {
+        let mut project = arp_lead(1.0, 0.0);
+        if let Kind::Synth(v) = &mut project.tracks[LEAD].kind {
+            v[synth::ARP_LATCH] = 1.0;
+        }
+        let mut rig = Rig::new(project);
+        let ons = |rig: &mut Rig, steps: usize| {
+            rig.run(STEP * steps);
+            rig.midi()
+                .iter()
+                .filter(|m| m.bytes()[0] == 0x90)
+                .map(|m| m.bytes()[1])
+                .collect::<Vec<u8>>()
+        };
+        for n in [48, 52] {
+            rig.send(hold(LEAD, n));
+        }
+        ons(&mut rig, 1);
+        for note in [48, 52] {
+            rig.send(Event::Release { track: LEAD, note });
+        }
+        let after = ons(&mut rig, 4);
+        assert_eq!(after.len(), 4, "still playing after letting go: {after:?}");
+        rig.send(hold(LEAD, 60));
+        ons(&mut rig, 1);
+        let next = ons(&mut rig, 3);
+        assert_eq!(next, [60, 60, 60], "a new note replaces the chord");
     }
 
     #[test]
