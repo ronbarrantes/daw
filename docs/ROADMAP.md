@@ -76,6 +76,7 @@ menus).
 
 Newest first, by release.
 
+- v0.40.1: an icon for the web version on the iPad home screen
 - v0.40: sustain pedal; LFO retrigger
 - v0.39.2: fix: the computer keys play chords and feed the arpeggiator
 - v0.39.1: fix: the popped-out scope window kept growing

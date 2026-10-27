@@ -127,6 +127,10 @@ It works like the desktop app, with a few differences:
   at a time to find which.
 - Ctrl+N opens a new browser window instead; use **File → New song**.
 - On older or slower computers, the downloadable app runs much better.
+- **On an iPad or iPhone:** in Safari, tap Share, then **Add to Home
+  Screen**. daw gets its own icon and opens full screen, like an app. The
+  home screen copy keeps its own song, separate from the one in Safari, so
+  use Save to move a song between them.
 
 To build it yourself: `rustup target add wasm32-unknown-unknown`,
 `cargo install wasm-bindgen-cli` (the version in `Cargo.lock`), then

@@ -1,5 +1,5 @@
-"""Draws the app icon (assets/icon.png, icon-512.png and icon.ico): a 4x4
-grid of step pads, some lit.
+"""Draws the app icon (assets/icon.png, icon-512.png, icon.ico and
+apple-touch-icon.png): a 4x4 grid of step pads, some lit.
 
 Run from the repo root with `python3 packaging/make_icon.py` (needs Pillow).
 The PNG is committed, so builds don't need Python.
@@ -46,7 +46,28 @@ def main():
     box = [MARGIN * scale, MARGIN * scale, s - MARGIN * scale, s - MARGIN * scale]
     ImageDraw.Draw(mask).rounded_rectangle(box, RADIUS * scale, fill=255)
     img.paste(gradient, (0, 0), mask)
+    # iPhones and iPads round the corners themselves and want a full,
+    # opaque square for the home screen.
+    full = gradient.copy()
 
+    for target in (img, full):
+        draw_pads(target, scale)
+
+    img.resize((SIZE, SIZE), Image.LANCZOS).save("assets/icon.png")
+    # Linux icon themes want exact sizes.
+    img.resize((512, 512), Image.LANCZOS).save("assets/icon-512.png")
+    # Windows icons fill their square, so the macOS margin is cropped off.
+    edge = MARGIN * scale
+    square = img.crop((edge, edge, s - edge, s - edge)).resize((256, 256), Image.LANCZOS)
+    sizes = [(n, n) for n in (16, 24, 32, 48, 64, 128, 256)]
+    square.save("assets/icon.ico", sizes=sizes)
+    # The web version's home screen icon (Add to Home Screen on an iPad).
+    touch = full.crop((edge, edge, s - edge, s - edge)).convert("RGB")
+    touch.resize((180, 180), Image.LANCZOS).save("assets/apple-touch-icon.png")
+
+
+def draw_pads(img, scale):
+    """The 4x4 pads, inside the rounded square's margin."""
     draw = ImageDraw.Draw(img)
     inner = (SIZE - 2 * MARGIN) * scale
     inset = 110 * scale
@@ -61,15 +82,6 @@ def main():
             draw.rounded_rectangle(
                 [x, y, x + pad, y + pad], PAD_RADIUS * scale, fill=color + (255,)
             )
-
-    img.resize((SIZE, SIZE), Image.LANCZOS).save("assets/icon.png")
-    # Linux icon themes want exact sizes.
-    img.resize((512, 512), Image.LANCZOS).save("assets/icon-512.png")
-    # Windows icons fill their square, so the macOS margin is cropped off.
-    edge = MARGIN * scale
-    square = img.crop((edge, edge, s - edge, s - edge)).resize((256, 256), Image.LANCZOS)
-    sizes = [(n, n) for n in (16, 24, 32, 48, 64, 128, 256)]
-    square.save("assets/icon.ico", sizes=sizes)
 
 
 if __name__ == "__main__":
