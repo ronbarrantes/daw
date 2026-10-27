@@ -1985,6 +1985,60 @@ mod tests {
         assert!((225..=228).contains(&ups), "about 226.5 Hz: {ups}");
     }
 
+    #[test]
+    fn click_wave_clicks_once_a_cycle_far_below_the_lowest_note() {
+        let mut project = quiet_demo();
+        if let Kind::Synth(v) = &mut project.tracks[LEAD].kind {
+            v[synth::WAVE] = 5.0; // click
+            v[synth::LEVEL_2] = 0.0;
+            v[synth::CUTOFF] = 8000.0;
+            v[synth::SUSTAIN] = 1.0;
+        }
+        let mut rig = Rig::new(project);
+        // MIDI note 0 is about 8.18 Hz; bent down two octaves, about 2 Hz.
+        rig.send(hold(LEAD, 0));
+        rig.send(Event::Bend {
+            track: LEAD,
+            note: 0,
+            semis: -24.0,
+            filter: 0.0,
+        });
+        rig.run(48_000); // let the bend settle
+        let out = rig.run(96_000);
+        // Count the ticks: loud samples after quiet ones.
+        let ticks = out
+            .windows(2)
+            .filter(|w| w[0].abs() < 0.01 && w[1].abs() > 0.05)
+            .count();
+        assert!((3..=5).contains(&ticks), "about 2 a second: {ticks}");
+    }
+
+    #[test]
+    fn every_engine_survives_the_drones_whole_range() {
+        for engine in 0..synth::ENGINES.len() {
+            for (note, semis) in [(0, -76.0), (127, 5.5)] {
+                let mut project = quiet_demo();
+                if let Kind::Synth(v) = &mut project.tracks[LEAD].kind {
+                    v[synth::ENGINE] = engine as f32;
+                    v[synth::WAVE] = 5.0;
+                }
+                let mut rig = Rig::new(project);
+                rig.send(hold(LEAD, note));
+                rig.send(Event::Bend {
+                    track: LEAD,
+                    note,
+                    semis,
+                    filter: 0.0,
+                });
+                let out = rig.run(24_000);
+                assert!(
+                    out.iter().all(|x| x.is_finite() && x.abs() < 4.0),
+                    "engine {engine}, note {note} bent {semis}"
+                );
+            }
+        }
+    }
+
     /// The lead with its arpeggiator on, sending MIDI on channel 1.
     fn arp_lead(mode: f32, octaves: f32) -> Project {
         let mut project = quiet_demo();

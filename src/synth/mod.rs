@@ -53,7 +53,7 @@ pub enum Unit {
     Pan,
     /// A count of 16th notes, shown as a note length like 3/16 or 1/4.
     Steps,
-    /// An oscillator's shape, 0-4 along `WAVES`, blending in between.
+    /// An oscillator's shape, 0-5 along `WAVES`, blending in between.
     Wave,
     /// Semitones, shown as +7 or -12.
     Semitones,
@@ -638,9 +638,13 @@ mod tests {
     #[test]
     fn the_old_wave_knob_is_a_saw_square_blend() {
         let mut rng = 1;
-        assert_eq!(osc::morph(SAW, 0.25, &mut rng), -0.5, "plain saw");
-        assert_eq!(osc::morph(SAW + 0.5, 0.25, &mut rng), 0.25, "half square");
-        assert_eq!(osc::morph(3.0, 0.25, &mut rng), 1.0, "square");
+        assert_eq!(osc::morph(SAW, 0.25, 440.0, &mut rng), -0.5, "plain saw");
+        assert_eq!(
+            osc::morph(SAW + 0.5, 0.25, 440.0, &mut rng),
+            0.25,
+            "half square"
+        );
+        assert_eq!(osc::morph(3.0, 0.25, 440.0, &mut rng), 1.0, "square");
     }
 
     #[test]

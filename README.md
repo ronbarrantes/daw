@@ -436,7 +436,8 @@ it. Hover for what each one does. To keep scrolling down:
   adjusted from there, and Ctrl+Z undoes it.
 - **Oscillators:** two of them. **Wave 1** and **Wave 2** each go from
   **sine** (smooth) through **triangle**, **saw** (buzzy) and **square**
-  (hollow) to **noise** (hiss); in between blends two shapes. **Level 2**
+  (hollow) and **noise** (hiss) to **click** (one tick per cycle); in
+  between blends two shapes. **Level 2**
   is how loud the second one is (0 = just the first), **Pitch 2** moves it
   in semitones (+12 an octave up, +7 a fifth), **Detune** pulls it slightly
   out of tune to thicken the sound.
@@ -483,8 +484,10 @@ it. Hover for what each one does. To keep scrolling down:
   it going after you let go, until you play a new chord or turn Latch off.
 - **Play a note** and **Drone** are at the top of the panel. Play a note
   plays one short note. **Drone** plays a note nonstop, so you can turn
-  knobs and hear the sound change; click again to stop. Its slider sets the pitch anywhere, sliding
-  smoothly between notes too (it shows the Hz and the nearest note). For a
+  knobs and hear the sound change; click again to stop. Its slider sets the pitch anywhere from 0.1 to
+  20,000 Hz, sliding smoothly between notes too (it shows the Hz and the
+  nearest note). Try Wave 1 on Click and slide up from the bottom: slow
+  ticks turn into a buzz and then a tone at about 20 Hz. For a
   drone in a song, put one long note in a MIDI block.
 - **Theremin** (folded at the bottom of the panel; click it open): hold the
   mouse down on the pad and move. Left to right slides the pitch smoothly
