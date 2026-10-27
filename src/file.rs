@@ -26,8 +26,8 @@ use crate::drums;
 use crate::project::{
     builtin_drums, default_patterns, AutoLane, AutoPoint, Block, Clip, Effects, Group, Kind,
     MidiPart, Pattern, Project, Sample, SampleShape, Step, Target, Track, EMPTY_GRID, LANES,
-    MAX_BLOCKS, MAX_NOTES, MAX_PATTERNS, MAX_SONG_STEPS, MAX_TRACKS, MIX_TARGETS, NORMAL, PPS,
-    STEPS,
+    MAX_BLOCKS, MAX_NOTES, MAX_OCTAVES, MAX_PATTERNS, MAX_SONG_STEPS, MAX_TRACKS, MIX_TARGETS,
+    NORMAL, PPS, STEPS,
 };
 use crate::synth;
 
@@ -231,6 +231,8 @@ struct TrackFile {
     humanize: f32,
     #[serde(default = "default_octave")]
     octave: u8,
+    #[serde(default = "default_octaves")]
+    octaves: u8,
     /// 1-16 as shown in the app; `null` when off.
     #[serde(default)]
     midi_channel: Option<u8>,
@@ -324,6 +326,9 @@ fn default_volume() -> f32 {
 }
 fn default_octave() -> u8 {
     3
+}
+fn default_octaves() -> u8 {
+    1
 }
 fn default_midi_note() -> u8 {
     60
@@ -435,6 +440,7 @@ pub fn to_bytes(project: &Project, bpm: f32) -> Result<Vec<u8>, String> {
             solo: t.solo,
             humanize: t.humanize,
             octave: t.octave,
+            octaves: t.octaves,
             midi_channel: t.midi_channel.map(|c| c + 1),
             midi_note: t.midi_note,
             group: t.group,
@@ -720,7 +726,8 @@ fn read_zip(bytes: Vec<u8>) -> Result<Song, String> {
         track.muted = t.muted;
         track.solo = t.solo;
         track.humanize = t.humanize.clamp(0.0, 1.0);
-        track.octave = t.octave.min(7);
+        track.octaves = t.octaves.clamp(1, MAX_OCTAVES);
+        track.octave = t.octave.min(track.top_octave());
         track.midi_channel = t
             .midi_channel
             .filter(|c| (1..=16).contains(c))
@@ -1209,6 +1216,20 @@ mod tests {
             .read_to_string(&mut json)
             .unwrap();
         serde_json::from_str::<SongFile>(&json).unwrap().format
+    }
+
+    #[test]
+    fn bigger_piano_rolls_keep_their_high_notes() {
+        let mut project = Project::demo();
+        let lead = project.tracks.iter().position(Track::is_melodic).unwrap();
+        project.tracks[lead].octaves = 3;
+        project.tracks[lead].patterns[0][30][7] = Some(Step::HIT);
+        let bytes = to_bytes(&project, 120.0).unwrap();
+        let loaded = from_bytes("test.daw", bytes).unwrap().project;
+        let t = &loaded.tracks[lead];
+        assert_eq!(t.octaves, 3);
+        assert_eq!(t.patterns[0][30][7], Some(Step::HIT), "two octaves up");
+        assert_eq!(loaded.tracks[0].octaves, 1, "others stay one octave");
     }
 
     #[test]

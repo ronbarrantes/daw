@@ -35,7 +35,8 @@ use audio::{Event, Shared};
 use midi::{Midi, Played, Route};
 use project::{
     move_note, note_head, note_len, set_note_length, Effects, Grid, Kind, Project, Row, Sample,
-    Step, Track, ACCENT, EMPTY_GRID, GHOST, LANES, MAX_RATCHET, MAX_TRACKS, NORMAL, STEPS,
+    Step, Track, ACCENT, EMPTY_GRID, GHOST, LANES, MAX_OCTAVES, MAX_RATCHET, MAX_TRACKS, NORMAL,
+    STEPS,
 };
 use synth::{Param, Unit};
 use synth_ui::{section_titles, Snapshot};
@@ -2182,7 +2183,7 @@ impl App {
                         format!("{}{}", chords::fit(short, 4), step_marks(&s))
                     }
                     Some((l, s)) => {
-                        let name = if melodic { NOTE_NAMES[l] } else { "" };
+                        let name = if melodic { NOTE_NAMES[l % 12] } else { "" };
                         let more = match notes.len() {
                             1 => String::new(),
                             n => format!("+{}", n - 1),
@@ -2372,9 +2373,9 @@ impl App {
         let shown = current.or(self.roll_hover.take());
         let chord = shown.and_then(|step| {
             let grid = &track.patterns[pattern];
-            let pitches: Vec<u8> = (0..LANES)
+            let pitches: Vec<u8> = (0..track.lanes())
                 .filter(|&l| grid[l][step].is_some())
-                .map(|l| track.base_note() + l as u8)
+                .map(|l| track.note(l))
                 .collect();
             chords::name(&pitches)
         });
@@ -2384,10 +2385,24 @@ impl App {
                 ui.label(RichText::new(format!("Chord: {}", c.long)).color(NOTE_ON));
             }
             ui.label("Octave");
+            let top = track.top_octave();
             if ui
-                .add(egui::DragValue::new(&mut track.octave).range(0..=7))
+                .add(egui::DragValue::new(&mut track.octave).range(0..=top))
+                .on_hover_text("The piano roll's lowest octave")
                 .changed()
             {
+                self.dirty = true;
+            }
+            ui.label("Octaves");
+            if ui
+                .add(egui::DragValue::new(&mut track.octaves).range(1..=MAX_OCTAVES))
+                .on_hover_text(
+                    "How many octaves the piano roll shows. Notes in rows\n\
+                     above stay, hidden, if you make it smaller.",
+                )
+                .changed()
+            {
+                track.octave = track.octave.min(track.top_octave());
                 self.dirty = true;
             }
             ui.weak("Click: add/remove · drag a note: move it · drag its right edge: longer/shorter · several per column = chord · right-click a note: groove");
@@ -2399,15 +2414,22 @@ impl App {
         // Ctrl-drag, or the Erase tool, erases.
         let command = command || self.tool == Tool::Erase;
         let pointer = held_pointer(ui);
+        let lanes = track.lanes();
         let grid = &mut track.patterns[pattern];
         // Where each step's column and each lane's row is, for working
         // out where a note is being dragged to.
         let mut columns = [0.0_f32; STEPS];
         let mut rows = [0.0_f32; LANES];
         // Highest note on top, like a piano.
-        for lane in (0..LANES).rev() {
-            let name = NOTE_NAMES[lane];
+        for lane in (0..lanes).rev() {
+            let name = NOTE_NAMES[lane % 12];
             let sharp = name.ends_with('#');
+            // With more than one octave, each C says which one it is.
+            let name = if lane % 12 == 0 && lanes > 12 {
+                notes::note_name(base + lane as u8)
+            } else {
+                name.to_string()
+            };
             let note = base + lane as u8;
             ui.horizontal(|ui| {
                 let key_fill = if sharp {
@@ -2558,7 +2580,7 @@ impl App {
             }
             NoteDrag::Move { lane, head, grab } => {
                 let len = note_len(&grid[lane], head);
-                let to_lane = nearest(&rows, pos.y);
+                let to_lane = nearest(&rows[..lanes], pos.y);
                 let to_head = column.saturating_sub(grab).min(STEPS - len);
                 if move_note(grid, (lane, head), (to_lane, to_head)) {
                     self.note_drag = Some(NoteDrag::Move {

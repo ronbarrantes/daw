@@ -261,6 +261,11 @@ All of this goes out over MIDI too, with velocity.
 - Each track plays up to 16 notes at once, so long releases, chords and
   notes played from a keyboard can overlap. Past that, the oldest note
   gives way.
+- **Octave** sets the piano roll's lowest octave and **Octaves** how many
+  it shows, 1 to 4, for wide chords, high arpeggios or recording across
+  the keyboard. Notes you record or play into it keep their octave; notes
+  above or below it wrap round into it. Make it smaller and the notes in
+  the rows above are kept, hidden and silent.
 
 ### Play from your computer keyboard
 
