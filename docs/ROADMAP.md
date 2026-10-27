@@ -81,6 +81,7 @@ menus).
 
 Newest first, by release.
 
+- v0.41.2: drawings sit above the knobs
 - v0.41.1: smaller pop-out arrows
 - v0.41: presets reworked for the new engines, in groups, with modulation
   and velocity

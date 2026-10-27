@@ -237,7 +237,7 @@ const SECTIONS: &[(&str, &str)] = &[
          Noise with a short decay and high cutoff = a shaker.\n\n\
          The green scope at the top of the panel shows the selected track's \
          wave as you play; click it to show more or less time, or switch it \
-         to Spectrum (loudness per pitch). Drawings under the knobs show \
+         to Spectrum (loudness per pitch). Drawings above the knobs show \
          the envelope, the filter's shape and each LFO's wave. View menu \
          turns them off.",
     ),

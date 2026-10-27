@@ -3099,34 +3099,6 @@ impl App {
             (_, Kind::Synth(values)) if synth::MODULES.iter().any(|m| m.name == title) => {
                 let m = synth::MODULES.iter().find(|m| m.name == title).unwrap();
                 let at = synth::first_knob(m);
-                // The sources this module offers, to drag onto knobs.
-                let chips: &[Source] = match title {
-                    "LFO" => &[Source::Lfo1],
-                    "LFO 2" => &[Source::Lfo2],
-                    "Mod envelope" => &[Source::ModEnv, Source::Velocity],
-                    _ => &[],
-                };
-                if !chips.is_empty() {
-                    ui.horizontal(|ui| {
-                        for &c in chips {
-                            source_chip(ui, c);
-                        }
-                        ui.weak("drag onto a knob");
-                    });
-                }
-                for (r, row) in m.rows.iter().enumerate() {
-                    ui.horizontal(|ui| {
-                        for &k in *row {
-                            let k = at + k;
-                            changed |= synth_knob(ui, k, &mut values[k], &mut track.mods, &shared);
-                        }
-                        // Humanize is the track's, not the synth's, but
-                        // it's about how notes play.
-                        if title == "Voice" && r + 1 == m.rows.len() {
-                            changed |= knob(ui, &HUMANIZE, &mut track.humanize);
-                        }
-                    });
-                }
                 // Drawings of what the knobs do (View > Scope and drawings).
                 if show_scope {
                     match title {
@@ -3158,6 +3130,34 @@ impl App {
                         ),
                         _ => {}
                     }
+                }
+                // The sources this module offers, to drag onto knobs.
+                let chips: &[Source] = match title {
+                    "LFO" => &[Source::Lfo1],
+                    "LFO 2" => &[Source::Lfo2],
+                    "Mod envelope" => &[Source::ModEnv, Source::Velocity],
+                    _ => &[],
+                };
+                if !chips.is_empty() {
+                    ui.horizontal(|ui| {
+                        for &c in chips {
+                            source_chip(ui, c);
+                        }
+                        ui.weak("drag onto a knob");
+                    });
+                }
+                for (r, row) in m.rows.iter().enumerate() {
+                    ui.horizontal(|ui| {
+                        for &k in *row {
+                            let k = at + k;
+                            changed |= synth_knob(ui, k, &mut values[k], &mut track.mods, &shared);
+                        }
+                        // Humanize is the track's, not the synth's, but
+                        // it's about how notes play.
+                        if title == "Voice" && r + 1 == m.rows.len() {
+                            changed |= knob(ui, &HUMANIZE, &mut track.humanize);
+                        }
+                    });
                 }
             }
             (
