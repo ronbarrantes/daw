@@ -172,6 +172,10 @@ Each row is a track: its name, **M** (mute), **S** (solo) and 16 steps.
 Tracks work like layers: mute turns one off, and solo plays only the
 soloed tracks so you can hear a part on its own.
 
+- The **Tool** bar (next to + Synth) picks what clicks and drags do:
+  **Draw** adds notes and turns steps on or off, **Erase** removes them.
+  In MIDI blocks there's also **Select**. On a touch screen the tools do
+  what Ctrl, Alt and right-click do with a mouse.
 - Click a step to turn it on or off. **Drag along a row** to paint steps
   on (starting on an empty step) or erase them (starting on a lit one),
   like a pencil and an eraser: a full row of hi-hats is one swipe.
@@ -351,8 +355,12 @@ chords that don't fit a one-bar pattern.
   MIDI block (in the drawer or on the timeline) to open its notes below.
 - **Plays** picks the track; **Bars** sets how long it is. Drawing past the
   end makes it longer by itself.
-- **Click** to add a note, **drag** it to move it, drag its **end** to make
-  it longer or shorter, **right-click** to delete it.
+- The **Tool** bar at the left of its toolbar: **Draw** (click or drag empty
+  space to add notes), **Select** (click notes or drag a box around them)
+  and **Erase** (click or drag over notes to remove them). With any tool,
+  drag a note to move it and its **end** to make it longer or shorter.
+- With a mouse, shortcuts work whatever the tool: **right-click** deletes a
+  note, **right-drag** erases, **Ctrl-drag** draws, **Alt-drag** copies.
 - **Ctrl-drag** (Cmd on Mac) draws notes along the way, one per grid
   cell, like a pencil; **right-drag** erases every note it passes.
 - **Drag empty space** to select notes; **Shift-click** adds or removes one.
@@ -492,6 +500,7 @@ Done:
 - ~~Master volume, level meter and limiter~~
 - ~~Arp latch, and chords and scales from one note~~
 - ~~Chord names on steps~~
+- ~~Tool bar: Draw, Select and Erase~~
 
 Next:
 
