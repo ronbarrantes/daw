@@ -36,7 +36,8 @@ Ron reads in short bursts: keep replies short and plain.
   `src/web.rs` has the browser-only parts (downloads, uploads, autosave),
   `web/` the page and build script. Keep both builds working; there are no
   threads or file paths on the web.
-- `packaging/`: `make_icon.py` draws `assets/icon*.png` and `icon.ico`
+- `packaging/`: `make_icon.py` draws `assets/icon*.png`, `icon.ico` and
+  `apple-touch-icon.png` (the web version's home screen icon)
   (commit them; `build.rs` puts the `.ico` into the Windows `daw.exe`);
   `macos/Info.plist` for the app bundle; `linux/` has the installer and
   `.desktop` entry. `.github/workflows/build.yml` assembles them.
