@@ -1,5 +1,5 @@
 //! The Oscillators module: two oscillators, each morphing from sine
-//! through triangle, saw and square to noise. The second one can be mixed
+//! through triangle, saw and square to noise, and on to a click. The second one can be mixed
 //! in, tuned in semitones and detuned slightly for a thicker sound.
 
 use super::play::ANALOG;
@@ -12,15 +12,18 @@ pub const PITCH_2: usize = 3;
 pub const DETUNE: usize = 4;
 
 /// The shapes an oscillator morphs through, in order.
-pub const WAVES: [&str; 5] = ["Sine", "Tri", "Saw", "Square", "Noise"];
+pub const WAVES: [&str; 6] = ["Sine", "Tri", "Saw", "Square", "Noise", "Click"];
+/// How long the Click wave's tick lasts, in seconds: a click once a cycle,
+/// heard as separate clicks at a few Hz and as a buzzy tone above ~20 Hz.
+const CLICK_SECONDS: f32 = 0.0005;
 /// Where `Unit::Wave` puts a plain saw, the sound before shapes could be picked.
 pub const SAW: f32 = 2.0;
 
 pub const INFO: ModuleInfo = ModuleInfo {
     name: "Oscillators",
     knobs: &[
-        param("Wave 1", 0.0, 4.0, SAW, false, Unit::Wave),
-        param("Wave 2", 0.0, 4.0, SAW, false, Unit::Wave),
+        param("Wave 1", 0.0, 5.0, SAW, false, Unit::Wave),
+        param("Wave 2", 0.0, 5.0, SAW, false, Unit::Wave),
         param("Level 2", 0.0, 1.0, 1.0, false, Unit::Percent),
         param("Pitch 2", -24.0, 24.0, 0.0, false, Unit::Semitones),
         param("Detune", 0.0, 1.0, 0.2, false, Unit::Percent),
@@ -30,8 +33,9 @@ pub const INFO: ModuleInfo = ModuleInfo {
     engine: Some(ANALOG),
 };
 
-/// One of `WAVES` at `phase` (0-1).
-fn shape(i: usize, phase: f32, rng: &mut u32) -> f32 {
+/// One of `WAVES` at `phase` (0-1); `click` is how much of a cycle the
+/// Click wave's tick takes.
+fn shape(i: usize, phase: f32, click: f32, rng: &mut u32) -> f32 {
     match i {
         0 => (phase * std::f32::consts::TAU).sin(),
         1 => 1.0 - 4.0 * (phase - 0.5).abs(),
@@ -43,18 +47,27 @@ fn shape(i: usize, phase: f32, rng: &mut u32) -> f32 {
                 -1.0
             }
         }
-        _ => noise(rng),
+        4 => noise(rng),
+        // Up then down, so it has no offset.
+        _ if phase < click * 0.5 => 1.0,
+        _ if phase < click => -1.0,
+        _ => 0.0,
     }
 }
 
-/// An oscillator `wave` (0-4) of the way along `WAVES`, blending the two
-/// shapes either side.
-pub(super) fn morph(wave: f32, phase: f32, rng: &mut u32) -> f32 {
+/// An oscillator `wave` (0-5) of the way along `WAVES`, blending the two
+/// shapes either side, at `freq` Hz.
+pub(super) fn morph(wave: f32, phase: f32, freq: f32, rng: &mut u32) -> f32 {
+    let click = (freq * CLICK_SECONDS).min(0.5);
     let i = (wave.max(0.0) as usize).min(WAVES.len() - 2);
     let f = (wave - i as f32).clamp(0.0, 1.0);
-    let a = if f < 1.0 { shape(i, phase, rng) } else { 0.0 };
+    let a = if f < 1.0 {
+        shape(i, phase, click, rng)
+    } else {
+        0.0
+    };
     let b = if f > 0.0 {
-        shape(i + 1, phase, rng)
+        shape(i + 1, phase, click, rng)
     } else {
         0.0
     };
@@ -97,10 +110,11 @@ impl Osc {
     /// The next sample at `freq` Hz.
     pub fn next(&mut self, freq: f32, sr: f32) -> f32 {
         self.phase[0] = (self.phase[0] + freq / sr).fract();
-        let mut osc = morph(self.waves[0], self.phase[0], &mut self.rng);
+        let mut osc = morph(self.waves[0], self.phase[0], freq, &mut self.rng);
         if self.level_2 > 0.0 {
-            self.phase[1] = (self.phase[1] + freq * self.ratio_2 / sr).fract();
-            osc += morph(self.waves[1], self.phase[1], &mut self.rng) * self.level_2;
+            let freq_2 = freq * self.ratio_2;
+            self.phase[1] = (self.phase[1] + freq_2 / sr).fract();
+            osc += morph(self.waves[1], self.phase[1], freq_2, &mut self.rng) * self.level_2;
         }
         osc
     }

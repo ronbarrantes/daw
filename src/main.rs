@@ -615,10 +615,12 @@ fn preset_name(values: &synth::Values) -> &'static str {
 }
 
 /// A pitch in Hz as a MIDI note to hold and how far to bend it (0-1
-/// semitones), for pitches between the usual notes.
+/// semitones, or further past the lowest and highest notes), for pitches
+/// between the usual notes.
 fn free_pitch(hz: f32) -> (u8, f32) {
-    let exact = (69.0 + 12.0 * (hz / 440.0).log2()).clamp(0.0, 127.0);
-    let note = exact.floor();
+    let exact = 69.0 + 12.0 * (hz / 440.0).log2();
+    // Past the ends of MIDI's notes, the bend does the rest.
+    let note = exact.floor().clamp(0.0, 127.0);
     (note as u8, exact - note)
 }
 
@@ -3015,7 +3017,7 @@ impl App {
         let flip = ui.toggle_value(&mut toggle, "Drone").on_hover_text(hint);
         // Any pitch, sliding smoothly: the note it's held on
         // is bent the rest of the way.
-        let pick = egui::Slider::new(&mut self.drone_hz, 30.0..=2000.0)
+        let pick = egui::Slider::new(&mut self.drone_hz, 0.1..=20000.0)
             .logarithmic(true)
             .show_value(false);
         let moved = ui
@@ -3023,14 +3025,20 @@ impl App {
             .on_hover_text("The drone's pitch: slide anywhere, between notes too")
             .changed();
         let (base, semis) = free_pitch(self.drone_hz);
-        ui.label(
-            RichText::new(format!(
-                "{:.0} Hz  {}",
-                self.drone_hz,
-                notes::note_name((base as f32 + semis).round() as u8)
-            ))
-            .small(),
-        );
+        let hz = self.drone_hz;
+        let pitch = base as f32 + semis;
+        // Below about 20 Hz it's separate wobbles or clicks, not a note.
+        let note = if hz >= 20.0 && pitch <= 127.0 {
+            notes::note_name(pitch.round() as u8)
+        } else {
+            String::new()
+        };
+        let hz = if hz < 10.0 {
+            format!("{hz:.1} Hz")
+        } else {
+            format!("{hz:.0} Hz")
+        };
+        ui.label(RichText::new(format!("{hz}  {note}")).small());
         if flip.clicked() {
             if let Some((t, note)) = self.drone.take() {
                 let _ = self.events.try_send(Event::Release { track: t, note });

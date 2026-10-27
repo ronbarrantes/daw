@@ -199,7 +199,8 @@ const SECTIONS: &[(&str, &str)] = &[
          modulation too, like Velocity for brighter notes when you play \
          harder. Then adjust any knob.\n\
          • Oscillators: Wave 1 and Wave 2 go from sine (smooth) through \
-         triangle, saw (buzzy) and square (hollow) to noise (hiss). Level 2 \
+         triangle, saw (buzzy), square (hollow) and noise (hiss) to click \
+         (a tick per cycle). Level 2 \
          is the second one's volume, Pitch 2 its pitch in semitones, Detune \
          thickens.\n\
          • Voice: Engine picks the sound: Analog (two oscillators), Pluck \
@@ -216,7 +217,8 @@ const SECTIONS: &[(&str, &str)] = &[
          Pentatonic...); Latch keeps it going after you let go.\n\
          • Play a note and Drone are at the top of the panel. Drone plays a \
          note nonstop so you can turn knobs and listen; its \
-         slider sets the pitch anywhere, between notes too.\n\
+         slider sets the pitch anywhere from 0.1 to 20,000 Hz, between \
+         notes too. With Wave 1 on Click, slow ticks turn into a tone.\n\
          • Theremin (bottom of the panel): hold the mouse down on the pad \
          and move. Left to right slides the pitch smoothly, bottom to top \
          opens the filter.\n\

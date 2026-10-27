@@ -9,7 +9,7 @@ engine, a visual, an effect) plugs in without touching the rest of the app.
 | Module | File | What it does |
 | --- | --- | --- |
 | Voice | `src/synth/play.rs` | the Engine, Poly / Mono / Legato, Glide, the synth's volume |
-| Oscillators | `src/synth/osc.rs` | the Analog engine: two oscillators, sine to noise |
+| Oscillators | `src/synth/osc.rs` | the Analog engine: two oscillators, sine to noise and click |
 | Pluck | `src/synth/pluck.rs` | the Pluck engine: a plucked string (Karplus-Strong) |
 | Mallet | `src/synth/mallet.rs` | the Mallet engine: struck bar, glass or bell (modal) |
 | FM | `src/synth/fm.rs` | the FM engine: two sine operators, with feedback |
