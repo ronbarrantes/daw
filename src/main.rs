@@ -40,8 +40,8 @@ use synth::{Param, Source, Unit, PARAMS};
 use undo::Undo;
 use widgets::{
     disclosure_arrow, empty_fill, envelope, filter_curve, knob, lfo_shape, lit_fill, meter,
-    mod_knob, playhead, port_picker, scope, source_chip, source_color, spectrum, waveform, DRUM_ON,
-    NOTE_HELD, NOTE_NAMES, NOTE_ON, SCOPE_SPANS,
+    mod_knob, playhead, pop_out_button, port_picker, scope, source_chip, source_color, spectrum,
+    waveform, DRUM_ON, NOTE_HELD, NOTE_NAMES, NOTE_ON, SCOPE_SPANS,
 };
 
 const RECORDING: Color32 = Color32::from_rgb(220, 60, 60);
@@ -768,7 +768,7 @@ impl Sections {
                     if close.clicked() {
                         self.close = Some(title.to_string());
                     }
-                    let pop = ui.small_button("⬈").on_hover_text(
+                    let pop = pop_out_button(ui, close.rect.size()).on_hover_text(
                         "Pop out into its own window, to move anywhere.\n\
                          Its × puts it back here.",
                     );
