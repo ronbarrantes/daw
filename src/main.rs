@@ -961,6 +961,10 @@ impl App {
         self.selected = self
             .selected
             .min(self.project.tracks.len().saturating_sub(1));
+        let last = self.project.patterns.len() - 1;
+        if self.edit_pattern() > last {
+            self.shared.edit_pattern.store(last as u8, Relaxed);
+        }
         if self
             .selected_group
             .is_some_and(|id| self.project.group(id).is_none())

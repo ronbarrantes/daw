@@ -233,6 +233,15 @@ impl App {
             .clicked()
         {
             self.project.delete_pattern(p);
+            // Keep editing the same pattern, or the one that took the
+            // deleted one's place, so the grid below never points past
+            // the end this frame.
+            let edit = self.shared.edit_pattern.load(Relaxed) as usize;
+            let edit = if edit > p { edit - 1 } else { edit };
+            let last = self.project.patterns.len() - 1;
+            self.shared
+                .edit_pattern
+                .store(edit.min(last) as u8, Relaxed);
             self.timeline.selected = None;
             self.dirty = true;
             ui.close_menu();
