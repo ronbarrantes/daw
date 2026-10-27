@@ -12,7 +12,7 @@ use eframe::egui::{self, Align2, Color32, CursorIcon, FontId, Pos2, Rect, Sense,
 use crate::audio::Event;
 use crate::project::{Note, MAX_NOTES, MAX_SONG_STEPS, NORMAL, PPS, STEPS};
 use crate::widgets::{lit_fill, NOTE_NAMES, NOTE_ON};
-use crate::App;
+use crate::{App, Tool};
 
 /// Width of the keyboard on the left, height of the ruler on top.
 const KEYS: f32 = 46.0;
@@ -447,6 +447,8 @@ impl App {
 
     fn note_toolbar(&mut self, ui: &mut egui::Ui, b: usize) {
         ui.horizontal_wrapped(|ui| {
+            Tool::bar(ui, &mut self.tool, true);
+            ui.separator();
             let name = self.project.blocks[b].name.clone();
             ui.strong(format!("Notes · {name}"))
                 .on_hover_text("A MIDI block: free notes, played by the track you pick");
@@ -582,11 +584,17 @@ impl App {
                 self.notes_changed(b);
             }
         });
-        ui.weak(
-            "Click: add a note · drag it: move · drag its end: longer/shorter · \
-             right-click: delete · drag empty space: select · Alt-drag: copy · \
-             Ctrl-drag: draw · right-drag: erase",
-        );
+        ui.weak(match self.tool {
+            Tool::Draw => {
+                "Draw: click or drag empty space to add notes · drag a note to move it, \
+                 its end to make it longer · Alt-drag copies · right-drag erases"
+            }
+            Tool::Select => {
+                "Select: click notes or drag a box around them · drag them to move · \
+                 Delete, Ctrl+D (copy) and the arrows work on them"
+            }
+            Tool::Erase => "Erase: click or drag over notes to remove them",
+        });
     }
 
     /// Which note is under a point, topmost first, and whether the point is
@@ -617,8 +625,13 @@ impl App {
 
         let (command, secondary) = ui.input(|i| (i.modifiers.command, i.pointer.secondary_down()));
         let origin = ui.input(|i| i.pointer.press_origin());
-        if let (true, true, Some(last)) = (resp.drag_started(), secondary || command, origin) {
-            self.notes.drag = Some(if secondary {
+        // Right-drag or the Erase tool erases; Ctrl-drag, or dragging empty
+        // space with the Draw tool, draws.
+        let erase = secondary || self.tool == Tool::Erase;
+        let over_note = origin.and_then(|p| self.note_at(b, view, p)).is_some();
+        let paint = command || (self.tool == Tool::Draw && !over_note);
+        if let (true, true, Some(last)) = (resp.drag_started(), erase || paint, origin) {
+            self.notes.drag = Some(if erase {
                 Drag::Erase { last }
             } else {
                 Drag::Paint { last }
@@ -785,6 +798,15 @@ impl App {
                     self.preview_note(b, view.pitch_at(pos.y));
                 } else if in_area(pos) {
                     match self.note_at(b, view, pos) {
+                        Some((i, _)) if self.tool == Tool::Erase => {
+                            if let Some(m) = self.project.blocks[b].midi.as_mut() {
+                                m.notes.remove(i);
+                                self.notes.deselect();
+                                self.dirty = true;
+                            }
+                        }
+                        None if self.tool == Tool::Erase => {}
+                        None if self.tool == Tool::Select => self.notes.deselect(),
                         Some((i, _)) if shift => {
                             match self.notes.selected.iter().position(|&s| s == i) {
                                 Some(at) => {

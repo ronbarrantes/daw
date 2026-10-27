@@ -65,7 +65,10 @@ const SECTIONS: &[(&str, &str)] = &[
     ),
     (
         "Steps and groove",
-        "• Click a step to turn it on or off. Drag along a row to paint \
+        "• The Tool bar (next to + Synth) picks what clicks and drags do: \
+         Draw adds notes and turns steps on, Erase removes them (MIDI blocks \
+         also have Select). Handy on a touch screen.\n\
+         • Click a step to turn it on or off. Drag along a row to paint \
          steps on (start on an empty step) or erase them (start on a lit one).\n\
          • Shift-click a step for a ghost note (a quiet hit). Quieter steps \
          look dimmer.\n\

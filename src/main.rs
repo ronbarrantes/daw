@@ -300,6 +300,8 @@ struct App {
     roll_hover: Option<usize>,
     /// Steps being painted or erased by dragging across them.
     paint: Option<Paint>,
+    /// The tool bar's tool.
+    tool: Tool,
     /// The oscilloscope and envelope drawing in the instrument panel.
     show_scope: bool,
     /// The scope is in its own window instead of the instrument panel.
@@ -406,6 +408,7 @@ impl App {
             notes: notes::State::default(),
             note_drag: None,
             paint: None,
+            tool: Tool::Draw,
             roll_hover: None,
             drone: None,
             drone_hz: synth::midi_to_hz(48),
@@ -443,6 +446,58 @@ impl App {
             edits: 0,
             #[cfg(target_arch = "wasm32")]
             autosaved: (0, bpm),
+        }
+    }
+}
+
+/// What clicks and drags do in the step rows and piano rolls, picked in
+/// the tool bar: buttons for what Ctrl, Alt and right-click do, so a touch
+/// screen can do it all.
+#[derive(Clone, Copy, PartialEq)]
+pub enum Tool {
+    /// Click or drag to add notes (and turn steps on or off).
+    Draw,
+    /// Click to pick notes, drag to box-select (MIDI blocks).
+    Select,
+    /// Click or drag to remove notes.
+    Erase,
+}
+
+impl Tool {
+    /// The tool bar: `select` adds the Select tool where it applies.
+    fn bar(ui: &mut egui::Ui, tool: &mut Tool, select: bool) {
+        ui.label("Tool");
+        let tools = [
+            (Tool::Draw, "Draw", "Click or drag to add notes"),
+            (
+                Tool::Select,
+                "Select",
+                "Click notes to pick them, drag a box around several;\n\
+                 then drag them, or use Delete, Ctrl+D and the arrows",
+            ),
+            (
+                Tool::Erase,
+                "Erase",
+                "Click or drag over notes to remove them",
+            ),
+        ];
+        // Without Select here, it works (and shows) as Draw.
+        let current = if !select && *tool == Tool::Select {
+            Tool::Draw
+        } else {
+            *tool
+        };
+        for (t, name, hint) in tools {
+            if t == Tool::Select && !select {
+                continue;
+            }
+            if ui
+                .selectable_label(current == t, name)
+                .on_hover_text(hint)
+                .clicked()
+            {
+                *tool = t;
+            }
         }
     }
 }
@@ -2171,7 +2226,7 @@ impl App {
                     self.paint = Some(Paint {
                         track: i,
                         lane: None,
-                        on: notes.is_empty(),
+                        on: notes.is_empty() && self.tool != Tool::Erase,
                         last_x: None,
                     });
                 }
@@ -2242,6 +2297,9 @@ impl App {
     fn add_row(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui.horizontal(|ui| {
             ui.add_space(84.0);
+            // Select only means something in MIDI blocks; here it draws.
+            Tool::bar(ui, &mut self.tool, false);
+            ui.separator();
             let full = self.project.tracks.len() >= MAX_TRACKS;
             if ui
                 .add_enabled(!full, egui::Button::new("+ Synth"))
@@ -2323,6 +2381,8 @@ impl App {
         ui.spacing_mut().item_spacing.y = 2.0;
         let base = track.base_note();
         let (shift, command) = ui.input(|i| (i.modifiers.shift, i.modifiers.command));
+        // Ctrl-drag, or the Erase tool, erases.
+        let command = command || self.tool == Tool::Erase;
         let pointer = held_pointer(ui);
         let grid = &mut track.patterns[pattern];
         // Where each step's column is, for working out where a note is
