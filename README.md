@@ -503,65 +503,7 @@ Plug gear in over USB (or a USB-MIDI cable), then press **⟳** to rescan.
 
 ## Roadmap
 
-Done:
-
-- ~~Drum step sequencer~~
-- ~~MIDI clock and notes for the FM-1 and AIRA Compacts~~
-- ~~Built-in synth with knobs~~
-- ~~Patterns and song arrangement~~
-- ~~Add/remove tracks, per-track volume, sample tracks~~
-- ~~Groove: swing, velocity/ghost notes, humanize, chance, ratchets, nudge; solo~~
-- ~~Track groups, View menu and focus mode~~
-- ~~Chords, other tracks' notes in the piano roll, routed MIDI inputs with recording~~
-- ~~Save and load songs~~
-- ~~Export to WAV and MIDI~~
-- ~~Pan, reverb and delay, metronome, undo~~
-- ~~Web version, Windows build~~
-- ~~Timeline, pattern library, Jam and Arrange views with chains and blocks~~
-- ~~Real polyphony: 16 voices per track~~
-- ~~MIDI blocks with a full piano roll and triplet grids~~
-- ~~Clave, bongos, congas, toms, shaker and cowbell; + Drum~~
-- ~~Drag to paint and erase steps and notes~~
-- ~~Synth: two oscillators from sine to noise, LFO, mono/legato, glide, drone~~
-- ~~Foldable instrument panel, pop-out scope, LFO on pan~~
-- ~~Free pitch: Drone slider and theremin pad; closable panel sections~~
-- ~~Synth presets: piano, basses, strings, brass, organ, bell, pad and more~~
-- ~~Arpeggiator~~
-- ~~Master volume, level meter and limiter~~
-- ~~Arp latch, and chords and scales from one note~~
-- ~~Chord names on steps~~
-- ~~Tool bar: Draw, Select and Erase~~
-- ~~Duplicate and reorder tracks~~
-- ~~Sample trim, fade in, release and reverse~~
-- ~~Automation: draw knob changes over the song~~
-- ~~Pop any panel section out into its own window~~
-
-Next:
-
-1. Import .mid files as MIDI blocks (say, sheet music turned into MIDI)
-2. Record a take from a MIDI keyboard or the computer keys into a MIDI block
-3. Audio blocks on the timeline: vocals and full tracks, with trim, split,
-   fades and clip volume
-4. Sampled instruments (SoundFont / SFZ), for real piano and other sounds
-5. Recording audio onto the timeline
-6. Record a jam (pattern and chain changes) straight into the timeline
-7. Time signatures: 3/4, 6/8, 5/4, 13/8 and others, and pattern lengths
-   other than 16 steps
-8. Clip overrides: mute a track, transpose or change the volume of one
-   block without unlinking it
-9. Sample editor: chop a sample into slices
-10. A full mixer
-11. Freesound.org sample browser
-12. Mod matrix: connect any source (LFOs, envelopes, velocity) to any knob,
-    with an amount, e.g. an LFO on reverb or a second LFO on the filter
-13. Patch view: a full page of modules chained together for generative
-    music, e.g. a random source, a quantizer that keeps it on a scale, a
-    clock that sets how often it picks a note, a range clamp and chance;
-    then record the result for as long as you like into a MIDI block
-14. Fine tune: shift a whole track slightly off the usual notes, in cents
-15. Other tunings and scales: 24 notes per octave (quarter tones), just
-    intonation or your own, and switching between them and free pitch;
-    the piano roll and keyboard follow
-16. Save your own synth presets, and share them between songs
+What's being built now (synth modules and drag-and-drop modulation), what's
+planned and what's done: [docs/ROADMAP.md](docs/ROADMAP.md).
 
 See [docs/WORKFLOW.md](docs/WORKFLOW.md) for how changes get pushed, merged and released.

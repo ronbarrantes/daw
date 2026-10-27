@@ -1,0 +1,106 @@
+# Roadmap
+
+What's being built now, what's planned, and what's done. Every PR updates
+this file: tick off what it finishes, and drop or reword anything that's no
+longer the plan.
+
+## Now: synth modules
+
+Holding a drone and turning knobs is the heart of the app, so this comes
+first. The plan came out of reading what people find easy and painful in
+popular synths (Vital, Serum, Drift, Minilogue: you see the sound move, and
+drag an LFO onto a knob; Surge, Massive X, Wavestate: clutter, clicks and
+menus).
+
+1. [ ] **Modules.** Restructure the synth into modules (oscillators, filter,
+   envelopes, LFOs, arpeggiator...) that all follow one contract: their
+   knobs, their inputs and outputs, and how they draw. Same sound, same
+   knobs; old songs load the same. A new module is then one piece of code
+   added to a list, and it gets a panel section, pop-out, saving and
+   modulation for free. See [MODULES.md](MODULES.md) once it exists.
+2. [ ] **Drag-and-drop modulation.** Drag a source (LFO 1, LFO 2, a mod
+   envelope, velocity...) onto any knob. A coloured ring on the knob shows
+   how far it moves, and it moves live while the drone plays. One colour
+   per source. Replaces "LFO to" (old songs keep their LFO as the first
+   connection).
+3. [ ] **New modules**, each on its own:
+   - [ ] Pluck and Mallet engines (strings, marimba, bells: natural sounds
+     without samples), likely from Mutable Instruments' open-source Plaits
+     code (MIT, already ported to Rust)
+   - [ ] FM engine (electric piano, bells, glassy keys, bass)
+   - [ ] Wavetable engine
+   - [ ] Visuals: a filter curve that moves, the LFO's shape, a spectrum
+   - [ ] Mutate (nudge knobs by an amount, with locks), A/B snapshots and a
+     pad that morphs between them
+4. [ ] **Sound packs.** A file with presets, patches built from daw's own
+   modules and visual styles. Import it and it works; share it or keep a
+   library of them. (This is also "save your own presets".)
+
+## Later
+
+- **Code packs:** modules made by anyone, loaded from a file, using
+  WebAssembly (a sealed box: works on desktop and web, can't touch files or
+  crash the app). Tools like Faust could make them. Test speed on the Air
+  first.
+- **Patch view:** a full page of modules wired together, e.g. for
+  generative music (a random source, a quantizer that keeps it on a scale,
+  a clock, chance), recorded into a MIDI block.
+- Import .mid files as MIDI blocks (say, sheet music turned into MIDI)
+- Record a take from a MIDI keyboard or the computer keys into a MIDI block
+- Record a jam (pattern and chain changes) straight into the timeline
+- Audio blocks on the timeline: vocals and full tracks, with trim, split,
+  fades and clip volume
+- Recording audio onto the timeline
+- Sampled instruments (SoundFont / SFZ), for real piano and other sounds
+  modules can't fake
+- Time signatures: 3/4, 6/8, 5/4, 13/8 and others, and pattern lengths
+  other than 16 steps
+- Clip overrides: mute a track, transpose or change the volume of one block
+  without unlinking it
+- Sample editor: chop a sample into slices
+- A full mixer
+- Freesound.org sample browser
+- Fine tune: shift a whole track slightly off the usual notes, in cents
+- Other tunings and scales: quarter tones, just intonation or your own; the
+  piano roll and keyboard follow
+- Phone mode: the synth panel and an on-screen keyboard, for iPhone
+- Plugin hosting (CLAP) on desktop, maybe
+
+## Done
+
+Newest first, by release.
+
+- v0.32: pop any panel section out into its own window
+- v0.31: automation: draw knob changes over the song
+- v0.30: sample trim, fade in, release and reverse
+- v0.29: duplicate and reorder tracks
+- v0.28: tool bar: Draw, Select and Erase
+- v0.27: chord names on steps
+- v0.26: arp latch; chords and scales from one note
+- v0.25: master volume, level meter and limiter
+- v0.24: new tracks start silent; Play a note and Drone on top; note length
+- v0.23: arpeggiator
+- v0.22: synth presets
+- v0.21: free pitch (Drone slider, theremin pad); closable panel sections
+- v0.20: foldable instrument panel, pop-out scope, LFO on pan
+- v0.19: two oscillators from sine to noise, LFO, mono/legato, glide, drone
+- v0.18: drag to paint and erase steps and notes
+- v0.17: clave, bongos, congas, toms, shaker, cowbell; + Drum
+- v0.16: MIDI blocks with a full piano roll
+- v0.15: real polyphony, 16 voices per track
+- v0.14: Jam and Arrange views, with chains and blocks
+- v0.13: drag notes longer or shorter; oscilloscope and envelope drawing
+- v0.12: timeline with linked pattern clips and a pattern library
+- v0.11: Windows build; the web version works in Safari
+- v0.10: web version
+- v0.9: undo and redo
+- v0.8: shared reverb and delay
+- v0.7: metronome and count-in
+- v0.6: pan per track, stereo mix
+- v0.5: export songs as WAV and MIDI; .daw song files
+- v0.4: save and open songs
+- v0.3: Mac app bundle, Linux installer and app icon
+- v0.2: chords, routed MIDI inputs, GitHub builds and releases
+- v0.1: drum step sequencer, MIDI clock and notes for the FM-1 and AIRA
+  Compacts, built-in synth with knobs, sample tracks, groove, groups,
+  patterns and song mode

@@ -13,6 +13,9 @@ Only ask Ron first for big breaking changes, and for anything about naming
 or branding (the app's name, file extension, icon): talk it through and wait
 for a clear "do it".
 
+Keep [docs/ROADMAP.md](docs/ROADMAP.md) and the guides (README, F1 help)
+up to date in every PR; see WORKFLOW.md.
+
 Ron reads in short bursts: keep replies short and plain.
 
 ## Code
