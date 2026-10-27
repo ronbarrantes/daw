@@ -897,33 +897,70 @@ fn read_wav(
     })
 }
 
-/// Where the app remembers which instrument panel sections are closed.
+/// Where the app remembers a setting of its own (not the song's), by name.
 #[cfg(not(target_arch = "wasm32"))]
-fn closed_sections_record() -> Option<std::path::PathBuf> {
-    Some(dirs::config_dir()?.join("daw").join("closed-sections"))
+fn record(name: &str) -> Option<std::path::PathBuf> {
+    Some(dirs::config_dir()?.join("daw").join(name))
 }
 
-/// The instrument panel sections closed last time, one title per line.
-pub fn closed_sections() -> Vec<String> {
+/// The lines of a remembered setting, or none.
+fn remembered(name: &str) -> Vec<String> {
     #[cfg(not(target_arch = "wasm32"))]
-    if let Some(text) = closed_sections_record().and_then(|p| std::fs::read_to_string(p).ok()) {
+    if let Some(text) = record(name).and_then(|p| std::fs::read_to_string(p).ok()) {
         return text.lines().map(str::to_string).collect();
     }
+    let _ = name;
     Vec::new()
 }
 
-/// Remembers which sections are closed. Failing to is harmless, and the
+/// Remembers a setting, one line each. Failing to is harmless, and the
 /// web version only remembers until the page closes.
-pub fn remember_closed_sections(closed: &[String]) {
+fn remember_lines(name: &str, lines: &[String]) {
     #[cfg(not(target_arch = "wasm32"))]
-    if let Some(record) = closed_sections_record() {
+    if let Some(record) = record(name) {
         if let Some(dir) = record.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
-        let _ = std::fs::write(record, closed.join("\n"));
+        let _ = std::fs::write(record, lines.join("\n"));
     }
-    #[cfg(target_arch = "wasm32")]
-    let _ = closed;
+    let _ = (name, lines);
+}
+
+/// The instrument panel sections closed last time, by title.
+pub fn closed_sections() -> Vec<String> {
+    remembered("closed-sections")
+}
+
+/// Remembers which sections are closed.
+pub fn remember_closed_sections(closed: &[String]) {
+    remember_lines("closed-sections", closed);
+}
+
+/// The sections popped out into their own windows last time: each title
+/// with where its window was (x, y, width, height), if known.
+pub fn popped_sections() -> Vec<(String, Option<[f32; 4]>)> {
+    remembered("popped-sections")
+        .iter()
+        .filter_map(|line| {
+            let mut parts = line.split('\t');
+            let title = parts.next()?.to_string();
+            let numbers: Vec<f32> = parts.filter_map(|n| n.parse().ok()).collect();
+            let rect = <[f32; 4]>::try_from(numbers).ok();
+            (!title.is_empty()).then_some((title, rect))
+        })
+        .collect()
+}
+
+/// Remembers which sections are popped out and where their windows are.
+pub fn remember_popped_sections(popped: &[(String, Option<[f32; 4]>)]) {
+    let lines: Vec<String> = popped
+        .iter()
+        .map(|(title, rect)| match rect {
+            Some([x, y, w, h]) => format!("{title}\t{x:.0}\t{y:.0}\t{w:.0}\t{h:.0}"),
+            None => title.clone(),
+        })
+        .collect();
+    remember_lines("popped-sections", &lines);
 }
 
 /// Where the app remembers the last song, so it reopens at startup.

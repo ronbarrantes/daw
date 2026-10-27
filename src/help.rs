@@ -190,7 +190,9 @@ const SECTIONS: &[(&str, &str)] = &[
         "Drag a knob up or down; double-click to reset it; hover to see what \
          it does. Click a section's heading to fold it (and again to open \
          it); × closes it, and + Section at the bottom of the panel (or View \
-         > Instrument panel sections) brings it back.\n\n\
+         > Instrument panel sections) brings it back. ⬈ pops a section out \
+         into its own window to put anywhere (the Scope and Theremin can be \
+         made big); its × puts it back.\n\n\
          • Preset: a starting sound (piano, electric piano, guitar pluck, \
          basses, strings, violin, brass, organ, flute, bell, pad, shaker), \
          then adjust any knob.\n\
@@ -222,8 +224,7 @@ const SECTIONS: &[(&str, &str)] = &[
          Try: Cutoff down, Reso up, Env amt up, short F decay = acid bass. \
          Noise with a short decay and high cutoff = a shaker.\n\n\
          The green scope at the top of the panel shows the selected track's \
-         wave as you play; click it to show more or less time. Pop out \
-         puts it in its own window you can move and resize. The blue \
+         wave as you play; click it to show more or less time. The blue \
          drawing shows the envelope. View menu turns them off.",
     ),
     (

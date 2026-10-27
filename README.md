@@ -412,6 +412,11 @@ it. Hover for what each one does. To keep scrolling down:
 - **×** on a heading closes the section completely. **+ Section** (at the
   bottom of the panel) or **View → Instrument panel sections** brings it
   back. Closed sections are remembered next time you open the app.
+- **⬈** on a heading pops the section out into its own window. Drag it
+  anywhere, even over the timeline, to lay out the knobs you're playing
+  with; the Scope and Theremin windows can be made as big as you like. They
+  show the selected track, like the panel. The window's **×** puts it back.
+  Popped-out windows and where they sit are remembered too.
 
 - **Preset:** shows which preset the knobs match (Custom once you've
   changed one). Pick a starting sound: Piano (synth), Electric piano, Guitar
@@ -474,9 +479,9 @@ Try:
 **Scope:** the green screen at the top of the panel is an oscilloscope of
 the selected track, so you can watch a knob change the wave. A saw is a
 ramp, a square is a square, and the filter rounds off the sharp corners.
-Click it to show more or less time. **Pop out** moves it into its own
-window you can drag anywhere and make as big as you like; close that window
-to put it back. The blue drawing under the envelope knobs shows the note's
+Click it to show more or less time. **⬈** pops it out into its own window
+you can drag anywhere and make as big as you like; close that window to put
+it back. The blue drawing under the envelope knobs shows the note's
 volume over time. Turn both off in **View**.
 
 ### MIDI
@@ -529,6 +534,7 @@ Done:
 - ~~Duplicate and reorder tracks~~
 - ~~Sample trim, fade in, release and reverse~~
 - ~~Automation: draw knob changes over the song~~
+- ~~Pop any panel section out into its own window~~
 
 Next:
 

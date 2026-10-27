@@ -340,8 +340,11 @@ struct App {
     tool: Tool,
     /// The oscilloscope and envelope drawing in the instrument panel.
     show_scope: bool,
-    /// The scope is in its own window instead of the instrument panel.
-    scope_popped: bool,
+    /// Instrument panel sections popped out into their own windows, by
+    /// title, with where each window was (x, y, width, height).
+    popped: Vec<(String, Option<[f32; 4]>)>,
+    /// `popped` changed and should be remembered once the mouse is up.
+    popped_changed: bool,
     /// What the level meter shows: recent peaks, falling slowly, and how
     /// hard the limiter is working.
     meter_levels: [f32; 2],
@@ -450,7 +453,8 @@ impl App {
             drone_hz: synth::midi_to_hz(48),
             theremin: None,
             show_scope: true,
-            scope_popped: false,
+            popped: file::popped_sections(),
+            popped_changed: false,
             meter_levels: [0.0; 2],
             meter_limiting: 0.0,
             closed_sections: file::closed_sections(),
@@ -615,14 +619,27 @@ const SECTIONS: [&str; 9] = [
     "Theremin",
 ];
 
+/// Whether a panel section belongs on a synth track (`synth`) or a sample
+/// track.
+fn section_fits(title: &str, synth: bool) -> bool {
+    match title {
+        "Sample" => !synth,
+        "Scope" | "Mix" => true,
+        _ => synth,
+    }
+}
+
 /// The instrument panel's sections, while it's being drawn: each one can
-/// be folded (click its heading; egui remembers that while the app runs)
-/// or closed with × and brought back from + Section or the View menu.
+/// be folded (click its heading; egui remembers that while the app runs),
+/// popped out into its own window with ⬈, or closed with × and brought
+/// back from + Section or the View menu.
 struct Sections {
     /// Closed sections, by title.
     closed: Vec<String>,
     /// A section whose × was clicked this frame.
     close: Option<String>,
+    /// A section whose ⬈ was clicked this frame.
+    pop: Option<String>,
 }
 
 impl Sections {
@@ -652,6 +669,13 @@ impl Sections {
                         .on_hover_text("Close this section (+ Section brings it back)");
                     if close.clicked() {
                         self.close = Some(title.to_string());
+                    }
+                    let pop = ui.small_button("⬈").on_hover_text(
+                        "Pop out into its own window, to move anywhere.\n\
+                         Its × puts it back here.",
+                    );
+                    if pop.clicked() {
+                        self.pop = Some(title.to_string());
                     }
                 });
             })
@@ -954,7 +978,7 @@ impl eframe::App for App {
         help::guide(ctx, &mut self.show_help);
         help::about(ctx, &mut self.show_about);
         self.fx_window(ctx);
-        self.scope_window(ctx);
+        self.popped_windows(ctx);
         self.confirm_dialog(ctx);
         self.midi_inputs_window(ctx);
 
@@ -994,7 +1018,7 @@ impl eframe::App for App {
         }
         // The engine only feeds the scope while it's showing.
         let in_panel = self.view.panel && self.selected_group.is_none();
-        let scope = self.show_scope && (in_panel || self.scope_popped);
+        let scope = self.show_scope && (in_panel || self.is_popped("Scope"));
         self.shared.scope_on.store(scope, Relaxed);
         // Only redraw continuously while playing (or the scope has sound
         // to show), to keep CPU low when idle.
@@ -2689,43 +2713,99 @@ impl App {
         scope(ui, &samples, rate, SCOPE_SPANS[self.scope_span], size)
     }
 
-    /// The scope popped out of the instrument panel into its own window,
-    /// which can be moved and resized. Closing it puts it back.
-    fn scope_window(&mut self, ctx: &egui::Context) {
-        if !self.scope_popped || !self.show_scope {
-            return;
-        }
-        let mut open = true;
+    fn is_popped(&self, title: &str) -> bool {
+        self.popped.iter().any(|(t, _)| t == title)
+    }
+
+    /// The sections popped out of the instrument panel, each in its own
+    /// window that can be moved (and for the scope and theremin, resized).
+    /// They show the selected track, like the panel. Closing one puts it
+    /// back in the panel.
+    fn popped_windows(&mut self, ctx: &egui::Context) {
         let name = self
             .project
             .tracks
             .get(self.selected)
-            .map_or(String::new(), |t| t.name.clone());
-        egui::Window::new(format!("Scope · {name}"))
-            .id(egui::Id::new("scope window"))
-            .open(&mut open)
-            .default_size([520.0, 240.0])
-            .min_size([200.0, 80.0])
-            .resizable(true)
-            .show(ctx, |ui| {
-                let size = ui.available_size().max(Vec2::new(200.0, 80.0));
-                if self.draw_scope(ui, size) {
-                    self.scope_span = (self.scope_span + 1) % SCOPE_SPANS.len();
+            .map(|t| t.name.clone());
+        let synth = matches!(
+            self.project.tracks.get(self.selected).map(|t| &t.kind),
+            Some(Kind::Synth(_))
+        );
+        let mut close = None;
+        for i in 0..self.popped.len() {
+            let (title, rect) = self.popped[i].clone();
+            if title == "Scope" && !self.show_scope {
+                continue;
+            }
+            let big = matches!(title.as_str(), "Scope" | "Theremin");
+            let heading = match &name {
+                Some(name) => format!("{title} · {name}"),
+                None => title.clone(),
+            };
+            let mut open = true;
+            let mut window = egui::Window::new(heading)
+                .id(egui::Id::new(("section window", &title)))
+                .open(&mut open)
+                .collapsible(true)
+                .resizable(big);
+            window = match rect {
+                // Only the scope and theremin have a size to keep; the
+                // others fit their knobs.
+                Some([x, y, w, h]) if big => window.default_pos([x, y]).default_size([w, h]),
+                Some([x, y, ..]) => window.default_pos([x, y]),
+                None if big => window.default_size([480.0, 240.0]),
+                None => window,
+            };
+            if big {
+                window = window.min_size([200.0, 80.0]);
+            }
+            let mut inner = None;
+            let shown = window.show(ctx, |ui| {
+                inner = Some(ui.available_size());
+                if name.is_none() {
+                    ui.weak("Add a track to get started.");
+                } else if !section_fits(&title, synth) {
+                    let kind = if title == "Sample" { "sample" } else { "synth" };
+                    ui.weak(format!("Select a {kind} track to see its {title}."));
+                    if big {
+                        // Keeps its size for when it's back.
+                        ui.allocate_space(ui.available_size());
+                    }
+                } else {
+                    self.section(ui, &title, true);
                 }
             });
-        if !open {
-            self.scope_popped = false;
+            if !open {
+                close = Some(i);
+            } else if let (Some(shown), Some(size)) = (shown, inner) {
+                // Remember where it is (not while it's folded).
+                let at = shown.response.rect.min;
+                let now = [at.x, at.y, size.x, size.y];
+                let moved =
+                    rect.is_none_or(|a| a.iter().zip(now).any(|(p, q)| (p - q).abs() > 0.5));
+                if moved {
+                    self.popped[i].1 = Some(now);
+                    self.popped_changed = true;
+                }
+            }
+        }
+        if let Some(i) = close {
+            self.popped.remove(i);
+            self.popped_changed = true;
+        }
+        if self.popped_changed && !ctx.input(|i| i.pointer.any_down()) {
+            self.popped_changed = false;
+            file::remember_popped_sections(&self.popped);
         }
     }
 
     /// A pad to play the selected synth like a theremin: hold the mouse
     /// down and move it. Left to right slides the pitch smoothly over four
     /// octaves (no steps), bottom to top opens the filter.
-    fn theremin_pad(&mut self, ui: &mut egui::Ui) {
+    fn theremin_pad(&mut self, ui: &mut egui::Ui, size: Vec2) {
         const LOW: f32 = 36.0; // C2
         const HIGH: f32 = 84.0; // C6
         const NOTE: u8 = 60;
-        let size = Vec2::new(ui.available_width().min(270.0), 110.0);
         let (rect, resp) = ui.allocate_exact_size(size, Sense::drag());
         let resp = resp.on_hover_text(
             "Hold the mouse down and move: left to right is pitch (smooth,\n\
@@ -2843,24 +2923,158 @@ impl App {
         }
     }
 
-    /// The scope's foldable section in the instrument panel, unless it's
-    /// popped out or turned off.
-    fn panel_scope(&mut self, ui: &mut egui::Ui, sections: &mut Sections) {
-        if self.show_scope && !self.scope_popped && sections.is_open("Scope") {
-            sections.show(ui, "Scope", true, |ui| {
-                let size = Vec2::new(ui.available_width().min(270.0), 80.0);
-                if self.draw_scope(ui, size) {
+    /// One section's knobs for the selected track, in the instrument panel
+    /// or in its own window (`big`: the scope and theremin fill it).
+    fn section(&mut self, ui: &mut egui::Ui, title: &str, big: bool) {
+        let fill = |ui: &egui::Ui, height: f32| {
+            if big {
+                ui.available_size().max(Vec2::new(200.0, 80.0))
+            } else {
+                Vec2::new(ui.available_width().min(270.0), height)
+            }
+        };
+        match title {
+            "Scope" => {
+                if self.draw_scope(ui, fill(ui, 80.0)) {
                     self.scope_span = (self.scope_span + 1) % SCOPE_SPANS.len();
                 }
-                if ui
-                    .small_button("Pop out")
-                    .on_hover_text("Show the scope in its own window, as big as you like")
-                    .clicked()
-                {
-                    self.scope_popped = true;
+                return;
+            }
+            "Theremin" => {
+                self.theremin_pad(ui, fill(ui, 110.0));
+                return;
+            }
+            _ => {}
+        }
+        let show_scope = self.show_scope;
+        let Some(track) = self.project.tracks.get_mut(self.selected) else {
+            return;
+        };
+        let mut changed = false;
+        match (title, &mut track.kind) {
+            ("Oscillators", Kind::Synth(values)) => {
+                ui.horizontal(|ui| {
+                    for i in [synth::WAVE, synth::WAVE_2, synth::LEVEL_2, synth::PITCH_2] {
+                        changed |= knob(ui, &PARAMS[i], &mut values[i]);
+                    }
+                });
+                ui.horizontal(|ui| {
+                    for i in [synth::DETUNE, synth::VOICES, synth::GLIDE] {
+                        changed |= knob(ui, &PARAMS[i], &mut values[i]);
+                    }
+                    changed |= knob(ui, &HUMANIZE, &mut track.humanize);
+                });
+            }
+            ("Filter", Kind::Synth(values)) => {
+                ui.horizontal(|ui| {
+                    for i in [
+                        synth::CUTOFF,
+                        synth::RESONANCE,
+                        synth::ENV_AMOUNT,
+                        synth::FILTER_DECAY,
+                    ] {
+                        changed |= knob(ui, &PARAMS[i], &mut values[i]);
+                    }
+                });
+            }
+            ("Envelope (ADSR)", Kind::Synth(values)) => {
+                ui.horizontal(|ui| {
+                    for i in [synth::ATTACK, synth::DECAY, synth::SUSTAIN, synth::RELEASE] {
+                        changed |= knob(ui, &PARAMS[i], &mut values[i]);
+                    }
+                });
+                if show_scope {
+                    envelope(
+                        ui,
+                        values[synth::ATTACK],
+                        values[synth::DECAY],
+                        values[synth::SUSTAIN],
+                        values[synth::RELEASE],
+                    );
                 }
-            });
-            ui.add_space(4.0);
+            }
+            ("LFO", Kind::Synth(values)) => {
+                ui.horizontal(|ui| {
+                    for i in [
+                        synth::LFO_TARGET,
+                        synth::LFO_SHAPE,
+                        synth::LFO_AMOUNT,
+                        synth::LFO_RATE,
+                    ] {
+                        changed |= knob(ui, &PARAMS[i], &mut values[i]);
+                    }
+                });
+                ui.horizontal(|ui| {
+                    let i = synth::LFO_SYNC;
+                    changed |= knob(ui, &PARAMS[i], &mut values[i]);
+                });
+            }
+            ("Arpeggiator", Kind::Synth(values)) => {
+                ui.horizontal(|ui| {
+                    for i in [
+                        synth::ARP_MODE,
+                        synth::ARP_RATE,
+                        synth::ARP_OCTAVES,
+                        synth::ARP_GATE,
+                    ] {
+                        changed |= knob(ui, &PARAMS[i], &mut values[i]);
+                    }
+                });
+                ui.horizontal(|ui| {
+                    for i in [synth::ARP_NOTES, synth::ARP_LATCH] {
+                        changed |= knob(ui, &PARAMS[i], &mut values[i]);
+                    }
+                });
+            }
+            (
+                "Sample",
+                Kind::Sampler {
+                    sample,
+                    pitched,
+                    shape,
+                },
+            ) => {
+                ui.label(format!("Sample: {}", sample.name));
+                ui.weak(format!("{:.2} s, {} Hz", sample.seconds(), sample.rate));
+                waveform(ui, &sample.data, shape.start, shape.end, shape.reverse);
+                ui.horizontal(|ui| {
+                    let hint = "Off: plays as recorded, like a drum.\n\
+                                On: plays at the pitch of each note, like an instrument (C4 = as recorded).";
+                    changed |= ui.checkbox(pitched, "Pitched").on_hover_text(hint).changed();
+                    changed |= ui
+                        .checkbox(&mut shape.reverse, "Reverse")
+                        .on_hover_text("Play the sample backwards")
+                        .changed();
+                    changed |= ui
+                        .checkbox(&mut shape.ring, "Ring out")
+                        .on_hover_text(
+                            "On: plays to the end however short the note, like a drum.\n\
+                             Off: fades out (Release) when the note ends.",
+                        )
+                        .changed();
+                });
+                ui.horizontal(|ui| {
+                    changed |= knob(ui, &SAMPLE_START, &mut shape.start);
+                    changed |= knob(ui, &SAMPLE_END, &mut shape.end);
+                    changed |= knob(ui, &SAMPLE_ATTACK, &mut shape.attack);
+                    ui.add_enabled_ui(!shape.ring, |ui| {
+                        changed |= knob(ui, &SAMPLE_RELEASE, &mut shape.release);
+                    });
+                });
+                changed |= knob(ui, &HUMANIZE, &mut track.humanize);
+            }
+            ("Mix", _) => {
+                ui.horizontal(|ui| {
+                    changed |= knob(ui, &TRACK_VOLUME, &mut track.volume);
+                    changed |= knob(ui, &PAN, &mut track.pan);
+                    changed |= knob(ui, &REVERB_SEND, &mut track.reverb);
+                    changed |= knob(ui, &DELAY_SEND, &mut track.delay);
+                });
+            }
+            _ => {}
+        }
+        if changed {
+            self.dirty = true;
         }
     }
 
@@ -2890,8 +3104,17 @@ impl App {
         let mut sections = Sections {
             closed: std::mem::take(&mut self.closed_sections),
             close: None,
+            pop: None,
         };
-        self.panel_scope(ui, &mut sections);
+        // A section shows here unless it doesn't fit this kind of track or
+        // it's popped out into its own window.
+        let here = |app: &Self, t: &str| {
+            section_fits(t, synth) && !app.is_popped(t) && (t != "Scope" || app.show_scope)
+        };
+        if here(self, "Scope") {
+            sections.show(ui, "Scope", true, |ui| self.section(ui, "Scope", false));
+            ui.add_space(4.0);
+        }
         let track = &mut self.project.tracks[self.selected];
 
         ui.horizontal(|ui| {
@@ -2926,173 +3149,47 @@ impl App {
         });
         ui.add_space(8.0);
 
-        match &mut track.kind {
-            Kind::Synth(values) => {
-                ui.weak("Drag knobs up/down. Double-click to reset. Click a heading to fold it.");
-                ui.add_space(4.0);
-                // A starting sound, adjusted from there with the knobs.
-                ui.horizontal(|ui| {
-                    ui.label("Preset");
-                    egui::ComboBox::from_id_salt("preset")
-                        .selected_text(preset_name(values))
-                        .width(150.0)
-                        .show_ui(ui, |ui| {
-                            for (i, (name, _)) in synth::PRESETS.iter().enumerate() {
-                                if ui.selectable_label(false, *name).clicked() {
-                                    *values = synth::preset(i);
-                                    changed = true;
-                                }
-                            }
-                        })
-                        .response
-                        .on_hover_text(
-                            "Start from an instrument sound, then adjust any knob.\n\
-                             Ctrl+Z undoes it.",
-                        );
-                });
-                ui.add_space(4.0);
-                sections.show(ui, "Oscillators", true, |ui| {
-                    ui.horizontal(|ui| {
-                        for i in [synth::WAVE, synth::WAVE_2, synth::LEVEL_2, synth::PITCH_2] {
-                            changed |= knob(ui, &PARAMS[i], &mut values[i]);
-                        }
-                    });
-                    ui.horizontal(|ui| {
-                        for i in [synth::DETUNE, synth::VOICES, synth::GLIDE] {
-                            changed |= knob(ui, &PARAMS[i], &mut values[i]);
-                        }
-                        changed |= knob(ui, &HUMANIZE, &mut track.humanize);
-                    });
-                });
-                let rows: [(&str, [usize; 4]); 3] = [
-                    (
-                        "Filter",
-                        [
-                            synth::CUTOFF,
-                            synth::RESONANCE,
-                            synth::ENV_AMOUNT,
-                            synth::FILTER_DECAY,
-                        ],
-                    ),
-                    (
-                        "Envelope (ADSR)",
-                        [synth::ATTACK, synth::DECAY, synth::SUSTAIN, synth::RELEASE],
-                    ),
-                    (
-                        "LFO",
-                        [
-                            synth::LFO_TARGET,
-                            synth::LFO_SHAPE,
-                            synth::LFO_AMOUNT,
-                            synth::LFO_RATE,
-                        ],
-                    ),
-                ];
-                for (title, row) in rows {
-                    sections.show(ui, title, true, |ui| {
-                        ui.horizontal(|ui| {
-                            for i in row {
-                                changed |= knob(ui, &PARAMS[i], &mut values[i]);
-                            }
-                        });
-                        if row[0] == synth::LFO_TARGET {
-                            ui.horizontal(|ui| {
-                                let i = synth::LFO_SYNC;
-                                changed |= knob(ui, &PARAMS[i], &mut values[i]);
-                            });
-                        }
-                        if self.show_scope && row[0] == synth::ATTACK {
-                            envelope(
-                                ui,
-                                values[synth::ATTACK],
-                                values[synth::DECAY],
-                                values[synth::SUSTAIN],
-                                values[synth::RELEASE],
-                            );
-                        }
-                    });
-                }
-                sections.show(ui, "Arpeggiator", false, |ui| {
-                    ui.horizontal(|ui| {
-                        for i in [
-                            synth::ARP_MODE,
-                            synth::ARP_RATE,
-                            synth::ARP_OCTAVES,
-                            synth::ARP_GATE,
-                        ] {
-                            changed |= knob(ui, &PARAMS[i], &mut values[i]);
-                        }
-                    });
-                    ui.horizontal(|ui| {
-                        for i in [synth::ARP_NOTES, synth::ARP_LATCH] {
-                            changed |= knob(ui, &PARAMS[i], &mut values[i]);
-                        }
-                    });
-                });
-            }
-            Kind::Sampler {
-                sample,
-                pitched,
-                shape,
-            } => {
-                sections.show(ui, "Sample", true, |ui| {
-                    ui.label(format!("Sample: {}", sample.name));
-                    ui.weak(format!("{:.2} s, {} Hz", sample.seconds(), sample.rate));
-                    waveform(ui, &sample.data, shape.start, shape.end, shape.reverse);
-                    ui.horizontal(|ui| {
-                        let hint = "Off: plays as recorded, like a drum.\n\
-                                    On: plays at the pitch of each note, like an instrument (C4 = as recorded).";
-                        changed |= ui.checkbox(pitched, "Pitched").on_hover_text(hint).changed();
-                        changed |= ui
-                            .checkbox(&mut shape.reverse, "Reverse")
-                            .on_hover_text("Play the sample backwards")
-                            .changed();
-                        changed |= ui
-                            .checkbox(&mut shape.ring, "Ring out")
-                            .on_hover_text(
-                                "On: plays to the end however short the note, like a drum.\n\
-                                 Off: fades out (Release) when the note ends.",
-                            )
-                            .changed();
-                    });
-                    ui.horizontal(|ui| {
-                        changed |= knob(ui, &SAMPLE_START, &mut shape.start);
-                        changed |= knob(ui, &SAMPLE_END, &mut shape.end);
-                        changed |= knob(ui, &SAMPLE_ATTACK, &mut shape.attack);
-                        ui.add_enabled_ui(!shape.ring, |ui| {
-                            changed |= knob(ui, &SAMPLE_RELEASE, &mut shape.release);
-                        });
-                    });
-                    changed |= knob(ui, &HUMANIZE, &mut track.humanize);
-                });
-            }
-        }
-        sections.show(ui, "Mix", true, |ui| {
+        if let Kind::Synth(values) = &mut track.kind {
+            ui.weak("Drag knobs up/down. Double-click to reset. Click a heading to fold it.");
+            ui.add_space(4.0);
+            // A starting sound, adjusted from there with the knobs.
             ui.horizontal(|ui| {
-                changed |= knob(ui, &TRACK_VOLUME, &mut track.volume);
-                changed |= knob(ui, &PAN, &mut track.pan);
-                changed |= knob(ui, &REVERB_SEND, &mut track.reverb);
-                changed |= knob(ui, &DELAY_SEND, &mut track.delay);
+                ui.label("Preset");
+                egui::ComboBox::from_id_salt("preset")
+                    .selected_text(preset_name(values))
+                    .width(150.0)
+                    .show_ui(ui, |ui| {
+                        for (i, (name, _)) in synth::PRESETS.iter().enumerate() {
+                            if ui.selectable_label(false, *name).clicked() {
+                                *values = synth::preset(i);
+                                changed = true;
+                            }
+                        }
+                    })
+                    .response
+                    .on_hover_text(
+                        "Start from an instrument sound, then adjust any knob.\n\
+                         Ctrl+Z undoes it.",
+                    );
             });
-        });
+            ui.add_space(4.0);
+        }
         if changed {
             self.dirty = true;
         }
-        if synth {
-            sections.show(ui, "Theremin", false, |ui| self.theremin_pad(ui));
+        for title in SECTIONS.into_iter().skip(1) {
+            if here(self, title) {
+                let open = !matches!(title, "Arpeggiator" | "Theremin");
+                sections.show(ui, title, open, |ui| self.section(ui, title, false));
+            }
         }
 
         ui.add_space(12.0);
         ui.horizontal(|ui| {
             // Closed sections that belong on this kind of track.
-            let fits = |t: &str| match t {
-                "Sample" => !synth,
-                "Scope" | "Mix" => true,
-                _ => synth,
-            };
             let reopen: Vec<&str> = SECTIONS
                 .into_iter()
-                .filter(|t| fits(t) && !sections.is_open(t))
+                .filter(|t| section_fits(t, synth) && !sections.is_open(t))
                 .collect();
             if !reopen.is_empty() {
                 ui.menu_button("+ Section", |ui| {
@@ -3111,6 +3208,10 @@ impl App {
         if let Some(t) = sections.close.take() {
             sections.closed.push(t);
             self.sections_changed = true;
+        }
+        if let Some(t) = sections.pop.take() {
+            self.popped.push((t, None));
+            self.popped_changed = true;
         }
         self.closed_sections = sections.closed;
         if std::mem::take(&mut self.sections_changed) {
