@@ -44,6 +44,11 @@ menus).
 
 ## Later
 
+- **DX7 patches:** open DX7 `.syx` banks (32 sounds each, thousands free
+  online) and play them on a new 6-operator FM engine, likely from the
+  Rust port of Mutable Instruments' Plaits 1.2 (MIT), which has one. Read
+  the files, add the engine, then a bank browser and a few knobs over the
+  whole patch. Check its weight on the Air first.
 - **Code packs:** modules made by anyone, loaded from a file, using
   WebAssembly (a sealed box: works on desktop and web, can't touch files or
   crash the app). Tools like Faust could make them. Test speed on the Air
@@ -76,6 +81,8 @@ menus).
 
 Newest first, by release.
 
+- v0.41: presets reworked for the new engines, in groups, with modulation
+  and velocity
 - v0.40.1: an icon for the web version on the iPad home screen
 - v0.40: sustain pedal; LFO retrigger
 - v0.39.2: fix: the computer keys play chords and feed the arpeggiator
