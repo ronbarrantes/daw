@@ -523,8 +523,12 @@ the selected track, so you can watch a knob change the wave. A saw is a
 ramp, a square is a square, and the filter rounds off the sharp corners.
 Click it to show more or less time. **⬈** pops it out into its own window
 you can drag anywhere and make as big as you like; close that window to put
-it back. The blue drawing under the envelope knobs shows the note's
-volume over time. Turn both off in **View**.
+it back. **Spectrum** (under the scope) switches it to how loud each
+pitch is, low on the left and high on the right. The drawings under the
+knobs show what they do: the note's volume over time (Envelope), the
+filter's shape (Filter; a white line shows where modulation has it now),
+and each LFO's wave with a dot where it is in its cycle. Turn them all
+off in **View**.
 
 ### MIDI
 

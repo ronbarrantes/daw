@@ -32,7 +32,8 @@ menus).
    - [x] Wavetable engine (v0.37): four built-in tables (Basic, Vocal,
      Hollow, Metal) with Position and Sub, band-limited per octave;
      presets that come with modulation on Position
-   - [ ] Visuals: a filter curve that moves, the LFO's shape, a spectrum
+   - [x] Visuals (v0.38): a filter curve (with where modulation has it
+     now), each LFO's shape with a moving dot, and a spectrum view
    - [ ] Mutate (nudge knobs by an amount, with locks), A/B snapshots and a
      pad that morphs between them
 4. [ ] **Sound packs.** A file with presets, patches built from daw's own
@@ -73,6 +74,7 @@ menus).
 
 Newest first, by release.
 
+- v0.38: filter curve, LFO shapes and a spectrum view
 - v0.37: Wavetable engine; presets can bring their own modulation
 - v0.36: FM engine (electric piano, bells, basses, glassy keys)
 - v0.35: Pluck and Mallet engines (strings, marimba, vibes, glass, bells)

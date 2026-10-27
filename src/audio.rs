@@ -162,6 +162,9 @@ pub struct Shared {
     /// `mod_live` is up to date (the track has modulation and a voice is
     /// sounding).
     mod_live_on: AtomicBool,
+    /// Where the selected track's LFO 1 and LFO 2 are in their cycles,
+    /// 0-1, as `f32` bits, for drawing them.
+    lfo_phase: [AtomicU32; 2],
 }
 
 /// How many samples the scope keeps: about 85 ms at 48 kHz.
@@ -201,7 +204,13 @@ impl Shared {
                 .map(|_| AtomicU32::new(0))
                 .collect(),
             mod_live_on: AtomicBool::new(false),
+            lfo_phase: [AtomicU32::new(0), AtomicU32::new(0)],
         }
+    }
+
+    /// Where the selected track's LFO `n` (0 or 1) is in its cycle.
+    pub fn lfo_phase(&self, n: usize) -> f32 {
+        f32::from_bits(self.lfo_phase[n].load(Relaxed))
     }
 
     /// Where modulation has the selected track's knob `k` now, if it's
@@ -1092,6 +1101,9 @@ impl Engine {
         }
         self.apply_automation();
         self.apply_modulation();
+        let scoped = self.shared.selected_track.load(Relaxed).min(MAX_TRACKS - 1);
+        self.shared.lfo_phase[0].store(self.lfos[scoped].phase().to_bits(), Relaxed);
+        self.shared.lfo_phase[1].store(self.lfo2s[scoped].phase().to_bits(), Relaxed);
         while let Ok(event) = self.events.try_recv() {
             match event {
                 Event::Preview { track, note } if track < self.track_count() => {

@@ -39,9 +39,9 @@ use project::{
 use synth::{Param, Source, Unit, PARAMS};
 use undo::Undo;
 use widgets::{
-    disclosure_arrow, empty_fill, envelope, knob, lit_fill, meter, mod_knob, playhead, port_picker,
-    scope, source_chip, source_color, waveform, DRUM_ON, NOTE_HELD, NOTE_NAMES, NOTE_ON,
-    SCOPE_SPANS,
+    disclosure_arrow, empty_fill, envelope, filter_curve, knob, lfo_shape, lit_fill, meter,
+    mod_knob, playhead, port_picker, scope, source_chip, source_color, spectrum, waveform, DRUM_ON,
+    NOTE_HELD, NOTE_NAMES, NOTE_ON, SCOPE_SPANS,
 };
 
 const RECORDING: Color32 = Color32::from_rgb(220, 60, 60);
@@ -356,6 +356,8 @@ struct App {
     sections_changed: bool,
     /// Which of `SCOPE_SPANS` the scope shows.
     scope_span: usize,
+    /// The scope shows the spectrum (loudness per pitch) instead.
+    spectrum: bool,
     /// The scope had something to show last frame, so keep it moving.
     scope_busy: bool,
     /// Waiting for "save changes first?" to be answered.
@@ -461,6 +463,7 @@ impl App {
             closed_sections: file::closed_sections(),
             sections_changed: false,
             scope_span: 1,
+            spectrum: false,
             scope_busy: false,
             confirm: None,
             picked: Vec::new(),
@@ -1728,7 +1731,7 @@ impl App {
                 ui.checkbox(&mut v.others, "Other tracks' notes in piano roll");
                 ui.checkbox(
                     &mut self.show_scope,
-                    "Scope and envelope (instrument panel)",
+                    "Scope and drawings (instrument panel)",
                 );
                 ui.menu_button("Instrument panel sections", |ui| {
                     for t in section_titles() {
@@ -2786,6 +2789,10 @@ impl App {
         self.shared.read_scope(&mut samples);
         self.scope_busy = samples.iter().any(|s| s.abs() > 1e-4);
         let rate = self.shared.sample_rate.load(Relaxed) as f32;
+        if self.spectrum {
+            spectrum(ui, &samples, rate, size).on_hover_text("How loud each pitch is");
+            return false;
+        }
         scope(ui, &samples, rate, SCOPE_SPANS[self.scope_span], size)
     }
 
@@ -3025,9 +3032,19 @@ impl App {
         };
         match title {
             "Scope" => {
-                if self.draw_scope(ui, fill(ui, 80.0)) {
+                let size = fill(ui, 80.0);
+                let size = Vec2::new(size.x, (size.y - 20.0).max(60.0));
+                if self.draw_scope(ui, size) {
                     self.scope_span = (self.scope_span + 1) % SCOPE_SPANS.len();
                 }
+                ui.horizontal(|ui| {
+                    ui.selectable_value(&mut self.spectrum, false, "Wave")
+                        .on_hover_text("The wave's shape over time");
+                    ui.selectable_value(&mut self.spectrum, true, "Spectrum")
+                        .on_hover_text(
+                            "How loud each pitch is: low on the left, high on the right",
+                        );
+                });
                 return;
             }
             "Theremin" => {
@@ -3074,14 +3091,37 @@ impl App {
                         }
                     });
                 }
-                if show_scope && title == "Envelope (ADSR)" {
-                    envelope(
-                        ui,
-                        values[synth::ATTACK],
-                        values[synth::DECAY],
-                        values[synth::SUSTAIN],
-                        values[synth::RELEASE],
-                    );
+                // Drawings of what the knobs do (View > Scope and drawings).
+                if show_scope {
+                    match title {
+                        "Envelope (ADSR)" => envelope(
+                            ui,
+                            values[synth::ATTACK],
+                            values[synth::DECAY],
+                            values[synth::SUSTAIN],
+                            values[synth::RELEASE],
+                        ),
+                        "Filter" => {
+                            let live = shared
+                                .mod_live(synth::CUTOFF)
+                                .map(|u| PARAMS[synth::CUTOFF].at_unit(u));
+                            filter_curve(ui, values[synth::CUTOFF], values[synth::RESONANCE], live);
+                        }
+                        "LFO" => lfo_shape(
+                            ui,
+                            synth::choice(values[synth::LFO_SHAPE], synth::LFO_SHAPES.len()),
+                            Some(shared.lfo_phase(0)),
+                            source_color(Source::Lfo1),
+                        ),
+                        "LFO 2" => lfo_shape(
+                            ui,
+                            synth::choice(values[synth::LFO2_SHAPE], synth::LFO_SHAPES.len()),
+                            synth::modulation::uses(&track.mods, Source::Lfo2)
+                                .then(|| shared.lfo_phase(1)),
+                            source_color(Source::Lfo2),
+                        ),
+                        _ => {}
+                    }
                 }
             }
             (

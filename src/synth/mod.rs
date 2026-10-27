@@ -207,7 +207,7 @@ pub use arp::{
     INTERVALS as ARP_INTERVALS, MODES as ARP_MODES, NOTE_SETS as ARP_NOTE_SETS, RATES as ARP_RATES,
     RATE_STEPS as ARP_RATE_STEPS,
 };
-pub use lfo::PAN as LFO_PAN;
+pub use lfo::{PAN as LFO_PAN, SHAPES as LFO_SHAPES};
 pub use osc::{SAW, WAVES};
 pub use play::{ANALOG, ENGINES, FM, MALLET, PLUCK, WAVETABLE};
 pub use wavetable::warm_up;
@@ -385,12 +385,12 @@ pub const DECAY: usize = first_knob(&envelope::INFO) + envelope::DECAY;
 pub const SUSTAIN: usize = first_knob(&envelope::INFO) + envelope::SUSTAIN;
 pub const RELEASE: usize = first_knob(&envelope::INFO) + envelope::RELEASE;
 pub const LFO_TARGET: usize = first_knob(&lfo::INFO) + lfo::TARGET;
-#[cfg(test)]
 pub const LFO_SHAPE: usize = first_knob(&lfo::INFO) + lfo::SHAPE;
 pub const LFO_AMOUNT: usize = first_knob(&lfo::INFO) + lfo::AMOUNT;
 pub const LFO_RATE: usize = first_knob(&lfo::INFO) + lfo::RATE;
 #[cfg(test)]
 pub const LFO_SYNC: usize = first_knob(&lfo::INFO) + lfo::SYNC;
+pub const LFO2_SHAPE: usize = first_knob(&lfo2::INFO) + lfo2::SHAPE;
 pub const ARP_MODE: usize = first_knob(&arp::INFO) + arp::MODE;
 pub const ARP_RATE: usize = first_knob(&arp::INFO) + arp::RATE;
 pub const ARP_OCTAVES: usize = first_knob(&arp::INFO) + arp::OCTAVES;

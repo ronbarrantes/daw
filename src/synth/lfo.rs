@@ -70,6 +70,11 @@ impl Lfo {
         }
     }
 
+    /// Where it is in its cycle, 0-1.
+    pub fn phase(&self) -> f32 {
+        self.phase
+    }
+
     /// The next value, -1 to 1.
     pub fn next(&mut self, v: &Values, step: f32) -> f32 {
         self.next_with(knobs(v, &INFO)[SHAPE], step)

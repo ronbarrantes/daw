@@ -573,3 +573,209 @@ pub fn envelope(ui: &mut egui::Ui, attack: f32, decay: f32, sustain: f32, releas
     }
     resp.on_hover_text("The volume over one note: Attack, Decay, Sustain, Release");
 }
+
+/// The filter's shape: how loud each pitch comes through (low on the left,
+/// high on the right), with the resonance bump at the cutoff. `live` is
+/// where modulation has the cutoff now, drawn as a second, brighter line.
+pub fn filter_curve(ui: &mut egui::Ui, cutoff: f32, reso: f32, live: Option<f32>) {
+    let size = Vec2::new(ui.available_width().min(260.0), 46.0);
+    let (rect, resp) = ui.allocate_exact_size(size, Sense::hover());
+    let painter = ui.painter_at(rect);
+    painter.rect_filled(rect, 4.0, Color32::from_gray(28));
+    let inner = rect.shrink(3.0);
+    // 30 Hz to 16 kHz across, -30 to +18 dB up.
+    let (lo, hi) = (30.0_f32.ln(), 16_000.0_f32.ln());
+    let x = |hz: f32| inner.left() + inner.width() * (hz.ln() - lo) / (hi - lo);
+    let y = |db: f32| inner.bottom() - inner.height() * ((db + 30.0) / 48.0).clamp(0.0, 1.0);
+    let zero = y(0.0);
+    painter.line_segment(
+        [
+            Pos2::new(inner.left(), zero),
+            Pos2::new(inner.right(), zero),
+        ],
+        Stroke::new(1.0_f32, Color32::from_gray(45)),
+    );
+    // A two-pole low-pass: what the synth's filter does, near enough.
+    let q = 1.0 / (1.4 - reso.clamp(0.0, 1.0) * 1.3);
+    let curve = |fc: f32| -> Vec<Pos2> {
+        (0..=60)
+            .map(|i| {
+                let hz = (lo + (hi - lo) * i as f32 / 60.0).exp();
+                let r = hz / fc.max(1.0);
+                let mag = 1.0 / ((1.0 - r * r).powi(2) + (r / q).powi(2)).sqrt();
+                Pos2::new(x(hz), y(20.0 * mag.log10()))
+            })
+            .collect()
+    };
+    let dim = if live.is_some() { 0.4 } else { 1.0 };
+    painter.add(egui::Shape::line(
+        curve(cutoff),
+        Stroke::new(1.5_f32, NOTE_ON.gamma_multiply(dim)),
+    ));
+    if let Some(live) = live {
+        painter.add(egui::Shape::line(
+            curve(live),
+            Stroke::new(1.5_f32, Color32::WHITE),
+        ));
+    }
+    resp.on_hover_text(
+        "The filter: pitches on the left come through, the right is cut.\n\
+         Cutoff moves the slope, Reso makes the bump",
+    );
+}
+
+/// One cycle of an LFO's shape (`shape`: an index into the LFO shapes),
+/// with a dot where it is now (`phase`, 0-1) in its chip's colour.
+pub fn lfo_shape(ui: &mut egui::Ui, shape: usize, phase: Option<f32>, color: Color32) {
+    let size = Vec2::new(ui.available_width().min(260.0), 30.0);
+    let (rect, resp) = ui.allocate_exact_size(size, Sense::hover());
+    let painter = ui.painter_at(rect);
+    painter.rect_filled(rect, 4.0, Color32::from_gray(28));
+    let inner = rect.shrink(4.0);
+    let value = |t: f32| -> f32 {
+        match shape {
+            0 => (t * std::f32::consts::TAU).sin(),
+            1 => 1.0 - 4.0 * (t - 0.5).abs(),
+            2 => {
+                if t < 0.5 {
+                    1.0
+                } else {
+                    -1.0
+                }
+            }
+            3 => 1.0 - 2.0 * t,
+            // Random: steps, drawn as a made-up example.
+            _ => [0.6, -0.3, 0.9, -0.8, 0.2, -0.5, 0.4, -0.1][((t * 8.0) as usize).min(7)],
+        }
+    };
+    let at = |t: f32| {
+        Pos2::new(
+            inner.left() + inner.width() * t,
+            inner.center().y - inner.height() / 2.0 * value(t),
+        )
+    };
+    let points: Vec<Pos2> = (0..=64).map(|i| at(i as f32 / 64.0)).collect();
+    painter.add(egui::Shape::line(
+        points,
+        Stroke::new(1.5_f32, color.gamma_multiply(0.7)),
+    ));
+    if let Some(p) = phase {
+        painter.circle_filled(at(p.clamp(0.0, 1.0)), 3.5, color);
+    }
+    resp.on_hover_text("The LFO's shape over one cycle; the dot is where it is now");
+}
+
+/// How loud each pitch is in `samples` (newest last): low on the left,
+/// high on the right, like an equalizer display.
+pub fn spectrum(
+    ui: &mut egui::Ui,
+    samples: &[f32],
+    sample_rate: f32,
+    size: Vec2,
+) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+    let painter = ui.painter_at(rect);
+    painter.rect_filled(rect, 4.0, Color32::from_rgb(12, 16, 24));
+    const N: usize = 2048;
+    if samples.len() >= N {
+        let tail = &samples[samples.len() - N..];
+        // A Hann window, so a steady tone shows as a clean peak.
+        let mut re: Vec<f32> = tail
+            .iter()
+            .enumerate()
+            .map(|(i, s)| s * (0.5 - 0.5 * (std::f32::consts::TAU * i as f32 / N as f32).cos()))
+            .collect();
+        let mut im = vec![0.0_f32; N];
+        fft(&mut re, &mut im);
+        let inner = rect.shrink(3.0);
+        let (lo, hi) = (30.0_f32.ln(), (sample_rate / 2.0).min(16_000.0).ln());
+        let mut line = Vec::with_capacity(121);
+        for i in 0..=120 {
+            let hz = (lo + (hi - lo) * i as f32 / 120.0).exp();
+            let bin = ((hz / sample_rate * N as f32) as usize).clamp(1, N / 2 - 1);
+            let mag = (re[bin] * re[bin] + im[bin] * im[bin]).sqrt() / (N as f32 / 4.0);
+            let db = 20.0 * mag.max(1e-6).log10();
+            let level = ((db + 72.0) / 72.0).clamp(0.0, 1.0);
+            line.push(Pos2::new(
+                inner.left() + inner.width() * i as f32 / 120.0,
+                inner.bottom() - inner.height() * level,
+            ));
+        }
+        for w in line.windows(2) {
+            // Filled under the line, one thin slice at a time (the shape
+            // isn't convex).
+            let quad = vec![
+                w[0],
+                w[1],
+                Pos2::new(w[1].x, inner.bottom()),
+                Pos2::new(w[0].x, inner.bottom()),
+            ];
+            painter.add(egui::Shape::convex_polygon(
+                quad,
+                Color32::from_rgb(40, 90, 140),
+                Stroke::NONE,
+            ));
+        }
+        painter.add(egui::Shape::line(
+            line,
+            Stroke::new(1.5_f32, Color32::from_rgb(120, 190, 255)),
+        ));
+    }
+    resp
+}
+
+/// An in-place radix-2 FFT (`re.len()` a power of two).
+fn fft(re: &mut [f32], im: &mut [f32]) {
+    let n = re.len();
+    let mut j = 0;
+    for i in 1..n {
+        let mut bit = n >> 1;
+        while j & bit != 0 {
+            j ^= bit;
+            bit >>= 1;
+        }
+        j |= bit;
+        if i < j {
+            re.swap(i, j);
+            im.swap(i, j);
+        }
+    }
+    let mut len = 2;
+    while len <= n {
+        let angle = -std::f32::consts::TAU / len as f32;
+        for start in (0..n).step_by(len) {
+            for k in 0..len / 2 {
+                let (s, c) = (angle * k as f32).sin_cos();
+                let (a, b) = (start + k, start + k + len / 2);
+                let (tr, ti) = (re[b] * c - im[b] * s, re[b] * s + im[b] * c);
+                re[b] = re[a] - tr;
+                im[b] = im[a] - ti;
+                re[a] += tr;
+                im[a] += ti;
+            }
+        }
+        len <<= 1;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_fft_finds_a_tone() {
+        let n = 1024;
+        let mut re: Vec<f32> = (0..n)
+            .map(|i| (std::f32::consts::TAU * 50.0 * i as f32 / n as f32).sin())
+            .collect();
+        let mut im = vec![0.0; n];
+        fft(&mut re, &mut im);
+        let mags: Vec<f32> = (0..n / 2)
+            .map(|i| (re[i] * re[i] + im[i] * im[i]).sqrt())
+            .collect();
+        let peak = (0..n / 2)
+            .max_by(|&a, &b| mags[a].total_cmp(&mags[b]))
+            .unwrap();
+        assert_eq!(peak, 50);
+    }
+}
