@@ -430,11 +430,23 @@ it. Hover for what each one does. To keep scrolling down:
   is how loud the second one is (0 = just the first), **Pitch 2** moves it
   in semitones (+12 an octave up, +7 a fifth), **Detune** pulls it slightly
   out of tune to thicken the sound.
-- **Voice:** how notes play. **Voices** on **Poly** plays chords, **Mono**
+- **Voice:** what makes the sound and how notes play. **Engine** picks
+  the sound: **Analog** (the two oscillators below), **Pluck** (a plucked
+  string) or **Mallet** (a struck bar, glass or bell); each shows its own
+  section. **Voices** on **Poly** plays chords, **Mono**
   one note at a time, and **Legato** one at a time where a note played
   while another is held just changes pitch without restarting. **Glide**
   slides between notes in Mono and Legato (portamento). **Humanize** varies
   timing and loudness.
+- **Pluck** (Engine on Pluck): a plucked string that rings and dies away
+  by itself, like a guitar, harp or koto. **String tone** is dull to
+  bright, **String decay** how long it rings, **Pick spot** where it's
+  plucked (near the end is brighter, nearer the middle hollower).
+- **Mallet** (Engine on Mallet): a struck **Material**, **Marimba**,
+  **Vibes**, **Glass** or **Bell**. **Hardness** is a soft or hard mallet
+  (harder brings out the higher ringing), **Ring** how long it rings. Try
+  the presets ending in (pluck) and (mallet), which open the filter up:
+  with the filter low these sound muffled.
 - **Arpeggiator** (folded; click it open): plays held notes one at a time
   in a pattern instead of together. **Arp** picks the pattern (**Up**,
   **Down**, **Up/Down**, **Random**, **As played**, or **Off** for normal

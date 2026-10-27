@@ -33,6 +33,7 @@ pub const INFO: ModuleInfo = ModuleInfo {
     ],
     rows: &[&[TARGET, SHAPE, AMOUNT, RATE], &[SYNC]],
     open: true,
+    engine: None,
 };
 
 /// A track's LFO.

@@ -2,6 +2,7 @@
 //! through triangle, saw and square to noise. The second one can be mixed
 //! in, tuned in semitones and detuned slightly for a thicker sound.
 
+use super::play::ANALOG;
 use super::{noise, param, Module, ModuleInfo, Unit};
 
 pub const WAVE_1: usize = 0;
@@ -26,6 +27,7 @@ pub const INFO: ModuleInfo = ModuleInfo {
     ],
     rows: &[&[WAVE_1, WAVE_2, LEVEL_2, PITCH_2], &[DETUNE]],
     open: true,
+    engine: Some(ANALOG),
 };
 
 /// One of `WAVES` at `phase` (0-1).

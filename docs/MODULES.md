@@ -8,8 +8,10 @@ engine, a visual, an effect) plugs in without touching the rest of the app.
 
 | Module | File | What it does |
 | --- | --- | --- |
-| Oscillators | `src/synth/osc.rs` | two oscillators, sine to noise |
-| Voice | `src/synth/play.rs` | Poly / Mono / Legato, Glide, the synth's volume |
+| Voice | `src/synth/play.rs` | the Engine, Poly / Mono / Legato, Glide, the synth's volume |
+| Oscillators | `src/synth/osc.rs` | the Analog engine: two oscillators, sine to noise |
+| Pluck | `src/synth/pluck.rs` | the Pluck engine: a plucked string (Karplus-Strong) |
+| Mallet | `src/synth/mallet.rs` | the Mallet engine: struck bar, glass or bell (modal) |
 | Filter | `src/synth/filter.rs` | resonant low-pass with its own decay envelope |
 | Envelope (ADSR) | `src/synth/envelope.rs` | each note's volume over time |
 | LFO | `src/synth/lfo.rs` | a wobble on pitch, filter, volume or pan (one per track) |
@@ -33,6 +35,8 @@ A module file has:
    - `rows`: how the panel lays the knobs out, as rows of knob numbers. A
      knob in no row is hidden but can still be automated.
    - `open`: whether its section starts unfolded.
+   - `engine`: for a sound engine, which of `play::ENGINES` it is; its
+     section only shows while that engine is picked.
 3. **For modules that make or shape sound**, a struct holding one voice's
    state, implementing `Module::set_knobs(&mut self, knobs, sr)`: it gets
    just its own knobs, numbered as in its `ModuleInfo`, and works out
@@ -60,8 +64,8 @@ What a module gets for free, once it's in `MODULES`:
 5. Update the README's *Synth* section, the F1 guide (`src/help.rs`) and
    [ROADMAP.md](ROADMAP.md).
 
-Step 3 goes away once a voice is a list of slots (for picking engines,
-roadmap step 3).
+A new engine also needs a name in `play::ENGINES` (and the Engine knob's
+range), and a branch in `Voice::note_on` and `Voice::next_sample`.
 
 ## Modulation
 

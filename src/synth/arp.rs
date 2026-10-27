@@ -66,4 +66,5 @@ pub const INFO: ModuleInfo = ModuleInfo {
     ],
     rows: &[&[MODE, RATE, OCTAVES, GATE], &[NOTES, LATCH]],
     open: false,
+    engine: None,
 };
