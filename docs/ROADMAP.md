@@ -42,6 +42,15 @@ menus).
    modules and visual styles. Import it and it works; share it or keep a
    library of them. (This is also "save your own presets".)
 
+## Next
+
+- **Your own wavetables:** right now the Wavetable engine has four
+  built-in tables. Next: draw a few waves of your own and Position morphs
+  between them, then open Serum/Vital-style `.wav` wavetables (thousands
+  free online).
+- **More drums:** more built-in synth drums (rimshot, ride, crash, 808
+  kick and others) for the drum browser, made in code like the rest.
+
 ## Later
 
 - **DX7 patches:** open DX7 `.syx` banks (32 sounds each, thousands free
@@ -81,11 +90,10 @@ menus).
 
 Newest first, by release.
 
-- v0.43: searchable drum sound browser; swap sounds while keeping patterns.
-
+- v0.43.1: roadmap: your own wavetables and more drums are next
+- v0.43: searchable drum sound browser; swap sounds while keeping patterns
 - v0.42.1: instrument panel and synth UI extracted into their own module;
-  controls, sound and saved layouts behave as before.
-
+  controls, sound and saved layouts behave as before
 - v0.42: Click wave; the Drone goes from 0.1 to 20,000 Hz
 - v0.41.2: drawings sit above the knobs
 - v0.41.1: smaller pop-out arrows
