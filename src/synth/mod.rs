@@ -179,6 +179,49 @@ pub const PRESETS: [(&str, &[(usize, f32)]); 28] = [
         (ATTACK, 0.002), (DECAY, 0.3), (SUSTAIN, 0.7), (RELEASE, 0.1), (VOICES, 1.0)]),
 ];
 
+/// Nudges every knob that can move (but the synth's Volume, and Pitch 2,
+/// which would just go out of tune) by up to
+/// `amount` of its sweep, either way, for happy accidents. Modules named
+/// in `locked` stay as they are. `rng` is xorshift state.
+pub fn mutate(v: &mut Values, amount: f32, rng: &mut u32, locked: &[&str]) {
+    for m in MODULES.iter().filter(|m| !locked.contains(&m.name)) {
+        let at = first_knob(m);
+        for k in at..at + m.knobs.len() {
+            if !movable(k) || k == VOLUME || PARAMS[k].unit == Unit::Semitones {
+                continue;
+            }
+            let p = &PARAMS[k];
+            let t = p.to_unit(v[k]) + noise(rng) * amount;
+            v[k] = p.at_unit(t.clamp(0.0, 1.0));
+        }
+    }
+}
+
+/// `t` of the way from sound `a` to sound `b` (0-1), each knob along its
+/// sweep; pick-one knobs switch half-way.
+pub fn morph(a: &Values, b: &Values, t: f32) -> Values {
+    if t <= 0.0 {
+        return *a;
+    }
+    if t >= 1.0 {
+        return *b;
+    }
+    let mut out = *a;
+    for (k, p) in PARAMS.iter().enumerate() {
+        out[k] = if a[k] == b[k] {
+            a[k]
+        } else if movable(k) {
+            let (ua, ub) = (p.to_unit(a[k]), p.to_unit(b[k]));
+            p.at_unit(ua + (ub - ua) * t)
+        } else if t < 0.5 {
+            a[k]
+        } else {
+            b[k]
+        };
+    }
+    out
+}
+
 /// Modulation that comes with some presets, by preset name.
 pub fn preset_mods(name: &str) -> Vec<Link> {
     let link = |source, knob, amount| Link {
@@ -951,5 +994,37 @@ mod tests {
         // High notes use waves with fewer harmonics: still a clean tone.
         let high = play(&v, 96, 4_800);
         assert!(high.iter().all(|s| s.is_finite() && s.abs() < 2.0));
+    }
+
+    #[test]
+    fn mutate_nudges_knobs_within_range_and_respects_locks() {
+        let base = preset(0);
+        let mut v = base;
+        let mut rng = 7;
+        mutate(&mut v, 0.2, &mut rng, &["Filter"]);
+        assert_ne!(v, base, "something moved");
+        assert_eq!(v[CUTOFF], base[CUTOFF], "the locked Filter stayed");
+        assert_eq!(v[VOLUME], base[VOLUME], "volume never mutates");
+        assert_eq!(v[ENGINE], base[ENGINE], "pick-one knobs stay");
+        for (p, x) in PARAMS.iter().zip(v) {
+            assert!((p.min..=p.max).contains(&x), "{} = {x}", p.name);
+        }
+    }
+
+    #[test]
+    fn morph_goes_from_one_sound_to_the_other() {
+        let (a, b) = (preset(0), preset(5));
+        assert_eq!(morph(&a, &b, 0.0), a);
+        let end = morph(&a, &b, 1.0);
+        for k in 0..PARAMS.len() {
+            assert!(
+                (end[k] - b[k]).abs() <= 1e-3 * b[k].abs().max(1.0),
+                "{}",
+                PARAMS[k].name
+            );
+        }
+        let mid = morph(&a, &b, 0.5);
+        let (lo, hi) = (a[CUTOFF].min(b[CUTOFF]), a[CUTOFF].max(b[CUTOFF]));
+        assert!(mid[CUTOFF] > lo && mid[CUTOFF] < hi);
     }
 }
