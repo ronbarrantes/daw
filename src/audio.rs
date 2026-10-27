@@ -35,7 +35,7 @@ use crate::project::{
     Block, Kind, MidiPart, Project, Sample, Step, Target, MAX_TRACKS, NORMAL, PPS, SAMPLE_ROOT,
     STEPS,
 };
-use crate::synth::{self, Lfo, Mode, Voice};
+use crate::synth::{self, modulation, Lfo, ModEnv, Mode, Source, Voice};
 
 /// MIDI clock runs at 24 ticks per beat, so a 16th-note step is 6 ticks.
 const TICKS_PER_STEP: u32 = 6;
@@ -156,6 +156,12 @@ pub struct Shared {
     /// The most the limiter turned the mix down since the UI last looked,
     /// 0-1, as `f32` bits.
     limiting: AtomicU32,
+    /// Where modulation has the selected track's knobs right now (in its
+    /// newest sounding voice), as `f32` bits, so knobs can show it moving.
+    mod_live: Vec<AtomicU32>,
+    /// `mod_live` is up to date (the track has modulation and a voice is
+    /// sounding).
+    mod_live_on: AtomicBool,
 }
 
 /// How many samples the scope keeps: about 85 ms at 48 kHz.
@@ -191,7 +197,22 @@ impl Shared {
             sample_rate: AtomicU32::new(48_000),
             meter: [AtomicU32::new(0), AtomicU32::new(0)],
             limiting: AtomicU32::new(0),
+            mod_live: (0..synth::PARAMS.len())
+                .map(|_| AtomicU32::new(0))
+                .collect(),
+            mod_live_on: AtomicBool::new(false),
         }
+    }
+
+    /// Where modulation has the selected track's knob `k` now, if it's
+    /// moving it.
+    pub fn mod_live(&self, k: usize) -> Option<f32> {
+        if !self.mod_live_on.load(Relaxed) {
+            return None;
+        }
+        self.mod_live
+            .get(k)
+            .map(|v| f32::from_bits(v.load(Relaxed)))
     }
 
     /// Copies the newest `out.len()` scope samples into `out`, oldest first.
@@ -294,6 +315,10 @@ struct TrackVoice {
     /// A keyboard or controller is holding this note; the sequencer leaves
     /// the note alone while it's set.
     live: bool,
+    /// The mod envelope, and how hard the note was played (0-1), as
+    /// modulation sources.
+    mod_env: ModEnv,
+    velocity: f32,
 }
 
 impl TrackVoice {
@@ -316,6 +341,8 @@ impl TrackVoice {
             on: false,
             held: None,
             live: false,
+            mod_env: ModEnv::default(),
+            velocity: 0.0,
         }
     }
 
@@ -446,8 +473,16 @@ struct Engine {
     voices: Vec<Vec<TrackVoice>>,
     /// The generation the next note gets.
     next_generation: u32,
-    /// Each synth track's LFO.
+    /// Each synth track's LFOs, and their values now.
     lfos: Vec<Lfo>,
+    lfo2s: Vec<Lfo>,
+    lfo_now: [[f32; 2]; MAX_TRACKS],
+    /// Each synth track's knobs as set, or where automation has them.
+    /// Modulation starts from these.
+    knobs: Vec<synth::Values>,
+    /// `knobs` with the track-wide modulation (the LFOs) applied, for the
+    /// LFOs' own knobs and pan.
+    track_knobs: Vec<synth::Values>,
     /// Each synth track's arpeggiator.
     arps: [Arp; MAX_TRACKS],
     /// Automation is moving knobs right now (the timeline is playing and
@@ -520,6 +555,10 @@ impl Engine {
             voices,
             next_generation: 1,
             lfos: (0..MAX_TRACKS).map(|_| Lfo::default()).collect(),
+            lfo2s: (0..MAX_TRACKS).map(|_| Lfo::default()).collect(),
+            lfo_now: [[0.0; 2]; MAX_TRACKS],
+            knobs: vec![synth::PARAMS.map(|p| p.default); MAX_TRACKS],
+            track_knobs: vec![synth::PARAMS.map(|p| p.default); MAX_TRACKS],
             arps: [Arp::default(); MAX_TRACKS],
             slot_ids: [None; MAX_TRACKS],
             automating: false,
@@ -586,8 +625,10 @@ impl Engine {
                 while self.arps[i].remove(|h| h.released) {}
             }
         }
-        for (lanes, track) in self.voices.iter_mut().zip(&project.tracks) {
+        for (i, (lanes, track)) in self.voices.iter_mut().zip(&project.tracks).enumerate() {
             if let Kind::Synth(values) = &track.kind {
+                self.knobs[i] = *values;
+                self.track_knobs[i] = *values;
                 for voice in lanes {
                     voice.synth.set_params(values);
                     // In case the track was a sampler a moment ago.
@@ -700,7 +741,13 @@ impl Engine {
         voice.on = true;
         voice.live = false;
         match &track.kind {
-            Kind::Synth(_) => voice.synth.note_on(note, mode != Mode::Poly, !legato),
+            Kind::Synth(_) => {
+                voice.synth.note_on(note, mode != Mode::Poly, !legato);
+                if !legato {
+                    voice.mod_env.trigger();
+                }
+                voice.velocity = velocity as f32 / 127.0;
+            }
             Kind::Sampler {
                 sample,
                 pitched,
@@ -739,6 +786,7 @@ impl Engine {
         voice.live = false;
         voice.releasing = true;
         voice.synth.note_off();
+        voice.mod_env.release();
         if let Some((note, ch)) = voice.held.take() {
             self.send(Msg::three(0x80 | ch, note, 0));
         }
@@ -977,11 +1025,58 @@ impl Engine {
                 self.set_mix(&project, i, mix);
             }
             if let (true, Some(values)) = (moved_synth, values) {
+                self.knobs[i] = values;
+                self.track_knobs[i] = values;
                 for voice in &mut self.voices[i] {
                     voice.synth.set_params(&values);
                 }
             }
         }
+    }
+
+    /// Moves the knobs that modulation sources are connected to, in each
+    /// sounding voice, and the track-wide ones (for the LFOs and pan).
+    /// Runs every `UPDATE_INTERVAL` samples.
+    fn apply_modulation(&mut self) {
+        let project = self.project.clone();
+        let scoped = self.shared.selected_track.load(Relaxed);
+        let mut live = false;
+        for i in 0..self.track_count() {
+            let track = &project.tracks[i];
+            if track.mods.is_empty() || !matches!(track.kind, Kind::Synth(_)) {
+                continue;
+            }
+            let [lfo1, lfo2] = self.lfo_now[i];
+            self.track_knobs[i] =
+                modulation::apply(&self.knobs[i], &track.mods, [lfo1, lfo2, 0.0, 0.0]);
+            let mut newest: Option<(u32, synth::Values)> = None;
+            for voice in &mut self.voices[i] {
+                if voice.synth.is_idle() {
+                    continue;
+                }
+                synth::mod_env_advance(
+                    &mut voice.mod_env,
+                    &self.knobs[i],
+                    UPDATE_INTERVAL,
+                    self.sr,
+                );
+                let sources = [lfo1, lfo2, voice.mod_env.value, voice.velocity];
+                let values = modulation::apply(&self.knobs[i], &track.mods, sources);
+                voice.synth.set_params(&values);
+                if newest.is_none_or(|(g, _)| voice.generation.wrapping_sub(g) < u32::MAX / 2) {
+                    newest = Some((voice.generation, values));
+                }
+            }
+            if i == scoped {
+                let values = newest.map_or(self.track_knobs[i], |(_, v)| v);
+                for (k, v) in values.iter().enumerate() {
+                    let unit = synth::PARAMS[k].to_unit(*v);
+                    self.shared.mod_live[k].store(unit.to_bits(), Relaxed);
+                }
+                live = true;
+            }
+        }
+        self.shared.mod_live_on.store(live, Relaxed);
     }
 
     fn update(&mut self) {
@@ -994,6 +1089,7 @@ impl Engine {
             self.project_changed();
         }
         self.apply_automation();
+        self.apply_modulation();
         while let Ok(event) = self.events.try_recv() {
             match event {
                 Event::Preview { track, note } if track < self.track_count() => {
@@ -1432,13 +1528,23 @@ impl Engine {
             };
             // The LFO runs whether or not notes are playing, so it's
             // somewhere in its cycle rather than restarting each note.
+            // They follow the knobs as automation and modulation have them.
+            let mods = &self.project.tracks[i].mods;
+            let knobs = &self.track_knobs[i];
             let lfo = match values {
-                Some(v) if v[synth::LFO_AMOUNT] > 0.0 => {
-                    let step = Lfo::step(v, self.sr, beat);
-                    self.lfos[i].next(v, step)
+                Some(_)
+                    if knobs[synth::LFO_AMOUNT] > 0.0 || modulation::uses(mods, Source::Lfo1) =>
+                {
+                    let step = Lfo::step(knobs, self.sr, beat);
+                    self.lfos[i].next(knobs, step)
                 }
                 _ => 0.0,
             };
+            self.lfo_now[i][0] = lfo;
+            if values.is_some() && modulation::uses(mods, Source::Lfo2) {
+                let step = synth::lfo2_step(knobs, self.sr, beat);
+                self.lfo_now[i][1] = synth::lfo2_next(&mut self.lfo2s[i], knobs, step);
+            }
             let mut out = 0.0;
             for voice in &mut self.voices[i] {
                 let sample = if values.is_some() {
@@ -1455,11 +1561,14 @@ impl Engine {
                 scope = out;
             }
             // An LFO on pan sweeps the track left and right (auto-pan).
+            let knobs = &self.track_knobs[i];
             let gains = match values {
-                Some(v)
-                    if lfo != 0.0 && synth::choice(v[synth::LFO_TARGET], 4) == synth::LFO_PAN =>
+                Some(_)
+                    if lfo != 0.0
+                        && knobs[synth::LFO_AMOUNT] > 0.0
+                        && synth::choice(knobs[synth::LFO_TARGET], 4) == synth::LFO_PAN =>
                 {
-                    let pan = self.project.tracks[i].pan + lfo * v[synth::LFO_AMOUNT];
+                    let pan = self.project.tracks[i].pan + lfo * knobs[synth::LFO_AMOUNT];
                     pan_gains(pan).map(|g| g * self.levels[i])
                 }
                 _ => self.gains[i],
@@ -2214,6 +2323,60 @@ mod tests {
             before > 1.0 && after < 0.01,
             "volume knob: {before} -> {after}"
         );
+    }
+
+    #[test]
+    fn modulation_moves_knobs_while_notes_play() {
+        // The mod envelope pulls the synth's volume down to nothing right
+        // after each note starts and holds it there, so the held note goes
+        // quiet.
+        let mut project = quiet_demo();
+        let mod_sustain = synth::PARAMS
+            .iter()
+            .position(|p| p.name == "Mod sustain")
+            .unwrap();
+        if let Kind::Synth(v) = &mut project.tracks[LEAD].kind {
+            v[synth::SUSTAIN] = 1.0;
+            v[mod_sustain] = 1.0;
+        }
+        project.tracks[LEAD].mods.push(synth::Link {
+            source: Source::ModEnv,
+            knob: synth::VOLUME,
+            amount: -1.0,
+        });
+        let mut rig = Rig::new(project);
+        rig.shared.selected_track.store(LEAD, Relaxed);
+        rig.send(hold(LEAD, 60));
+        let loudness = |out: &[f32]| out.iter().map(|s| s.abs()).sum::<f32>();
+        // Mod attack is 10 ms by default: louder at first, then silent.
+        let early = loudness(&rig.run(240));
+        rig.run(4_800);
+        let late = loudness(&rig.run(4_800));
+        assert!(early > 0.01 && late < 1e-3, "{early} then {late}");
+        let unit = rig
+            .shared
+            .mod_live(synth::VOLUME)
+            .expect("knob shown moving");
+        assert!(unit < 0.01, "volume knob shown at the bottom: {unit}");
+
+        // LFO 2 on the cutoff: the same held note keeps changing.
+        let mut project = quiet_demo();
+        if let Kind::Synth(v) = &mut project.tracks[LEAD].kind {
+            v[synth::SUSTAIN] = 1.0;
+        }
+        project.tracks[LEAD].mods.push(synth::Link {
+            source: Source::Lfo2,
+            knob: synth::CUTOFF,
+            amount: 0.8,
+        });
+        let mut rig = Rig::new(project);
+        rig.send(hold(LEAD, 48));
+        rig.run(4_800);
+        let windows: Vec<f32> = (0..8).map(|_| loudness(&rig.run(6_000))).collect();
+        let (lo, hi) = windows
+            .iter()
+            .fold((f32::MAX, 0.0_f32), |(lo, hi), w| (lo.min(*w), hi.max(*w)));
+        assert!(hi > lo * 1.3, "the cutoff sweeps: {windows:?}");
     }
 
     #[test]

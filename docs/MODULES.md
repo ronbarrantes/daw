@@ -13,6 +13,8 @@ engine, a visual, an effect) plugs in without touching the rest of the app.
 | Filter | `src/synth/filter.rs` | resonant low-pass with its own decay envelope |
 | Envelope (ADSR) | `src/synth/envelope.rs` | each note's volume over time |
 | LFO | `src/synth/lfo.rs` | a wobble on pitch, filter, volume or pan (one per track) |
+| LFO 2 | `src/synth/lfo2.rs` | a second wobble, only a modulation source |
+| Mod envelope | `src/synth/modenv.rs` | a second envelope per voice, only a modulation source |
 | Arpeggiator | `src/synth/arp.rs` | knobs only; the engine (`src/audio.rs`) runs it |
 
 `src/synth/mod.rs` lists them in `MODULES` and wires one voice together
@@ -43,7 +45,8 @@ What a module gets for free, once it's in `MODULES`:
   get the defaults);
 - a panel section that folds, closes and pops out into its own window;
 - automation lanes for its knobs (all but the pick-one knobs);
-- modulation, once drag-and-drop modulation lands (roadmap step 2).
+- modulation: any source chip can be dragged onto its knobs (all but the
+  pick-one knobs).
 
 ## Adding a module
 
@@ -59,6 +62,18 @@ What a module gets for free, once it's in `MODULES`:
 
 Step 3 goes away once a voice is a list of slots (for picking engines,
 roadmap step 3).
+
+## Modulation
+
+`src/synth/modulation.rs` has the sources (`Source`: LFO 1, LFO 2, Mod
+env, Velocity) and the links (`Link`: a source, a knob, an amount), which
+live on each track (`Track::mods`) and are saved by name. Every
+`UPDATE_INTERVAL` samples the engine works out each sounding voice's knobs
+with the links applied (`modulation::apply`) and gives them to the voice
+(`Voice::set_params`), and publishes the selected track's for the knobs to
+draw. A new source needs a `Source` variant, a colour (`widgets::source_color`),
+a chip in its module's section (`section` in `main.rs`) and its value in
+`Engine::apply_modulation`.
 
 ## Rules for the sound code
 

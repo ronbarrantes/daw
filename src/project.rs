@@ -200,6 +200,8 @@ pub struct Track {
     pub midi_note: u8,
     /// The group this track belongs to, by `Group::id`.
     pub group: Option<u32>,
+    /// Synth knobs moved by modulation sources (drag-and-drop).
+    pub mods: Vec<synth::Link>,
 }
 
 /// A folder of tracks, like a layer group in Photoshop. It can be collapsed,
@@ -259,6 +261,7 @@ impl Track {
             midi_channel: None,
             midi_note: SAMPLE_ROOT,
             group: None,
+            mods: Vec::new(),
         }
     }
 

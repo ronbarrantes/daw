@@ -4,7 +4,7 @@ use std::f32::consts::PI;
 
 use eframe::egui::{self, Align, Color32, Layout, Pos2, RichText, Sense, Stroke, Vec2};
 
-use crate::synth::{choice, Param, Unit, WAVES};
+use crate::synth::{choice, Param, Source, Unit, WAVES};
 
 pub const DRUM_ON: Color32 = Color32::from_rgb(255, 140, 40);
 pub const NOTE_ON: Color32 = Color32::from_rgb(80, 180, 255);
@@ -214,11 +214,34 @@ fn hint(p: &Param) -> &'static str {
 /// A rotary knob: drag up/down to turn, double-click to reset.
 /// Returns true when the value changed.
 pub fn knob(ui: &mut egui::Ui, p: &Param, value: &mut f32) -> bool {
+    mod_knob(ui, p, value, &[], None).0
+}
+
+/// A knob that also shows modulation: a coloured arc outside it for each
+/// source moving it (`rings`: colour, amount (-1 to 1 of the sweep) and
+/// whether it swings both ways, like an LFO),
+/// and a dot where the sources have it right now (`live`, 0-1). Returns
+/// whether the value changed, and the knob's response (for dropping
+/// sources on it and its right-click menu).
+pub fn mod_knob(
+    ui: &mut egui::Ui,
+    p: &Param,
+    value: &mut f32,
+    rings: &[(Color32, f32, bool)],
+    live: Option<f32>,
+) -> (bool, egui::Response) {
     let mut changed = false;
     let size = Vec2::new(60.0, 74.0);
-    ui.allocate_ui_with_layout(size, Layout::top_down(Align::Center), |ui| {
+    let inner = ui.allocate_ui_with_layout(size, Layout::top_down(Align::Center), |ui| {
         let (rect, resp) = ui.allocate_exact_size(Vec2::splat(40.0), Sense::click_and_drag());
-        let resp = resp.on_hover_text(hint(p));
+        let resp = if rings.is_empty() {
+            resp.on_hover_text(hint(p))
+        } else {
+            resp.on_hover_text(format!(
+                "{}\nRight-click to change or remove what moves it.",
+                hint(p)
+            ))
+        };
         let mut t = to_unit(p, *value).clamp(0.0, 1.0);
         if resp.dragged() {
             t = (t - resp.drag_delta().y * 0.006).clamp(0.0, 1.0);
@@ -237,20 +260,79 @@ pub fn knob(ui: &mut egui::Ui, p: &Param, value: &mut f32) -> bool {
         let radius = rect.width() / 2.0 - 3.0;
         let start = 0.75 * PI;
         let point = |a: f32, r: f32| Pos2::new(center.x + r * a.cos(), center.y + r * a.sin());
+        let arc = |from: f32, to: f32, r: f32| -> Vec<Pos2> {
+            (0..=24)
+                .map(|i| point(start + 1.5 * PI * (from + (to - from) * i as f32 / 24.0), r))
+                .collect()
+        };
         let body = Color32::from_gray(if resp.hovered() { 70 } else { 55 });
         painter.circle_filled(center, radius, body);
-        let arc: Vec<Pos2> = (0..=24)
-            .map(|i| point(start + 1.5 * PI * t * i as f32 / 24.0, radius + 1.5))
-            .collect();
-        painter.add(egui::Shape::line(arc, Stroke::new(3.0_f32, DRUM_ON)));
+        painter.add(egui::Shape::line(
+            arc(0.0, t, radius + 1.5),
+            Stroke::new(3.0_f32, DRUM_ON),
+        ));
+        // Each source's reach, one ring further out per source.
+        for (n, (color, amount, both)) in rings.iter().enumerate() {
+            let from = if *both {
+                (t - amount).clamp(0.0, 1.0)
+            } else {
+                t
+            };
+            let to = (t + amount).clamp(0.0, 1.0);
+            let r = radius + 5.0 + 2.5 * n as f32;
+            painter.add(egui::Shape::line(
+                arc(from, to, r),
+                Stroke::new(2.0_f32, *color),
+            ));
+        }
+        if let Some(live) = live.filter(|_| !rings.is_empty()) {
+            let r = radius + 5.0;
+            painter.circle_filled(
+                point(start + 1.5 * PI * live.clamp(0.0, 1.0), r),
+                3.0,
+                Color32::WHITE,
+            );
+        }
         let angle = start + 1.5 * PI * t;
         let tip = point(angle, radius - 2.0);
         painter.line_segment([center, tip], Stroke::new(2.0_f32, Color32::WHITE));
 
         ui.label(RichText::new(p.name).small());
         ui.label(RichText::new(format_value(p, *value)).small().weak());
+        resp
     });
-    changed
+    (changed, inner.inner)
+}
+
+/// Each modulation source's colour, the same everywhere it's shown.
+pub fn source_color(s: Source) -> Color32 {
+    match s {
+        Source::Lfo1 => Color32::from_rgb(235, 200, 60),
+        Source::Lfo2 => Color32::from_rgb(80, 205, 225),
+        Source::ModEnv => Color32::from_rgb(235, 110, 200),
+        Source::Velocity => Color32::from_rgb(120, 215, 120),
+    }
+}
+
+/// A modulation source's chip: drag it onto a knob to connect it.
+pub fn source_chip(ui: &mut egui::Ui, s: Source) {
+    let id = egui::Id::new(("mod source", s.name()));
+    let color = source_color(s);
+    ui.dnd_drag_source(id, s, |ui| {
+        egui::Frame::none()
+            .fill(color.gamma_multiply(0.25))
+            .stroke(Stroke::new(1.0_f32, color))
+            .rounding(8.0)
+            .inner_margin(egui::Margin::symmetric(7.0, 1.0))
+            .show(ui, |ui| {
+                ui.label(RichText::new(s.name()).small().color(color))
+            });
+    })
+    .response
+    .on_hover_text(format!(
+        "Drag {} onto any knob to make it move that knob.",
+        s.name()
+    ));
 }
 
 /// A stereo level meter: two thin bars, green, then yellow near the top,

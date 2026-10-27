@@ -238,6 +238,17 @@ struct TrackFile {
     midi_note: u8,
     #[serde(default)]
     group: Option<u32>,
+    /// Modulation: which source moves which synth knob, by name.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    mods: Vec<ModFile>,
+}
+
+/// A modulation link as stored: e.g. LFO 2 moving Cutoff by 0.3.
+#[derive(Serialize, Deserialize)]
+struct ModFile {
+    source: String,
+    knob: String,
+    amount: f32,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -427,6 +438,15 @@ pub fn to_bytes(project: &Project, bpm: f32) -> Result<Vec<u8>, String> {
             midi_channel: t.midi_channel.map(|c| c + 1),
             midi_note: t.midi_note,
             group: t.group,
+            mods: t
+                .mods
+                .iter()
+                .map(|l| ModFile {
+                    source: l.source.name().to_string(),
+                    knob: synth::PARAMS[l.knob].name.to_string(),
+                    amount: l.amount,
+                })
+                .collect(),
         });
     }
     let has_midi = project.blocks.iter().any(Block::is_midi);
@@ -707,6 +727,21 @@ fn read_zip(bytes: Vec<u8>) -> Result<Song, String> {
             .map(|c| c - 1);
         track.midi_note = t.midi_note.min(127);
         track.group = t.group;
+        if matches!(track.kind, Kind::Synth(_)) {
+            track.mods = t
+                .mods
+                .iter()
+                .filter_map(|m| {
+                    let source = synth::Source::named(&m.source)?;
+                    let knob = synth::PARAMS.iter().position(|p| p.name == m.knob)?;
+                    synth::movable(knob).then_some(synth::Link {
+                        source,
+                        knob,
+                        amount: m.amount.clamp(-1.0, 1.0),
+                    })
+                })
+                .collect();
+        }
         tracks.push(track);
     }
 
@@ -1036,6 +1071,12 @@ mod tests {
             nudge: -20,
             tie: false,
         });
+        let wobble = synth::Link {
+            source: synth::Source::Lfo2,
+            knob: synth::CUTOFF,
+            amount: -0.3,
+        };
+        project.tracks[4].mods.push(wobble);
         if let Kind::Synth(v) = &mut project.tracks[4].kind {
             v[synth::CUTOFF] = 1234.0;
         }
@@ -1107,6 +1148,7 @@ mod tests {
 
         let p = &opened.project;
         assert_eq!(opened.bpm, 97.0);
+        assert_eq!(p.tracks[4].mods, vec![wobble], "modulation");
         assert!(song_format(&project) == FORMAT, "MIDI blocks need format 4");
         assert_eq!(p.swing, 0.4);
         assert_eq!(p.clips, project.clips);

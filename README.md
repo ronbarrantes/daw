@@ -467,6 +467,19 @@ it. Hover for what each one does. To keep scrolling down:
   semitones: random tones). **LFO amt** is how much (0 = off), **LFO rate**
   how fast, and **LFO sync** ties the speed to the tempo instead (1/4 = once
   a beat).
+- **LFO 2** and **Mod envelope:** more things to move knobs with (see
+  *Modulation* below). LFO 2 is a second wobble; the Mod envelope rises
+  when a note starts (**Mod attack**), falls (**Mod decay**) and holds
+  (**Mod sustain**).
+
+**Modulation: make any knob move.** The coloured chips (**LFO 1** in the
+LFO section, **LFO 2**, **Mod env** and **Velocity** in theirs) are
+sources. Drag one onto any knob that isn't a pick-one knob: a ring in the
+chip's colour appears around the knob, showing how far the source moves
+it, and while notes play a white dot shows where it is right now.
+**Right-click** the knob to set how far each source moves it (either way)
+or remove it. A knob can have several sources; they add up. Velocity is
+how hard each note is played, so harder notes can be brighter or louder.
 
 Try:
 - Cutoff down, Reso up, Env amt up, Decay short: squelchy acid bass. Add
@@ -477,6 +490,9 @@ Try:
   bleeps.
 - Wave 2 on Sine, Pitch 2 at -12: a sub-bass under the main sound.
 - LFO to Pan, LFO sync 1/4: the sound bounces left and right on the beat.
+- Hold a Drone, drag **LFO 2** onto Cutoff and **Mod env** onto Pitch 2:
+  a sweep, plus a blip at the start of each note.
+- **Velocity** onto Cutoff: notes played harder are brighter.
 
 **Scope:** the green screen at the top of the panel is an oscilloscope of
 the selected track, so you can watch a knob change the wave. A saw is a

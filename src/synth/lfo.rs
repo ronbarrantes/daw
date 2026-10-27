@@ -58,21 +58,30 @@ impl Lfo {
     /// when synced, the tempo (`beat` is a beat's length in samples).
     pub fn step(v: &Values, sr: f32, beat: f32) -> f32 {
         let k = knobs(v, &INFO);
-        match choice(k[SYNC], SYNCS.len()) {
-            0 => k[RATE] / sr,
+        Self::step_with(k[RATE], k[SYNC], sr, beat)
+    }
+
+    /// `step` for any LFO's Rate and Sync knob values.
+    pub fn step_with(rate: f32, sync: f32, sr: f32, beat: f32) -> f32 {
+        match choice(sync, SYNCS.len()) {
+            0 => rate / sr,
             sync => 1.0 / (SYNC_BEATS[sync] * beat).max(1.0),
         }
     }
 
     /// The next value, -1 to 1.
     pub fn next(&mut self, v: &Values, step: f32) -> f32 {
-        let k = knobs(v, &INFO);
+        self.next_with(knobs(v, &INFO)[SHAPE], step)
+    }
+
+    /// `next` for any LFO's Wave knob value.
+    pub fn next_with(&mut self, shape: f32, step: f32) -> f32 {
         self.phase += step;
         if self.phase >= 1.0 {
             self.phase = self.phase.fract();
             self.held = noise(&mut self.rng);
         }
-        match choice(k[SHAPE], SHAPES.len()) {
+        match choice(shape, SHAPES.len()) {
             0 => (self.phase * std::f32::consts::TAU).sin(),
             1 => 1.0 - 4.0 * (self.phase - 0.5).abs(),
             2 => {

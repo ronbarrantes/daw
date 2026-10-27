@@ -18,11 +18,11 @@ menus).
    same knobs; old songs load the same. A new module gets a panel section,
    pop-out, saving and automation for free. How to write one:
    [MODULES.md](MODULES.md).
-2. [ ] **Drag-and-drop modulation.** Drag a source (LFO 1, LFO 2, a mod
-   envelope, velocity...) onto any knob. A coloured ring on the knob shows
-   how far it moves, and it moves live while the drone plays. One colour
-   per source. Replaces "LFO to" (old songs keep their LFO as the first
-   connection).
+2. [x] **Drag-and-drop modulation** (v0.34). Drag a source (LFO 1, LFO 2,
+   the Mod envelope, Velocity) onto any knob; a ring in its colour shows
+   how far it moves the knob, a dot shows where it is now, right-click to
+   change or remove it. LFO 1 keeps its own "LFO to" too. Next for it: a
+   preview while hovering, and dragging the ring to set the amount.
 3. [ ] **New modules**, each on its own:
    - [ ] Pluck and Mallet engines (strings, marimba, bells: natural sounds
      without samples), likely from Mutable Instruments' open-source Plaits
@@ -70,6 +70,7 @@ menus).
 
 Newest first, by release.
 
+- v0.34: drag-and-drop modulation; LFO 2 and the Mod envelope
 - v0.33: the synth is made of modules (same sound); new Voice section
 - v0.32: pop any panel section out into its own window
 - v0.31: automation: draw knob changes over the song
