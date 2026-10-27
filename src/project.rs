@@ -93,9 +93,12 @@ impl SampleShape {
     };
 }
 
-/// Rows in the piano roll: one octave, C to B. Each row is its own lane,
-/// so a melodic step can hold a chord.
-pub const LANES: usize = 12;
+/// The most octaves a piano roll can show.
+pub const MAX_OCTAVES: u8 = 4;
+/// Rows a piano roll can have: C to B, `MAX_OCTAVES` times. Each row is
+/// its own lane, so a melodic step can hold a chord. A track shows
+/// `Track::octaves` of them.
+pub const LANES: usize = 12 * MAX_OCTAVES as usize;
 pub const GHOST: u8 = 40;
 pub const NORMAL: u8 = 100;
 pub const ACCENT: u8 = 127;
@@ -228,7 +231,11 @@ pub struct Track {
     pub solo: bool,
     /// 0-1: random variation in each hit's timing and loudness.
     pub humanize: f32,
+    /// The piano roll's lowest octave.
     pub octave: u8,
+    /// How many octaves the piano roll shows, 1 to `MAX_OCTAVES`. Notes
+    /// in rows above stay, hidden and silent, if it's made smaller.
+    pub octaves: u8,
     /// MIDI channel (0-based) to send this track's notes on, if any.
     pub midi_channel: Option<u8>,
     /// Note sent over MIDI by one-shot tracks, e.g. 36 for a kick.
@@ -293,6 +300,7 @@ impl Track {
             solo: false,
             humanize: 0.0,
             octave,
+            octaves: 1,
             midi_channel: None,
             midi_note: SAMPLE_ROOT,
             group: None,
@@ -308,13 +316,18 @@ impl Track {
         }
     }
 
-    /// How many lanes the track uses: a piano roll's worth, or one.
+    /// How many lanes the track uses: its piano roll's rows, or one.
     pub fn lanes(&self) -> usize {
         if self.is_melodic() {
-            LANES
+            12 * self.octaves.clamp(1, MAX_OCTAVES) as usize
         } else {
             1
         }
+    }
+
+    /// The highest `octave` that keeps every row a real MIDI note.
+    pub fn top_octave(&self) -> u8 {
+        (9 - self.octaves.clamp(1, MAX_OCTAVES)).min(7)
     }
 
     /// MIDI note number of C in the track's octave (octave 3 = C3 = 48).
@@ -325,16 +338,18 @@ impl Track {
     /// The MIDI note a lane plays.
     pub fn note(&self, lane: usize) -> u8 {
         if self.is_melodic() {
-            self.base_note() + lane as u8
+            (self.base_note() as usize + lane).min(127) as u8
         } else {
             self.midi_note
         }
     }
 
-    /// The lane an incoming MIDI note belongs to (wrapping into the octave).
+    /// The lane an incoming MIDI note belongs to (wrapping into the
+    /// piano roll's octaves when it's above or below them).
     pub fn lane_for(&self, note: u8) -> usize {
         if self.is_melodic() {
-            (note as i32 - self.base_note() as i32).rem_euclid(LANES as i32) as usize
+            let rows = self.lanes() as i32;
+            (note as i32 - self.base_note() as i32).rem_euclid(rows) as usize
         } else {
             0
         }
@@ -1146,6 +1161,28 @@ impl Project {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn more_octaves_keep_played_notes_where_they_are() {
+        let mut t = Project::demo()
+            .tracks
+            .into_iter()
+            .find(Track::is_melodic)
+            .unwrap();
+        t.octave = 3; // C3 = 48
+        assert_eq!(t.lanes(), 12);
+        assert_eq!(t.lane_for(64), 4, "one octave: E4 folds to E3's row");
+        t.octaves = 3;
+        assert_eq!(t.lanes(), 36);
+        assert_eq!(t.lane_for(64), 16, "E4 keeps its octave");
+        assert_eq!(t.note(16), 64);
+        assert_eq!(t.lane_for(84 + 2), 2, "above the top wraps round");
+        // The top octave keeps every row a real MIDI note.
+        t.octaves = MAX_OCTAVES;
+        t.octave = t.top_octave();
+        assert!(t.note(t.lanes() - 1) <= 127);
+        assert_eq!(t.note(t.lanes() - 1), 12 * (t.octave + 1) + 47);
+    }
 
     #[test]
     fn notes_move_with_their_ties_and_settings() {

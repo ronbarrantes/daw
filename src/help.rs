@@ -95,7 +95,8 @@ const SECTIONS: &[(&str, &str)] = &[
          darker blue). Both work while it plays.\n\
          • Right-click a note itself for its velocity, chance, ratchet and \
          nudge; shift-click for a ghost note.\n\
-         • Octave moves the whole roll up or down.\n\
+         • Octave moves the whole roll up or down; Octaves (1-4) is how \
+         many it shows. Recorded notes keep their octave if it's shown.\n\
          • Other tracks' notes show faintly behind, so you can line parts up \
          (turn off in the View menu).\n\
          • Each track plays up to 16 notes at once; past that, the oldest \
