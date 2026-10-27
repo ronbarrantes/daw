@@ -313,8 +313,9 @@ struct App {
     load_error: Option<String>,
     /// Keys played while playing are written into the pattern.
     recording: bool,
-    /// The computer-keyboard key holding a note, its track and MIDI note.
-    held_key: Option<(egui::Key, usize, u8)>,
+    /// The computer-keyboard keys holding notes (several at once, for
+    /// chords and the arpeggiator): each key, its track and MIDI note.
+    held_keys: Vec<(egui::Key, usize, u8)>,
     show_help: bool,
     show_about: bool,
     show_fx: bool,
@@ -448,7 +449,7 @@ impl App {
             loading: 0,
             load_error: None,
             recording: false,
-            held_key: None,
+            held_keys: Vec::new(),
             show_help: false,
             show_about: false,
             show_fx: false,
@@ -2101,11 +2102,11 @@ impl App {
                         continue;
                     };
                     if pressed {
-                        if let Some((_, t, note)) = self.held_key.take() {
-                            let _ = self.events.try_send(Event::Release { track: t, note });
+                        if self.held_keys.iter().any(|&(k, _, _)| k == key) {
+                            continue;
                         }
                         let note = base + semitone;
-                        self.held_key = Some((key, self.selected, note));
+                        self.held_keys.push((key, self.selected, note));
                         let _ = self.events.try_send(Event::Hold {
                             track: self.selected,
                             note,
@@ -2114,13 +2115,24 @@ impl App {
                         if self.recording && rolling {
                             to_record.push(note);
                         }
-                    } else if let Some((_, t, note)) = self.held_key.filter(|&(k, _, _)| k == key) {
-                        self.held_key = None;
+                    } else if let Some(i) = self.held_keys.iter().position(|&(k, _, _)| k == key) {
+                        let (_, t, note) = self.held_keys.remove(i);
                         let _ = self.events.try_send(Event::Release { track: t, note });
                     }
                 }
             }
         }
+        // A key let go while the window wasn't listening (it lost focus,
+        // say) never sends its release: let go of it here instead, so no
+        // note gets stuck.
+        let (focused, down) = ctx.input(|i| (i.focused, i.keys_down.clone()));
+        self.held_keys.retain(|&(k, t, note)| {
+            let still = focused && down.contains(&k);
+            if !still {
+                let _ = self.events.try_send(Event::Release { track: t, note });
+            }
+            still
+        });
         if octave_changed {
             self.dirty = true;
         }

@@ -266,6 +266,8 @@ No MIDI keyboard needed: your laptop keys play the selected track.
 A S D F G H J K L         ← white keys (A = C)
 ```
 
+- Hold several keys for a chord, or to feed the **Arpeggiator** (most
+  laptop keyboards manage three or four keys at once).
 - **Z** / **X** move down or up an octave.
 - Turn on **⏺ Rec** and press Play: notes you play are written into the
   pattern at the step that's playing. Play first clicks one bar (the
