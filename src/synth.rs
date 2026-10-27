@@ -36,6 +36,26 @@ pub enum Unit {
 
 /// The shapes an oscillator morphs through, in order.
 pub const WAVES: [&str; 5] = ["Sine", "Tri", "Saw", "Square", "Noise"];
+impl Param {
+    /// A value as 0-1 along the knob (log knobs evenly by ratio).
+    pub fn to_unit(&self, v: f32) -> f32 {
+        if self.log {
+            (v / self.min).ln() / (self.max / self.min).ln()
+        } else {
+            (v - self.min) / (self.max - self.min)
+        }
+    }
+
+    /// The value at 0-1 along the knob.
+    pub fn at_unit(&self, t: f32) -> f32 {
+        if self.log {
+            self.min * (self.max / self.min).powf(t)
+        } else {
+            self.min + (self.max - self.min) * t
+        }
+    }
+}
+
 /// Ready-made sounds: each changes some knobs from their defaults. They're
 /// synth versions of the instruments, a starting point to adjust.
 #[rustfmt::skip]

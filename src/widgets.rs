@@ -98,22 +98,15 @@ pub fn port_picker(
 }
 
 fn to_unit(p: &Param, v: f32) -> f32 {
-    if p.log {
-        (v / p.min).ln() / (p.max / p.min).ln()
-    } else {
-        (v - p.min) / (p.max - p.min)
-    }
+    p.to_unit(v)
 }
 
 fn from_unit(p: &Param, t: f32) -> f32 {
-    if p.log {
-        p.min * (p.max / p.min).powf(t)
-    } else {
-        p.min + (p.max - p.min) * t
-    }
+    p.at_unit(t)
 }
 
-fn format_value(p: &Param, v: f32) -> String {
+/// A knob's value as shown under it, e.g. "250 Hz" or "C".
+pub fn format_value(p: &Param, v: f32) -> String {
     match p.unit {
         Unit::Percent => format!("{:.0}%", v * 100.0),
         Unit::Hz if v >= 1000.0 => format!("{:.1} kHz", v / 1000.0),

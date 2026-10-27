@@ -32,7 +32,8 @@ use cpal::{FromSample, SampleFormat, SizedSample};
 use crate::fx::{Delay, Limiter, Reverb};
 use crate::midi::{self, Msg};
 use crate::project::{
-    Block, Kind, MidiPart, Project, Sample, Step, MAX_TRACKS, NORMAL, PPS, SAMPLE_ROOT, STEPS,
+    Block, Kind, MidiPart, Project, Sample, Step, Target, MAX_TRACKS, NORMAL, PPS, SAMPLE_ROOT,
+    STEPS,
 };
 use crate::synth::{self, Lfo, Mode, Voice};
 
@@ -449,6 +450,9 @@ struct Engine {
     lfos: Vec<Lfo>,
     /// Each synth track's arpeggiator.
     arps: [Arp; MAX_TRACKS],
+    /// Automation is moving knobs right now (the timeline is playing and
+    /// has lanes), so stopping puts them back.
+    automating: bool,
     /// Which track (by `Track::id`) each slot of `voices` belongs to, so a
     /// slot that gets a different track (one was deleted or added) starts
     /// silent instead of carrying on the old track's notes.
@@ -518,6 +522,7 @@ impl Engine {
             lfos: (0..MAX_TRACKS).map(|_| Lfo::default()).collect(),
             arps: [Arp::default(); MAX_TRACKS],
             slot_ids: [None; MAX_TRACKS],
+            automating: false,
             pending: Vec::with_capacity(MAX_PENDING),
             tick: 0,
             samples_to_next_tick: 0.0,
@@ -554,17 +559,14 @@ impl Engine {
     fn project_changed(&mut self) {
         let project = self.project.clone();
         for i in 0..MAX_TRACKS {
-            self.levels[i] = project.tracks.get(i).map_or(0.0, |_| project.gain(i));
-            (self.gains[i], self.sends[i]) = match project.tracks.get(i) {
-                Some(t) => {
-                    let gain = project.gain(i);
-                    (
-                        pan_gains(t.pan).map(|g| g * gain),
-                        [t.reverb * gain, t.delay * gain],
-                    )
+            match project.tracks.get(i) {
+                Some(t) => self.set_mix(&project, i, [t.volume, t.pan, t.reverb, t.delay]),
+                None => {
+                    self.levels[i] = 0.0;
+                    self.gains[i] = [0.0; 2];
+                    self.sends[i] = [0.0; 2];
                 }
-                None => ([0.0; 2], [0.0; 2]),
-            };
+            }
         }
         for i in 0..MAX_TRACKS {
             let id = project.tracks.get(i).map(|t| t.id);
@@ -915,6 +917,73 @@ impl Engine {
     }
 
     /// Picks up a new project snapshot and UI or MIDI events.
+    /// Works out track `i`'s levels from its volume, pan and sends (the
+    /// knobs, or where automation has them).
+    fn set_mix(&mut self, project: &Project, i: usize, [volume, pan, reverb, delay]: [f32; 4]) {
+        let gain = project.gain_with(i, volume);
+        self.levels[i] = gain;
+        self.gains[i] = pan_gains(pan).map(|g| g * gain);
+        self.sends[i] = [reverb * gain, delay * gain];
+    }
+
+    /// While the timeline plays, sets the knobs automation lanes move to
+    /// where their lines are now. When it stops, puts them back.
+    fn apply_automation(&mut self) {
+        let project = self.project.clone();
+        let running = self.shared.song_mode.load(Relaxed)
+            && self.shared.playing.load(Relaxed)
+            && !project.automation.is_empty();
+        if !running {
+            if self.automating {
+                self.automating = false;
+                self.project_changed();
+            }
+            return;
+        }
+        self.automating = true;
+        // Where the song is, in PPSths of a step, between clock ticks too.
+        let tick = (self.tick + TICKS_PER_BAR - 1) % TICKS_PER_STEP;
+        let between = (1.0 - self.samples_to_next_tick / self.samples_per_tick).clamp(0.0, 1.0);
+        let at = self.song_step as f32 * PPS as f32
+            + (tick as f32 + between) * PPS as f32 / TICKS_PER_STEP as f32;
+        for i in 0..self.track_count() {
+            let track = &project.tracks[i];
+            let mut mix = [track.volume, track.pan, track.reverb, track.delay];
+            let mut values = match &track.kind {
+                Kind::Synth(v) => Some(*v),
+                Kind::Sampler { .. } => None,
+            };
+            let (mut moved_mix, mut moved_synth) = (false, false);
+            for lane in project.automation.iter().filter(|l| l.track == i) {
+                let Some(u) = lane.value_at(at) else {
+                    continue;
+                };
+                let v = lane.target.param().at_unit(u.clamp(0.0, 1.0));
+                match lane.target {
+                    Target::Volume => mix[0] = v,
+                    Target::Pan => mix[1] = v,
+                    Target::Reverb => mix[2] = v,
+                    Target::Delay => mix[3] = v,
+                    Target::Synth(k) => {
+                        if let Some(values) = values.as_mut().filter(|_| k < synth::PARAMS.len()) {
+                            values[k] = v;
+                            moved_synth = true;
+                        }
+                    }
+                }
+                moved_mix |= !matches!(lane.target, Target::Synth(_));
+            }
+            if moved_mix {
+                self.set_mix(&project, i, mix);
+            }
+            if let (true, Some(values)) = (moved_synth, values) {
+                for voice in &mut self.voices[i] {
+                    voice.synth.set_params(&values);
+                }
+            }
+        }
+    }
+
     fn update(&mut self) {
         let latest = match self.shared.project.try_lock() {
             Ok(p) if !Arc::ptr_eq(&p, &self.project) => Some(p.clone()),
@@ -924,6 +993,7 @@ impl Engine {
             self.project = p;
             self.project_changed();
         }
+        self.apply_automation();
         while let Ok(event) = self.events.try_recv() {
             match event {
                 Event::Preview { track, note } if track < self.track_count() => {
@@ -2413,6 +2483,42 @@ mod tests {
         rig.send(Event::Release { track: i, note: 60 });
         rig.run(4_800);
         assert!(rig.run(100).iter().any(|s| s.abs() > 0.1), "rings on");
+    }
+
+    #[test]
+    fn automation_moves_a_track_s_volume_over_the_song() {
+        use crate::project::{AutoLane, AutoPoint};
+        // A steady held note on the lead, its volume automated from
+        // silent to full over the first bar.
+        let mut project = kick_clips(&[(0, 64, 0)]);
+        project.tracks[KICK].muted = true;
+        if let Kind::Synth(v) = &mut project.tracks[LEAD].kind {
+            v[synth::SUSTAIN] = 1.0;
+        }
+        project.automation.push(AutoLane {
+            track: LEAD,
+            target: Target::Volume,
+            points: vec![
+                AutoPoint { at: 0, value: 0.0 },
+                AutoPoint {
+                    at: 16 * PPS,
+                    value: 1.0,
+                },
+            ],
+        });
+        let mut rig = Rig::new(project);
+        rig.shared.song_mode.store(true, Relaxed);
+        rig.shared.playing.store(true, Relaxed);
+        rig.send(hold(LEAD, 60));
+        let loudness = |out: &[f32]| out.iter().map(|s| s.abs()).sum::<f32>();
+        let early = loudness(&rig.run(STEP * 2));
+        rig.run(STEP * 12);
+        let late = loudness(&rig.run(STEP * 2));
+        assert!(late > early * 3.0, "fades in: {early} then {late}");
+        // Stopped, the knob is back as set.
+        rig.shared.playing.store(false, Relaxed);
+        rig.run(UPDATE_INTERVAL as usize * 2);
+        assert_eq!(rig.engine.levels[LEAD], rig.engine.project.gain(LEAD));
     }
 
     #[test]

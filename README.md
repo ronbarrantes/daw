@@ -352,6 +352,24 @@ into a one-bar block; older songs' Song row becomes a block called *Song*.
 Songs saved now need v0.14 or later to open (v0.16 or later if they have
 MIDI blocks).
 
+### Automation (Arrange)
+
+Automation draws a knob's changes over the song: a filter that opens over
+eight bars, a fade-out, a sound sweeping from left to right.
+
+- **+ Automation** (timeline bar): pick a track, then a knob: its Volume,
+  Pan, Reverb or Delay, or one of its synth knobs (Cutoff, Reso, LFO
+  amount, Wave...). A lane opens under the timeline, holding the knob
+  where it's set now.
+- **Click** a lane to add a point (higher is more), **drag** a point to
+  move it (dragging empty space makes one), **right-click** a point to
+  remove it. The line goes straight from point to point and stays level
+  before the first and after the last. Points snap like blocks; hold
+  **Shift** for single steps.
+- Right-click empty space in a lane to clear it or delete it.
+- Automation plays while the timeline plays (and in exports); when it
+  stops, the knobs are back where you set them.
+
 ### MIDI blocks (Arrange)
 
 A MIDI block is free notes for one track: any pitch, any length, starting
@@ -510,6 +528,7 @@ Done:
 - ~~Tool bar: Draw, Select and Erase~~
 - ~~Duplicate and reorder tracks~~
 - ~~Sample trim, fade in, release and reverse~~
+- ~~Automation: draw knob changes over the song~~
 
 Next:
 

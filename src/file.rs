@@ -24,9 +24,10 @@ use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
 use crate::drums;
 use crate::project::{
-    builtin_drums, default_patterns, Block, Clip, Effects, Group, Kind, MidiPart, Pattern, Project,
-    Sample, SampleShape, Step, Track, EMPTY_GRID, LANES, MAX_BLOCKS, MAX_NOTES, MAX_PATTERNS,
-    MAX_SONG_STEPS, MAX_TRACKS, NORMAL, PPS, STEPS,
+    builtin_drums, default_patterns, AutoLane, AutoPoint, Block, Clip, Effects, Group, Kind,
+    MidiPart, Pattern, Project, Sample, SampleShape, Step, Target, Track, EMPTY_GRID, LANES,
+    MAX_BLOCKS, MAX_NOTES, MAX_PATTERNS, MAX_SONG_STEPS, MAX_TRACKS, MIX_TARGETS, NORMAL, PPS,
+    STEPS,
 };
 use crate::synth;
 
@@ -75,6 +76,10 @@ struct SongFile {
     effects: EffectsFile,
     #[serde(default = "default_master")]
     master_volume: f32,
+    /// Knob changes over the song. Older versions ignore it and play the
+    /// knobs as set.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    automation: Vec<AutoLaneFile>,
     #[serde(default)]
     tracks: Vec<TrackFile>,
 }
@@ -130,6 +135,39 @@ struct ClipFile {
     len: usize,
     #[serde(default)]
     offset: usize,
+}
+
+/// An automation lane: a track (by index), the knob it moves (Volume,
+/// Pan, Reverb, Delay or a synth knob's name) and its points, each
+/// `[when in 960ths of a beat from the start, position 0-1 along the knob]`.
+#[derive(Serialize, Deserialize)]
+struct AutoLaneFile {
+    track: usize,
+    target: String,
+    #[serde(default)]
+    points: Vec<(u32, f32)>,
+}
+
+/// A lane's knob as stored: "Volume" etc. for the mix knobs, "synth:" and
+/// the knob's name for synth knobs (so the two Volumes stay apart).
+fn target_name(t: Target) -> String {
+    match t {
+        Target::Synth(_) => format!("synth:{}", t.param().name),
+        _ => t.param().name.to_string(),
+    }
+}
+
+fn target_named(name: &str) -> Option<Target> {
+    match name.strip_prefix("synth:") {
+        Some(knob) => synth::PARAMS
+            .iter()
+            .position(|p| p.name == knob)
+            .map(Target::Synth),
+        None => MIX_TARGETS
+            .iter()
+            .find(|(_, p)| p.name == name)
+            .map(|(t, _)| *t),
+    }
 }
 
 /// The shared reverb and delay. Missing values get the defaults.
@@ -459,6 +497,15 @@ pub fn to_bytes(project: &Project, bpm: f32) -> Result<Vec<u8>, String> {
             })
             .collect(),
         master_volume: project.master,
+        automation: project
+            .automation
+            .iter()
+            .map(|l| AutoLaneFile {
+                track: l.track,
+                target: target_name(l.target),
+                points: l.points.iter().map(|p| (p.at, p.value)).collect(),
+            })
+            .collect(),
         effects: EffectsFile {
             reverb_size: project.effects.reverb_size,
             reverb_tone: project.effects.reverb_tone,
@@ -676,6 +723,28 @@ fn read_zip(bytes: Vec<u8>) -> Result<Song, String> {
     project.swing = song.swing.clamp(0.0, 1.0);
     let fx = &song.effects;
     project.master = song.master_volume.clamp(0.0, 1.0);
+    project.automation = song
+        .automation
+        .iter()
+        .filter(|l| l.track < project.tracks.len())
+        .filter_map(|l| {
+            let mut lane = AutoLane {
+                track: l.track,
+                target: target_named(&l.target)?,
+                points: l
+                    .points
+                    .iter()
+                    .filter(|(at, _)| *at <= MAX_SONG_STEPS as u32 * PPS)
+                    .map(|&(at, value)| AutoPoint {
+                        at,
+                        value: value.clamp(0.0, 1.0),
+                    })
+                    .collect(),
+            };
+            lane.sort();
+            Some(lane)
+        })
+        .collect();
     project.effects = Effects {
         reverb_size: fx.reverb_size.clamp(0.0, 1.0),
         reverb_tone: fx.reverb_tone.clamp(0.0, 1.0),
@@ -940,6 +1009,33 @@ mod tests {
         project.effects.delay_steps = 6.0;
         project.effects.reverb_size = 0.8;
         project.master = 0.55;
+        project.automation = vec![
+            AutoLane {
+                track: 4,
+                target: Target::Synth(synth::CUTOFF),
+                points: vec![
+                    AutoPoint { at: 0, value: 0.2 },
+                    AutoPoint {
+                        at: 3840,
+                        value: 0.9,
+                    },
+                ],
+            },
+            AutoLane {
+                track: 1,
+                target: Target::Pan,
+                points: vec![AutoPoint {
+                    at: 960,
+                    value: 0.5,
+                }],
+            },
+            // The synth's Volume, not the track's.
+            AutoLane {
+                track: 5,
+                target: Target::Synth(synth::VOLUME),
+                points: vec![AutoPoint { at: 0, value: 0.3 }],
+            },
+        ];
         // A loaded sample, used by two tracks.
         let tone = Arc::new(Sample {
             name: "tone".into(),
@@ -996,6 +1092,7 @@ mod tests {
         assert_eq!(p.groups[0].volume, 0.5);
         assert_eq!(p.effects, project.effects);
         assert_eq!(p.master, 0.55);
+        assert_eq!(p.automation, project.automation);
         let Some(Kind::Sampler { shape, .. }) = p.tracks.last().map(|t| &t.kind) else {
             panic!("a sample track")
         };
