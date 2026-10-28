@@ -187,7 +187,8 @@ soloed tracks so you can hear a part on its own.
 - Click a track's name to select it and hear it. The right panel shows its
   settings; melodic tracks also get a **piano roll** below the rows.
 - **+ Synth** adds a synth track. **+ Drum** adds a built-in drum: kick,
-  snare, hat, clap, clave, bongos, congas, toms, shaker or cowbell (it goes
+  snare, hat, clap, clave, bongos, congas, toms, shaker, cowbell, timbales,
+  cascara or guiro (it goes
   in the Drums group if there is one). **+ Sample…** loads WAV, MP3, FLAC
   or OGG files as sample tracks, or just drop files onto the window.
 - Right-click a track's name to **duplicate** it (sound and notes, for
@@ -455,7 +456,7 @@ it. Hover for what each one does. To keep scrolling down:
   Popped-out windows and where they sit are remembered too.
 
 - **Preset:** shows which preset the knobs match (Custom once you've
-  changed one). Pick a starting sound, in groups: **Keys** (piano,
+  changed one). Pick a starting sound, in groups: **Keys** (grand piano,
   electric piano, organ...), **Plucks** (guitars, harp, koto), **Mallets &
   bells**, **Bass**, **Strings & pads**, **Leads** (brass, violin,
   flute...) and **Effects** (shaker, wind, random bleeps). Each uses
@@ -592,7 +593,7 @@ keyboard with your computer, then press **⟳** to rescan.
   track's **MIDI ch** (right panel) sends its notes on that channel; the
   built-in drums use channel 10 with General MIDI notes (Kick 36, Snare 38,
   Hat 42, Clap 39, Clave 75, Bongos 60/61, Congas 63/64, Toms 50/47/45,
-  Shaker 70, Cowbell 56).
+  Shaker 70, Cowbell 56, Timbales 65/66, Cascara 37, Guiro 73).
 - **MIDI in:** click it to connect controllers, several at once. Each plays
   the **selected track** (follows your clicks) or a fixed **track** or
   **group**. Route a drum kit to the Drums group and each pad plays its

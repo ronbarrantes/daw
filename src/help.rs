@@ -31,7 +31,7 @@ const SECTIONS: &[(&str, &str)] = &[
     (
         "Tracks",
         "• + Synth adds a synth. + Drum adds a built-in drum (clave, bongos, \
-         congas, toms, shaker, cowbell and more). + Sample… loads WAV, MP3, \
+         congas, timbales, guiro, cowbell and more). + Sample… loads WAV, MP3, \
          FLAC or OGG files, or drop audio files onto the window.\n\
          • Right-click a track's name to duplicate it, move it up or down, \
          or delete it.\n\
