@@ -2055,7 +2055,13 @@ impl App {
     }
 
     fn track_list(&mut self, ui: &mut egui::Ui, pattern: usize, current: Option<Playhead>) {
-        for row in self.project.rows() {
+        let rows = self.project.rows();
+        for &row in &rows {
+            // A row's menu can delete, add or regroup tracks; the rows
+            // after it are drawn next frame, when they're up to date.
+            if self.project.rows() != rows {
+                break;
+            }
             match row {
                 Row::Group(g) => self.group_row(ui, g, pattern, current),
                 Row::Track(i) => {
