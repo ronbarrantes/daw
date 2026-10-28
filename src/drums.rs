@@ -2,13 +2,32 @@
 
 use std::f32::consts::TAU;
 
-pub const NAMES: [&str; 14] = [
-    "Kick", "Snare", "Hat", "Clap", "Clave", "Bongo hi", "Bongo lo", "Conga hi", "Conga lo",
-    "Tom hi", "Tom mid", "Tom lo", "Shaker", "Cowbell",
+pub const NAMES: [&str; 18] = [
+    "Kick",
+    "Snare",
+    "Hat",
+    "Clap",
+    "Clave",
+    "Bongo hi",
+    "Bongo lo",
+    "Conga hi",
+    "Conga lo",
+    "Tom hi",
+    "Tom mid",
+    "Tom lo",
+    "Shaker",
+    "Cowbell",
+    "Timbale hi",
+    "Timbale lo",
+    "Cascara",
+    "Guiro",
 ];
 /// General MIDI drum notes for each track, as used on channel 10. The
-/// shaker uses Maracas.
-pub const NOTES: [u8; 14] = [36, 38, 42, 39, 75, 60, 61, 63, 64, 50, 47, 45, 70, 56];
+/// shaker uses Maracas and the cascara (a stick on the timbale's shell)
+/// Side Stick.
+pub const NOTES: [u8; 18] = [
+    36, 38, 42, 39, 75, 60, 61, 63, 64, 50, 47, 45, 70, 56, 65, 66, 37, 73,
+];
 /// How many of the sounds a new song's kit starts with.
 pub const STARTER_KIT: usize = 4;
 
@@ -40,6 +59,10 @@ pub fn make_kit(sr: f32) -> Vec<Vec<f32>> {
         drum(sr, Drum::tom(105.0), 0x090a_0b0c),
         shaker(sr),
         cowbell(sr),
+        timbale(sr, 560.0, 0x2468_ace0),
+        timbale(sr, 400.0, 0x1357_9bdf),
+        cascara(sr),
+        guiro(sr),
     ]
 }
 
@@ -209,6 +232,68 @@ fn cowbell(sr: f32) -> Vec<f32> {
             // Take the edge off the squares.
             prev += (x - prev) * 0.3;
             prev * (-t * 9.0).exp() * 0.35
+        })
+        .collect()
+}
+
+/// A timbale: a thin metal-shelled drum with a steel-bright ring. A
+/// bending tone, two partials above it that don't line up (the shell),
+/// and a crack of noise from the stick.
+fn timbale(sr: f32, freq: f32, seed: u32) -> Vec<f32> {
+    let mut noise = Noise(seed);
+    let mut prev = 0.0;
+    let mut phases = [0.0_f32; 3];
+    let partials = [(1.0, 0.6, 9.0), (1.73, 0.3, 12.0), (2.41, 0.18, 16.0)];
+    (0..len(sr, 0.6))
+        .map(|i| {
+            let t = i as f32 / sr;
+            let bend = 1.0 + 0.12 * (-t * 60.0).exp();
+            let mut tone = 0.0;
+            for (phase, (ratio, gain, decay)) in phases.iter_mut().zip(partials) {
+                *phase += TAU * freq * ratio * bend / sr;
+                tone += phase.sin() * gain * (-t * decay).exp();
+            }
+            let x = noise.next();
+            let crack = (x - prev) * (-t * 90.0).exp() * 0.15;
+            prev = x;
+            tone * 0.6 + crack
+        })
+        .collect()
+}
+
+/// A stick on the side of the timbale: a dry, woody click with a short
+/// metallic ring.
+fn cascara(sr: f32) -> Vec<f32> {
+    let mut noise = Noise(0x0c0f_fee5);
+    (0..len(sr, 0.12))
+        .map(|i| {
+            let t = i as f32 / sr;
+            let ring =
+                ((TAU * 1_850.0 * t).sin() + 0.5 * (TAU * 3_300.0 * t).sin()) * (-t * 55.0).exp();
+            let click = noise.next() * (-t * 400.0).exp();
+            (ring * 0.45 + click * 0.4) * 0.9
+        })
+        .collect()
+}
+
+/// A stick scraped down a gourd's ridges: quick ticks of band-passed
+/// noise, fading in and out.
+fn guiro(sr: f32) -> Vec<f32> {
+    let mut noise = Noise(0x6017_0bad);
+    let f = 2.0 * (std::f32::consts::PI * 3_200.0 / sr).sin();
+    let (mut low, mut band) = (0.0, 0.0);
+    let seconds = 0.22;
+    let ridges = 26.0;
+    (0..len(sr, seconds))
+        .map(|i| {
+            let t = i as f32 / sr;
+            // Each ridge is a sharp tick that dies away before the next.
+            let tick = (-(t * ridges / seconds).fract() * 9.0).exp();
+            let swell = (t / 0.03).min(1.0) * (1.0 - t / seconds).max(0.0).powf(0.7);
+            let high = noise.next() - low - 0.5 * band;
+            band += f * high;
+            low += f * band;
+            band * tick * swell * 0.9
         })
         .collect()
 }

@@ -77,8 +77,15 @@ macro_rules! knobs {
 use Source::{Lfo2, ModEnv, Velocity};
 
 #[rustfmt::skip]
-pub const PRESETS: [Preset; 31] = [
+pub const PRESETS: [Preset; 32] = [
     // Keys
+    // A hammered string: the Pluck engine struck near its end, with a
+    // filter that opens on the hit and closes as it rings, so it starts
+    // bright and mellows like a real piano. Harder notes are brighter.
+    p("Keys", "Grand piano", knobs!(OPEN, [(ENGINE, 1.0), (STRING_TONE, 0.7),
+        (STRING_DECAY, 5.0), (PICK_SPOT, 0.11), (CUTOFF, 2500.0), (ENV_AMOUNT, 0.45),
+        (FILTER_DECAY, 0.8), (ATTACK, 0.001), (SUSTAIN, 1.0), (RELEASE, 0.35)]),
+        &[(Velocity, STRING_TONE, 0.3), (Velocity, CUTOFF, 0.15)]),
     p("Keys", "Piano (FM)", knobs!(OPEN, [(ENGINE, 3.0), (FM_RATIO, 1.0), (FM_DEPTH, 0.28),
         (FM_DECAY, 0.5), (FM_FEEDBACK, 0.08), (CUTOFF, 5000.0), (ATTACK, 0.001), (DECAY, 2.0),
         (SUSTAIN, 0.0), (RELEASE, 0.35)]),
