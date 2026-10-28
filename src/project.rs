@@ -524,6 +524,16 @@ impl Block {
         }
     }
 
+    /// Steps of the same pattern in the bar after the one `step` is in,
+    /// so ties can carry over the bar line.
+    pub fn more(&self, step: usize) -> usize {
+        let bar = step / STEPS;
+        match self.chain.get(bar) {
+            Some(Some(p)) if self.chain.get(bar + 1) == Some(&Some(*p)) => STEPS,
+            _ => 0,
+        }
+    }
+
     /// The pattern playing `step` steps into the block, how many bars
     /// it's been playing for (it plays its bars in turn), and its step.
     pub fn at(&self, step: usize) -> (Option<usize>, usize, usize) {

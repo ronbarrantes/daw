@@ -259,6 +259,8 @@ All of this goes out over MIDI too, with velocity.
   and **drag its right edge** to make it longer or shorter (the held part
   is a darker blue). Both work while it plays. Longer notes let the synth's **Sustain** and **Release** be
   heard. Right-clicking the cell after a note holds it one step longer too.
+  In a longer pattern, right-click the first step of the next bar to hold
+  a note over the bar line.
 - **Right-click** a note for its groove settings; **shift-click** for a ghost note.
 - Other tracks' notes show faintly behind, to help line parts up (View menu
   to turn off).

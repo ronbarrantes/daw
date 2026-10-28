@@ -94,7 +94,9 @@ const SECTIONS: &[(&str, &str)] = &[
          erases them.\n\
          • Drag a note to move it (up/down: pitch, left/right: time); drag \
          its right edge to make it longer or shorter (the held part is \
-         darker blue). Both work while it plays.\n\
+         darker blue). Both work while it plays. Right-click the cell after \
+         a note to hold it a step longer; on a bar's first step that holds \
+         a note over from the bar before.\n\
          • Right-click a note itself for its velocity, chance, ratchet and \
          nudge; shift-click for a ghost note.\n\
          • Octave moves the whole roll up or down; Octaves (1-4) is how \
