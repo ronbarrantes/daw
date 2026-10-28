@@ -90,6 +90,7 @@ menus).
 
 Newest first, by release.
 
+- v0.45.2: README: Hyprland is a window manager, not a distro
 - v0.45.1: the Velocity chip moves to the Voice section
 - v0.45: piano rolls up to 4 octaves tall; recording keeps the octave
 - v0.44: drag piano-roll notes to move them; fix: the arpeggiator kept

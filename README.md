@@ -46,7 +46,7 @@ download the new zip and replace the folder.
 
    You only need to do this once per update.
 
-## Install on Linux (Arch, Hyprland and others)
+## Install on Linux (Arch, Ubuntu, Fedora and others)
 
 ```sh
 curl -L https://github.com/ronbarrantes/daw/releases/latest/download/daw-linux-x86_64.tar.gz | tar xz
@@ -59,7 +59,8 @@ you only need `alsa-lib`, which any desktop already has.
 
 - **Update:** run the same two lines again.
 - **Uninstall:** `./daw/install.sh --uninstall`
-- **Hyprland:** the window class is `daw`, e.g.
+- **Window rules** (Hyprland, Sway, i3 and other window managers): the
+  window class is `daw`. In Hyprland, for example:
   `windowrulev2 = float, class:^(daw)$`
 
 ## Other downloads
