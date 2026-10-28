@@ -303,6 +303,8 @@ struct App {
     tool: Tool,
     /// The oscilloscope and envelope drawing in the instrument panel.
     show_scope: bool,
+    /// Redraw less often while playing, to save battery.
+    low_power: bool,
     /// Instrument panel sections popped out into their own windows, by
     /// title, with where each window was (x, y, width, height).
     popped: Vec<(String, Option<[f32; 4]>)>,
@@ -426,6 +428,7 @@ impl App {
             drone_hz: synth::midi_to_hz(48),
             theremin: None,
             show_scope: true,
+            low_power: file::low_power(),
             popped: file::popped_sections(),
             popped_changed: false,
             meter_levels: [0.0; 2],
@@ -925,12 +928,17 @@ impl eframe::App for App {
         // Knobs that modulation moves keep moving on screen.
         let modulating = in_panel && self.shared.mod_live(0).is_some();
         if playing || (scope && self.scope_busy) || modulating {
-            ctx.request_repaint_after(Duration::from_millis(30));
+            ctx.request_repaint_after(self.frame());
         }
     }
 }
 
 impl App {
+    /// How long to wait between redraws while something moves.
+    fn frame(&self) -> Duration {
+        Duration::from_millis(if self.low_power { 66 } else { 30 })
+    }
+
     fn publish(&mut self) {
         let snapshot = Arc::new(self.project.clone());
         self.shared.publish(snapshot.clone());
@@ -1598,6 +1606,13 @@ impl App {
                     *v = View::ALL;
                     ui.close_menu();
                 }
+                ui.separator();
+                let low = ui
+                    .checkbox(&mut self.low_power, "Low power")
+                    .on_hover_text("Redraw less often while playing, to save battery");
+                if low.changed() {
+                    file::remember_low_power(self.low_power);
+                }
             });
             ui.menu_button("Help", |ui| {
                 if ui.button("How to use (F1)").clicked() {
@@ -1860,7 +1875,7 @@ impl App {
             meter(ui, self.meter_levels, self.meter_limiting);
             if self.meter_levels.iter().any(|l| *l > 0.001) {
                 // Keep the meter falling after the sound stops.
-                ui.ctx().request_repaint_after(Duration::from_millis(30));
+                ui.ctx().request_repaint_after(self.frame());
             }
         });
     }

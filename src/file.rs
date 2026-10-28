@@ -1005,6 +1005,16 @@ pub fn remember_popped_sections(popped: &[(String, Option<[f32; 4]>)]) {
     remember_lines("popped-sections", &lines);
 }
 
+/// Whether low power mode was on last time.
+pub fn low_power() -> bool {
+    remembered("low-power").first().is_some_and(|l| l == "on")
+}
+
+/// Remembers low power mode.
+pub fn remember_low_power(on: bool) {
+    remember_lines("low-power", &[if on { "on" } else { "off" }.to_string()]);
+}
+
 /// Where the app remembers the last song, so it reopens at startup.
 #[cfg(not(target_arch = "wasm32"))]
 fn last_song_record() -> Option<std::path::PathBuf> {
