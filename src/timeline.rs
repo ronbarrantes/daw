@@ -393,13 +393,21 @@ impl App {
             ui.spacing_mut().item_spacing.x = 2.0;
             ui.add_space(66.0);
             for bar in 0..CHAIN_SLOTS {
-                let slot = self.project.blocks[b].chain[bar];
+                let (slot, run, _) = self.project.blocks[b].at(bar * STEPS);
                 let fill = match slot {
                     Some(p) => pattern_color(p),
                     None if bar % 4 == 0 => Color32::from_gray(60),
                     None => Color32::from_gray(45),
                 };
-                let label = slot.map_or(String::new(), |p| self.project.patterns[p].name.clone());
+                // A pattern longer than a bar fills a cell per bar: its
+                // name on the first, then the bar number.
+                let label = match slot {
+                    Some(p) => match run % self.project.pattern_bars(p) {
+                        0 => self.project.patterns[p].name.clone(),
+                        k => (k + 1).to_string(),
+                    },
+                    None => String::new(),
+                };
                 let cell =
                     egui::Button::new(egui::RichText::new(label).color(Color32::WHITE).small())
                         .fill(fill)
@@ -407,12 +415,11 @@ impl App {
                         .min_size(Vec2::new(22.0, 22.0));
                 let resp = ui.add(cell);
                 let old_len = self.project.block_len(b);
-                let chain = &mut self.project.blocks[b].chain;
                 if resp.secondary_clicked() || (resp.clicked() && slot == Some(edit)) {
-                    chain[bar] = None;
+                    self.project.clear_pattern_at(b, bar);
                     self.dirty = true;
                 } else if resp.clicked() {
-                    chain[bar] = Some(edit);
+                    self.project.place_pattern(b, bar, edit);
                     self.dirty = true;
                 }
                 if self.project.block_len(b) != old_len {

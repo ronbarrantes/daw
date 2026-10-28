@@ -320,7 +320,7 @@ top left:
 - **Arrange** is the timeline, where blocks are put together into a song.
   Later it will also hold audio (vocals, guitars) and recording.
 
-The units, from small to big: **pattern** (one bar of steps), **chain**
+The units, from small to big: **pattern** (1 to 8 bars of steps), **chain**
 (patterns bar by bar), **block** (a chain you can place on the timeline;
 like a clip in other DAWs), **song** (blocks on the timeline). A **MIDI
 block** is the other kind of block: free notes for one track, made in
@@ -336,12 +336,25 @@ the grid below; each holds every track's steps.
 - **Copy** / **Paste** / **Clear** work on the pattern you're editing.
 - **Pattern** mode (top bar) loops the pattern you're editing.
 
+**Longer patterns.** A pattern can be 1, 2, 4 or 8 bars, and each track
+picks its own length in it, so a 2-bar clave can play over a 1-bar cowbell
+without copying anything.
+
+- The button next to a track's **S** is its length in this pattern: click
+  for longer, right-click for shorter. New bars start as a copy of the ones
+  before. Shorter parts repeat to fill the pattern.
+- **Length** (above the tracks) sets every track at once. The pattern lasts
+  as long as its longest track.
+- **Bar 1**, **Bar 2**... pick which bar the grid and piano roll show. A
+  track that's shorter shows the bar it repeats there, dimmed.
+
 ### Chains and blocks (Jam)
 
 The **Chain** row shows the block you're editing, one square per bar.
 
-- Click a square to put the selected pattern in that bar; click it again
-  (or right-click) to empty it.
+- Click a square to put the selected pattern there; click it again (or
+  right-click) to empty it. A longer pattern fills a square per bar: its
+  name, then **2**, **3**... Side by side, a pattern plays its bars in turn.
 - **Chain** mode (top bar) plays the chain bar by bar, round and round.
 - Pick another block from the drop-down, **+** starts an empty one, and
   **Save as new block** copies this chain into a new block to keep working
@@ -396,7 +409,7 @@ eight bars, a fade-out, a sound sweeping from left to right.
 
 A MIDI block is free notes for one track: any pitch, any length, starting
 anywhere, each with its own velocity. Good for melodies, bass lines and
-chords that don't fit a one-bar pattern.
+chords that don't fit the step grid.
 
 - **+ MIDI** in the Blocks drawer makes one for the selected track. Click a
   MIDI block (in the drawer or on the timeline) to open its notes below.
