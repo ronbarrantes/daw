@@ -230,6 +230,8 @@ Hiding a part never deletes it or stops it playing.
   **F8** instrument panel.
 - **View → Focus** shows just the tracks, or just the piano roll and sound.
 - **F9** shows everything again.
+- **View → Low power** redraws less often while playing, to save battery on
+  an old laptop. It's remembered.
 
 ### Groove
 

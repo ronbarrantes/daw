@@ -62,7 +62,9 @@ const SECTIONS: &[(&str, &str)] = &[
          • View menu, or F5 chain and patterns, F6 tracks, F7 piano roll, \
          F8 instrument panel.\n\
          • View > Focus: Tracks only, or Piano roll and sound.\n\
-         • F9 shows everything again.",
+         • F9 shows everything again.\n\
+         • View > Low power redraws less often while playing, to save \
+         battery.",
     ),
     (
         "Steps and groove",
