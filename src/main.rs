@@ -2558,7 +2558,7 @@ impl App {
         // Lanes whose note reaches the end of the bar before, which a tie
         // on this bar's first step can hold on.
         let mut held_over = [false; LANES];
-        if bar % bars > 0 {
+        if !bar.is_multiple_of(bars) {
             if let Some(before) = track.grid(pattern, bar - 1) {
                 for (held, steps) in held_over.iter_mut().zip(before) {
                     *held = steps[STEPS - 1].is_some();
