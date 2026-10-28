@@ -92,6 +92,8 @@ menus).
 
 Newest first, by release.
 
+- v0.50: Drone slider on its own wide row with Notes / Free and semitone
+  steps; Play a note is now a small Tap; selecting a track is silent
 - v0.49: ties across the bar line in multi-bar patterns
 - v0.48: salsa drums (timbales, cascara, guiro) and a Grand piano preset
   made from the string engine

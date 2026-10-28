@@ -225,10 +225,12 @@ const SECTIONS: &[(&str, &str)] = &[
          1-4 octaves. Hold a chord on the keys, or draw long notes. Arp notes \
          turns one held note into a chord or scale (Major, Minor, 7th, \
          Pentatonic...); Latch keeps it going after you let go.\n\
-         • Play a note and Drone are at the top of the panel. Drone plays a \
-         note nonstop so you can turn knobs and listen; its \
-         slider sets the pitch anywhere from 0.1 to 20,000 Hz, between \
-         notes too. With Wave 1 on Click, slow ticks turn into a tone.\n\
+         • Drone and Tap are at the top of the panel. Drone plays a note \
+         nonstop so you can turn knobs and listen; Tap plays one short \
+         note to hear the attack and release. The slider sets the pitch: \
+         Notes goes note by note (C0 to C8), Free anywhere from 0.1 to \
+         20,000 Hz; - and + step a semitone. With Wave 1 on Click and Free, \
+         slow ticks turn into a tone.\n\
          • Theremin (bottom of the panel): hold the mouse down on the pad \
          and move. Left to right slides the pitch smoothly, bottom to top \
          opens the filter.\n\
@@ -255,7 +257,7 @@ const SECTIONS: &[(&str, &str)] = &[
     ),
     (
         "Sample tracks",
-        "• Browse drum sounds searches built-in drums and loaded song samples. Click to swap, then Play a note to hear it. Notes and routing stay; trim/fades reset. Ctrl+Z undoes. Add files with + Sample.\n\
+        "• Browse drum sounds searches built-in drums and loaded song samples. Click to swap, then Tap to hear it. Notes and routing stay; trim/fades reset. Ctrl+Z undoes. Add files with + Sample.\n\
          • Pitched off: plays as recorded, like a drum hit.\n\
          • Pitched on: plays higher or lower with each note, like an \
          instrument. C at octave 4 is the original pitch.\n\
