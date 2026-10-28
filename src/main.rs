@@ -34,9 +34,9 @@ use eframe::egui::{self, Color32, RichText, Sense, Vec2};
 use audio::{Event, Shared};
 use midi::{Midi, Played, Route};
 use project::{
-    move_note, note_head, note_len, set_note_length, Effects, Grid, Kind, Project, Row, Sample,
-    Step, Track, ACCENT, EMPTY_GRID, GHOST, LANES, MAX_OCTAVES, MAX_RATCHET, MAX_TRACKS, NORMAL,
-    STEPS,
+    move_note, note_head, note_len, set_note_length, Effects, Kind, Part, Project, Row, Sample,
+    Step, Track, ACCENT, BAR_CHOICES, EMPTY_GRID, GHOST, LANES, MAX_OCTAVES, MAX_RATCHET,
+    MAX_TRACKS, NORMAL, STEPS,
 };
 use synth::{Param, Unit};
 use synth_ui::{section_titles, Snapshot};
@@ -262,7 +262,9 @@ struct App {
     events: SyncSender<Event>,
     midi: Midi,
     audio_error: Option<String>,
-    clipboard: Option<Vec<Grid>>,
+    clipboard: Option<Vec<Part>>,
+    /// The bar of the pattern shown in the editor, from 0.
+    edit_bar: usize,
     /// Track shown in the side panel and piano roll.
     selected: usize,
     /// Samples decoded on background threads (the desktop app only).
@@ -407,6 +409,7 @@ impl App {
             midi,
             audio_error,
             clipboard: None,
+            edit_bar: 0,
             selected,
             load_tx,
             load_rx,
@@ -521,6 +524,19 @@ impl Tool {
             }
         }
     }
+}
+
+/// Where the pattern being edited is playing: how many bars in (parts
+/// shorter than that repeat) and the step.
+#[derive(Clone, Copy)]
+struct Playhead {
+    bar: usize,
+    step: usize,
+}
+
+/// "1 bar", "2 bars"...
+fn bars_label(bars: usize) -> String {
+    format!("{bars} bar{}", if bars == 1 { "" } else { "s" })
 }
 
 /// A drag across steps that turns them on or off, like a pencil or an
@@ -838,9 +854,17 @@ impl eframe::App for App {
                     ui.add_space(6.0);
                 }
                 let edit = self.shared.edit_pattern.load(Relaxed) as usize;
+                self.edit_bar = self.edit_bar.min(self.project.pattern_bars(edit) - 1);
                 // Only show the playhead on the pattern that's actually playing.
                 let current = (playing && self.shared.play_pattern.load(Relaxed) as usize == edit)
-                    .then(|| self.shared.current_step.load(Relaxed));
+                    .then(|| Playhead {
+                        bar: self.shared.current_bar.load(Relaxed),
+                        step: self.shared.current_step.load(Relaxed),
+                    });
+                if self.view.tracks || self.view.piano {
+                    self.bar_row(ui, edit, current);
+                    ui.add_space(4.0);
+                }
                 if self.view.tracks {
                     self.track_list(ui, edit, current);
                     ui.add_space(4.0);
@@ -1275,13 +1299,16 @@ impl App {
     fn record(&mut self, track: usize, note: u8, velocity: u8) {
         let pattern = self.edit_pattern();
         let step = self.shared.current_step.load(Relaxed);
+        let bar = self.shared.current_bar.load(Relaxed);
         if let Some(t) = self.project.tracks.get_mut(track) {
             let lane = t.lane_for(note);
-            t.patterns[pattern][lane][step] = Some(Step {
-                velocity,
-                ..Step::HIT
-            });
-            self.dirty = true;
+            if let Some(grid) = t.grid_mut(pattern, bar) {
+                grid[lane][step] = Some(Step {
+                    velocity,
+                    ..Step::HIT
+                });
+                self.dirty = true;
+            }
         }
     }
 
@@ -1439,7 +1466,7 @@ impl App {
             self.project
                 .tracks
                 .iter()
-                .map(|t| t.patterns[edit])
+                .map(|t| t.patterns[edit].clone())
                 .collect(),
         );
     }
@@ -1447,8 +1474,8 @@ impl App {
     fn paste_pattern(&mut self) {
         let edit = self.edit_pattern();
         if let Some(copied) = &self.clipboard {
-            for (track, steps) in self.project.tracks.iter_mut().zip(copied) {
-                track.patterns[edit] = *steps;
+            for (track, part) in self.project.tracks.iter_mut().zip(copied) {
+                track.patterns[edit] = part.clone();
             }
             self.dirty = true;
         }
@@ -1457,7 +1484,7 @@ impl App {
     fn clear_pattern(&mut self) {
         let edit = self.edit_pattern();
         for track in &mut self.project.tracks {
-            track.patterns[edit] = EMPTY_GRID;
+            track.patterns[edit].fill(EMPTY_GRID);
         }
         self.dirty = true;
     }
@@ -1989,10 +2016,48 @@ impl App {
     }
 
     /// The track list: group headers, and tracks unless their group is collapsed.
-    fn track_list(&mut self, ui: &mut egui::Ui, pattern: usize, current: Option<usize>) {
+    /// The pattern's length, and which of its bars the editor shows.
+    fn bar_row(&mut self, ui: &mut egui::Ui, pattern: usize, current: Option<Playhead>) {
+        let bars = self.project.pattern_bars(pattern);
+        ui.horizontal(|ui| {
+            ui.add_sized([80.0, 20.0], egui::Label::new("Length"))
+                .on_hover_text(
+                    "How many bars the pattern lasts. Each track can be shorter\n\
+                     (its button next to S); short parts repeat to fill it.",
+                );
+            for b in BAR_CHOICES {
+                let same = (0..self.project.tracks.len())
+                    .all(|i| self.project.tracks[i].bars(pattern) == b);
+                let hint = format!("Make every track in this pattern {}", bars_label(b));
+                if ui
+                    .selectable_label(same, bars_label(b))
+                    .on_hover_text(hint)
+                    .clicked()
+                {
+                    self.project.set_pattern_bars(pattern, b);
+                    self.dirty = true;
+                }
+            }
+            if bars > 1 {
+                ui.separator();
+                ui.label("Editing");
+                let playing = current.map(|c| c.bar % bars);
+                for b in 0..bars {
+                    let label = egui::Button::new(format!("Bar {}", b + 1))
+                        .selected(b == self.edit_bar)
+                        .stroke(playhead(playing == Some(b)));
+                    if ui.add(label).on_hover_text("Show this bar").clicked() {
+                        self.edit_bar = b;
+                    }
+                }
+            }
+        });
+    }
+
+    fn track_list(&mut self, ui: &mut egui::Ui, pattern: usize, current: Option<Playhead>) {
         for row in self.project.rows() {
             match row {
-                Row::Group(g) => self.group_row(ui, g, pattern),
+                Row::Group(g) => self.group_row(ui, g, pattern, current),
                 Row::Track(i) => {
                     let track = &self.project.tracks[i];
                     let group = track.group.and_then(|id| self.project.group(id));
@@ -2006,12 +2071,20 @@ impl App {
 
     /// A group header: expand arrow, name, mute, solo, and every hit in the
     /// group combined.
-    fn group_row(&mut self, ui: &mut egui::Ui, g: usize, pattern: usize) {
+    fn group_row(
+        &mut self,
+        ui: &mut egui::Ui,
+        g: usize,
+        pattern: usize,
+        current: Option<Playhead>,
+    ) {
         let id = self.project.groups[g].id;
+        // Shown against the bar playing, or else the one being edited.
+        let bar = current.map_or(self.edit_bar, |c| c.bar);
         let mut lit = [false; STEPS];
         for t in self.project.tracks.iter().filter(|t| t.group == Some(id)) {
             for (step, on) in lit.iter_mut().enumerate() {
-                *on |= t.hit_at(pattern, step);
+                *on |= t.hit_at(pattern, bar, step);
             }
         }
         let mut ungroup = false;
@@ -2080,7 +2153,13 @@ impl App {
     }
 
     /// One channel-rack row: name, mute, solo, and 16 steps.
-    fn track_row(&mut self, ui: &mut egui::Ui, i: usize, pattern: usize, current: Option<usize>) {
+    fn track_row(
+        &mut self,
+        ui: &mut egui::Ui,
+        i: usize,
+        pattern: usize,
+        current: Option<Playhead>,
+    ) {
         let mut action = None;
         ui.horizontal(|ui| {
             let groups: Vec<(u32, String)> = self
@@ -2171,11 +2250,38 @@ impl App {
                 track.solo = !track.solo;
                 self.dirty = true;
             }
+            let bars = track.bars(pattern);
+            let length = egui::Button::new(RichText::new(bars_label(bars)).small())
+                .min_size(Vec2::new(40.0, 26.0));
+            let resp = ui.add(length).on_hover_text(
+                "How many bars this track plays in this pattern before it repeats.\n\
+                 Click for longer, right-click for shorter.",
+            );
+            let pick = if resp.clicked() {
+                BAR_CHOICES.iter().copied().find(|&b| b > bars)
+            } else if resp.secondary_clicked() {
+                BAR_CHOICES.iter().rev().copied().find(|&b| b < bars)
+            } else {
+                None
+            };
+            if let Some(b) = pick {
+                track.set_bars(pattern, b);
+                self.dirty = true;
+            }
+            let bars = track.bars(pattern);
+            // A shorter part repeats: it shows the bar it plays under the
+            // pattern's bar being edited, and its playhead.
+            let current = current
+                .filter(|c| c.bar % bars == self.edit_bar % bars)
+                .map(|c| c.step);
+            let repeat = self.edit_bar >= bars;
             let melodic = track.is_melodic();
             let lanes = track.lanes();
             let on_color = if melodic { NOTE_ON } else { DRUM_ON };
             let base = track.base_note();
-            let grid = &mut track.patterns[pattern];
+            let Some(grid) = track.grid_mut(pattern, self.edit_bar) else {
+                return;
+            };
             let shift = ui.input(|i| i.modifiers.shift);
             let pointer = held_pointer(ui);
             // A step is a column across every lane, so walk it by index.
@@ -2212,6 +2318,11 @@ impl App {
                     Some(s) => lit_fill(on_color, s.velocity),
                     None if !notes.is_empty() => NOTE_HELD,
                     None => empty_fill(step, false),
+                };
+                let fill = if repeat {
+                    fill.gamma_multiply(0.6)
+                } else {
+                    fill
                 };
                 let pad = egui::Button::new(RichText::new(text).small().color(Color32::BLACK))
                     .fill(fill)
@@ -2363,8 +2474,9 @@ impl App {
         });
     }
 
-    fn piano_roll(&mut self, ui: &mut egui::Ui, pattern: usize, current: Option<usize>) {
+    fn piano_roll(&mut self, ui: &mut egui::Ui, pattern: usize, current: Option<Playhead>) {
         let i = self.selected;
+        let bar = self.edit_bar;
         // Notes other melodic tracks play in this pattern, by pitch (C..B),
         // shown faintly so parts can be lined up.
         let mut others = [[false; STEPS]; LANES];
@@ -2373,7 +2485,10 @@ impl App {
                 if j == i || !t.is_melodic() {
                     continue;
                 }
-                for (lane, steps) in t.patterns[pattern].iter().enumerate() {
+                let Some(grid) = t.grid(pattern, bar) else {
+                    continue;
+                };
+                for (lane, steps) in grid.iter().enumerate() {
                     for (step, value) in steps.iter().enumerate() {
                         if Step::is_hit(value) {
                             others[lane][step] = true;
@@ -2383,11 +2498,15 @@ impl App {
             }
         }
         let track = &mut self.project.tracks[i];
+        let bars = track.bars(pattern);
+        let current = current
+            .filter(|c| c.bar % bars == bar % bars)
+            .map(|c| c.step);
         // The chord at the step playing, or else the column hovered last
         // frame, named in full.
         let shown = current.or(self.roll_hover.take());
         let chord = shown.and_then(|step| {
-            let grid = &track.patterns[pattern];
+            let grid = track.grid(pattern, bar)?;
             let pitches: Vec<u8> = (0..track.lanes())
                 .filter(|&l| grid[l][step].is_some())
                 .map(|l| track.note(l))
@@ -2430,7 +2549,9 @@ impl App {
         let command = command || self.tool == Tool::Erase;
         let pointer = held_pointer(ui);
         let lanes = track.lanes();
-        let grid = &mut track.patterns[pattern];
+        let Some(grid) = track.grid_mut(pattern, bar) else {
+            return;
+        };
         // Where each step's column and each lane's row is, for working
         // out where a note is being dragged to.
         let mut columns = [0.0_f32; STEPS];

@@ -73,8 +73,11 @@ menus).
 - Recording audio onto the timeline
 - Sampled instruments (SoundFont / SFZ), for real piano and other sounds
   modules can't fake
-- Time signatures: 3/4, 6/8, 5/4, 13/8 and others, and pattern lengths
-  other than 16 steps
+- Time signatures: 3/4, 6/8, 5/4, 13/8 and others, and bars other than
+  16 steps
+- Linked parts ("components"): one track's part, or a group's, shared by
+  several patterns, so editing it once changes it everywhere
+- Ties across the bar line in multi-bar patterns
 - Clip overrides: mute a track, transpose or change the volume of one block
   without unlinking it
 - Sample editor: chop a sample into slices
@@ -90,6 +93,8 @@ menus).
 
 Newest first, by release.
 
+- v0.47: patterns up to 8 bars, with each track its own length (shorter
+  parts repeat); multi-bar patterns fill a chain square per bar
 - v0.46: View > Low power: redraw less often while playing, to save
   battery
 - v0.45.2: README: Hyprland is a window manager, not a distro

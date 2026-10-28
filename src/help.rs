@@ -120,7 +120,7 @@ const SECTIONS: &[(&str, &str)] = &[
         "Jam and Arrange",
         "Two tabs at the top left. Jam is the groovebox: patterns, chains \
          and sounds. Arrange is the timeline, where blocks become a song.\n\n\
-         The units: a pattern is one bar of steps; a chain plays patterns \
+         The units: a pattern is 1 to 8 bars of steps; a chain plays patterns \
          bar by bar; a block is a chain you can place on the timeline (like \
          a clip in other DAWs); a song is blocks on the timeline. A MIDI \
          block is the other kind of block: free notes for one track, made \
@@ -132,9 +132,13 @@ const SECTIONS: &[(&str, &str)] = &[
          grid below; + adds one; right-click to rename, duplicate or \
          delete.\n\
          • Copy, Paste and Clear work on the pattern you're editing.\n\
+         • Longer patterns: the button next to a track's S is its length in \
+         this pattern (1, 2, 4 or 8 bars; click for longer, right-click for \
+         shorter). Shorter parts repeat. Length sets every track at once; \
+         Bar 1, Bar 2... pick the bar you see.\n\
          • The Chain row is the block you're editing, one square per bar. \
-         Click a square to put the selected pattern there; click again or \
-         right-click to empty it.\n\
+         Click a square to put the selected pattern there (a longer one \
+         fills a square per bar); click again or right-click to empty it.\n\
          • Pattern mode (top bar) loops the pattern; Chain mode plays the \
          chain.\n\
          • Pick a block from the drop-down; + starts a new one; Save as new \

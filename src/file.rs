@@ -38,7 +38,9 @@ pub const EXTENSION: &str = "daw";
 /// 3: the timeline holds blocks (chains of patterns), not patterns.
 /// 4: MIDI blocks. Only written when a song has one, so other songs still
 /// open in older versions.
-const FORMAT: u32 = 4;
+/// 5: patterns longer than a bar (notes have a `bar`). Only written when a
+/// song has one, as older versions would pile every bar into the first.
+const FORMAT: u32 = 5;
 const SONG_JSON: &str = "song.json";
 
 /// What a song file holds besides the project itself.
@@ -213,6 +215,10 @@ struct TrackFile {
     instrument: Instrument,
     #[serde(default)]
     notes: Vec<Note>,
+    /// How many bars long its part in each pattern is (by pattern index);
+    /// missing ones are one bar.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    bars: Vec<u8>,
     #[serde(default = "default_volume")]
     volume: f32,
     /// -1 (left) to 1 (right).
@@ -301,6 +307,9 @@ struct SampleRef {
 #[derive(Serialize, Deserialize)]
 struct Note {
     pattern: u8,
+    /// Which bar of the track's part, from 0.
+    #[serde(default, skip_serializing_if = "is_zero_u8")]
+    bar: u8,
     lane: u8,
     step: u8,
     #[serde(default, skip_serializing_if = "is_false")]
@@ -356,6 +365,9 @@ fn is_hundred(v: &u8) -> bool {
 }
 fn is_one_u8(v: &u8) -> bool {
     *v == 1
+}
+fn is_zero_u8(v: &u8) -> bool {
+    *v == 0
 }
 fn is_zero_i8(v: &i8) -> bool {
     *v == 0
@@ -432,6 +444,11 @@ pub fn to_bytes(project: &Project, bpm: f32) -> Result<Vec<u8>, String> {
             name: t.name.clone(),
             instrument,
             notes: notes_of(t),
+            bars: if t.patterns.iter().all(|part| part.len() <= 1) {
+                Vec::new()
+            } else {
+                t.patterns.iter().map(|part| part.len() as u8).collect()
+            },
             volume: t.volume,
             pan: t.pan,
             reverb: t.reverb,
@@ -456,8 +473,15 @@ pub fn to_bytes(project: &Project, bpm: f32) -> Result<Vec<u8>, String> {
         });
     }
     let has_midi = project.blocks.iter().any(Block::is_midi);
+    let long = tracks.iter().any(|t| !t.bars.is_empty());
     let song = SongFile {
-        format: if has_midi { FORMAT } else { 3 },
+        format: if long {
+            FORMAT
+        } else if has_midi {
+            4
+        } else {
+            3
+        },
         app_version: env!("CARGO_PKG_VERSION").to_string(),
         bpm,
         swing: project.swing,
@@ -557,12 +581,16 @@ pub fn to_bytes(project: &Project, bpm: f32) -> Result<Vec<u8>, String> {
 /// Every step of every pattern that isn't a rest.
 fn notes_of(t: &Track) -> Vec<Note> {
     let mut notes = Vec::new();
-    for (pattern, grid) in t.patterns.iter().enumerate() {
-        for (lane, steps) in grid.iter().enumerate() {
-            for (step, value) in steps.iter().enumerate() {
-                if let Some(s) = value {
+    for (pattern, part) in t.patterns.iter().enumerate() {
+        for (bar, grid) in part.iter().enumerate() {
+            for (lane, steps) in grid.iter().enumerate() {
+                for (step, value) in steps.iter().enumerate() {
+                    let Some(s) = value else {
+                        continue;
+                    };
                     notes.push(Note {
                         pattern: pattern as u8,
+                        bar: bar as u8,
                         lane: lane as u8,
                         step: step as u8,
                         tie: s.tie,
@@ -706,11 +734,15 @@ fn read_zip(bytes: Vec<u8>) -> Result<Song, String> {
         };
         let mut track = Track::synth(&t.name);
         track.kind = kind;
-        track.patterns = vec![EMPTY_GRID; patterns.len()];
+        track.patterns = vec![vec![EMPTY_GRID]; patterns.len()];
+        for (p, &bars) in t.bars.iter().enumerate().take(patterns.len()) {
+            track.set_bars(p, bars as usize);
+        }
         for n in t.notes {
-            let (p, l, s) = (n.pattern as usize, n.lane as usize, n.step as usize);
-            if p < patterns.len() && l < LANES && s < STEPS {
-                track.patterns[p][l][s] = Some(Step {
+            let (p, b) = (n.pattern as usize, n.bar as usize);
+            let (l, s) = (n.lane as usize, n.step as usize);
+            if p < patterns.len() && b < track.bars(p) && l < LANES && s < STEPS {
+                track.patterns[p][b][l][s] = Some(Step {
                     tie: n.tie,
                     velocity: n.velocity.clamp(1, 127),
                     chance: n.chance.clamp(1, 100),
@@ -1081,7 +1113,7 @@ mod tests {
             len: 100,
             offset: 3,
         });
-        project.tracks[1].patterns[2][0][5] = Some(Step {
+        project.tracks[1].patterns[2][0][0][5] = Some(Step {
             velocity: 30,
             chance: 50,
             ratchet: 3,
@@ -1166,7 +1198,7 @@ mod tests {
         let p = &opened.project;
         assert_eq!(opened.bpm, 97.0);
         assert_eq!(p.tracks[4].mods, vec![wobble], "modulation");
-        assert!(song_format(&project) == FORMAT, "MIDI blocks need format 4");
+        assert!(song_format(&project) == 4, "MIDI blocks need format 4");
         assert_eq!(p.swing, 0.4);
         assert_eq!(p.clips, project.clips);
         assert_eq!(p.patterns, project.patterns);
@@ -1217,6 +1249,26 @@ mod tests {
     }
 
     /// The format a song would be saved with.
+    #[test]
+    fn long_parts_survive_a_save_and_open() {
+        let mut project = Project::demo();
+        assert_eq!(
+            song_format(&project),
+            3,
+            "one-bar songs open in old versions"
+        );
+        project.tracks[0].set_bars(0, 4);
+        project.tracks[0].patterns[0][3][0][9] = Some(Step::HIT);
+        project.tracks[1].set_bars(2, 2);
+        assert_eq!(song_format(&project), FORMAT);
+        let bytes = to_bytes(&project, 120.0).unwrap();
+        let opened = from_bytes("test", bytes).unwrap().project;
+        for (a, b) in opened.tracks.iter().zip(&project.tracks) {
+            assert_eq!(a.patterns, b.patterns, "{}", a.name);
+        }
+        assert_eq!(opened.pattern_bars(0), 4);
+    }
+
     fn song_format(project: &Project) -> u32 {
         let bytes = to_bytes(project, 120.0).unwrap();
         let mut zip = ZipArchive::new(Cursor::new(bytes)).unwrap();
@@ -1233,12 +1285,12 @@ mod tests {
         let mut project = Project::demo();
         let lead = project.tracks.iter().position(Track::is_melodic).unwrap();
         project.tracks[lead].octaves = 3;
-        project.tracks[lead].patterns[0][30][7] = Some(Step::HIT);
+        project.tracks[lead].patterns[0][0][30][7] = Some(Step::HIT);
         let bytes = to_bytes(&project, 120.0).unwrap();
         let loaded = from_bytes("test.daw", bytes).unwrap().project;
         let t = &loaded.tracks[lead];
         assert_eq!(t.octaves, 3);
-        assert_eq!(t.patterns[0][30][7], Some(Step::HIT), "two octaves up");
+        assert_eq!(t.patterns[0][0][30][7], Some(Step::HIT), "two octaves up");
         assert_eq!(loaded.tracks[0].octaves, 1, "others stay one octave");
     }
 
@@ -1308,7 +1360,7 @@ mod tests {
         assert_eq!(clips, [(0, 0, 64)]);
         assert_eq!(song.project.patterns, default_patterns());
         let t = &song.project.tracks[0];
-        assert_eq!(t.patterns[0][2][4], Some(Step::HIT));
+        assert_eq!(t.patterns[0][0][2][4], Some(Step::HIT));
         let Kind::Synth(v) = &t.kind else {
             panic!("synth")
         };

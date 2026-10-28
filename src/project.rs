@@ -16,6 +16,11 @@ pub const MAX_PATTERNS: usize = 64;
 /// 512 bars, over 15 minutes at 120 BPM.
 pub const MAX_SONG_STEPS: usize = 512 * STEPS;
 pub const MAX_TRACKS: usize = 16;
+/// Most bars a track's part in a pattern can have.
+pub const MAX_BARS: usize = 8;
+/// The part lengths to pick from, in bars. Each divides the next, so
+/// shorter parts loop evenly under longer ones.
+pub const BAR_CHOICES: [usize; 4] = [1, 2, 4, MAX_BARS];
 /// Pitched samples play at their original pitch on this note (C4).
 pub const SAMPLE_ROOT: u8 = 60;
 /// The built-in drums are generated at this rate.
@@ -171,10 +176,13 @@ pub fn note_head(lane: &Lane, step: usize) -> Option<usize> {
         .filter(|&s| Step::is_hit(&lane[s]))
 }
 
-/// One pattern of a track: a lane per piano-roll row. One-shot tracks only
-/// use lane 0.
+/// One bar of a track's part: a lane per piano-roll row. One-shot tracks
+/// only use lane 0.
 pub type Grid = [Lane; LANES];
 pub const EMPTY_GRID: Grid = [[None; STEPS]; LANES];
+/// A track's notes in one pattern: a grid per bar, 1 to `MAX_BARS`. In a
+/// longer pattern, or played longer in a chain, it loops.
+pub type Part = Vec<Grid>;
 
 /// How many steps the note starting at `head` lasts: it and its ties.
 pub fn note_len(lane: &Lane, head: usize) -> usize {
@@ -218,8 +226,8 @@ pub struct Track {
     pub id: u32,
     pub name: String,
     pub kind: Kind,
-    /// One grid per pattern, in the order of `Project::patterns`.
-    pub patterns: Vec<Grid>,
+    /// One part per pattern, in the order of `Project::patterns`.
+    pub patterns: Vec<Part>,
     pub volume: f32,
     /// Stereo position, -1 (left) to 1 (right).
     pub pan: f32,
@@ -291,7 +299,7 @@ impl Track {
             id: 0,
             name: name.to_string(),
             kind,
-            patterns: vec![EMPTY_GRID; DEFAULT_PATTERNS],
+            patterns: vec![vec![EMPTY_GRID]; DEFAULT_PATTERNS],
             volume: 0.8,
             pan: 0.0,
             reverb: 0.0,
@@ -355,10 +363,46 @@ impl Track {
         }
     }
 
-    /// Whether any lane starts a note at this step.
-    pub fn hit_at(&self, pattern: usize, step: usize) -> bool {
+    /// How many bars long the track's part in a pattern is.
+    pub fn bars(&self, pattern: usize) -> usize {
         self.patterns
             .get(pattern)
+            .map_or(1, |part| part.len().max(1))
+    }
+
+    /// The grid playing in a pattern's `bar`: parts shorter than that loop.
+    pub fn grid(&self, pattern: usize, bar: usize) -> Option<&Grid> {
+        let part = self.patterns.get(pattern)?;
+        part.get(bar % part.len().max(1))
+    }
+
+    pub fn grid_mut(&mut self, pattern: usize, bar: usize) -> Option<&mut Grid> {
+        let part = self.patterns.get_mut(pattern)?;
+        let len = part.len().max(1);
+        part.get_mut(bar % len)
+    }
+
+    /// Makes the part in a pattern `bars` long. New bars repeat the ones
+    /// before, so it sounds the same until they're changed; bars cut off
+    /// are dropped.
+    pub fn set_bars(&mut self, pattern: usize, bars: usize) {
+        let Some(part) = self.patterns.get_mut(pattern) else {
+            return;
+        };
+        if part.is_empty() {
+            part.push(EMPTY_GRID);
+        }
+        let bars = bars.clamp(1, MAX_BARS);
+        let old = part.len();
+        for b in old..bars {
+            part.push(part[b % old]);
+        }
+        part.truncate(bars);
+    }
+
+    /// Whether any lane starts a note at this step of a bar.
+    pub fn hit_at(&self, pattern: usize, bar: usize, step: usize) -> bool {
+        self.grid(pattern, bar)
             .is_some_and(|grid| grid.iter().any(|lane| Step::is_hit(&lane[step])))
     }
 }
@@ -480,10 +524,20 @@ impl Block {
         }
     }
 
-    /// The pattern playing `step` steps into the block, and its step.
-    pub fn at(&self, step: usize) -> (Option<usize>, usize) {
-        let pattern = self.chain.get(step / STEPS).copied().flatten();
-        (pattern, step % STEPS)
+    /// The pattern playing `step` steps into the block, how many bars
+    /// it's been playing for (it plays its bars in turn), and its step.
+    pub fn at(&self, step: usize) -> (Option<usize>, usize, usize) {
+        let bar = (step / STEPS).min(self.chain.len());
+        let pattern = self.chain.get(bar).copied().flatten();
+        let run = match pattern {
+            Some(_) => self.chain[..bar]
+                .iter()
+                .rev()
+                .take_while(|&&s| s == pattern)
+                .count(),
+            None => 0,
+        };
+        (pattern, run, step % STEPS)
     }
 }
 
@@ -797,9 +851,9 @@ impl Project {
         self.clips.iter().map(Clip::end).max().unwrap_or(0)
     }
 
-    /// Adds a track, giving it a grid for every pattern.
+    /// Adds a track, giving it a part for every pattern.
     pub fn add_track(&mut self, mut track: Track) {
-        track.patterns.resize(self.patterns.len(), EMPTY_GRID);
+        track.patterns.resize(self.patterns.len(), vec![EMPTY_GRID]);
         track.id = self.tracks.iter().map(|t| t.id + 1).max().unwrap_or(1);
         self.tracks.push(track);
     }
@@ -975,6 +1029,50 @@ impl Project {
         self.clips.iter().filter(|c| c.block == b).count()
     }
 
+    /// How many bars a pattern lasts: its longest part.
+    pub fn pattern_bars(&self, p: usize) -> usize {
+        self.tracks.iter().map(|t| t.bars(p)).max().unwrap_or(1)
+    }
+
+    /// Makes every track's part in a pattern `bars` long.
+    pub fn set_pattern_bars(&mut self, p: usize, bars: usize) {
+        for t in &mut self.tracks {
+            t.set_bars(p, bars);
+        }
+    }
+
+    /// Puts pattern `p` in a block's chain from `bar` on, one slot per
+    /// bar it lasts (as many as fit).
+    pub fn place_pattern(&mut self, b: usize, bar: usize, p: usize) {
+        let bars = self.pattern_bars(p);
+        if let Some(block) = self.blocks.get_mut(b) {
+            let end = (bar + bars).min(block.chain.len());
+            for slot in block.chain.iter_mut().take(end).skip(bar) {
+                *slot = Some(p);
+            }
+        }
+    }
+
+    /// Empties the slots of the one play-through of a pattern that covers
+    /// `bar` in a block's chain.
+    pub fn clear_pattern_at(&mut self, b: usize, bar: usize) {
+        let Some(block) = self.blocks.get(b) else {
+            return;
+        };
+        let (Some(p), run, _) = block.at(bar * STEPS) else {
+            return;
+        };
+        let bars = self.pattern_bars(p);
+        let start = bar - run % bars;
+        let chain = &mut self.blocks[b].chain;
+        for slot in chain.iter_mut().skip(start).take(bars) {
+            if *slot != Some(p) {
+                break;
+            }
+            *slot = None;
+        }
+    }
+
     /// How many blocks use a pattern.
     pub fn pattern_uses(&self, p: usize) -> usize {
         self.blocks
@@ -998,7 +1096,7 @@ impl Project {
         let name = self.unused_name(&base);
         self.patterns.push(Pattern { name });
         for t in &mut self.tracks {
-            t.patterns.push(EMPTY_GRID);
+            t.patterns.push(vec![EMPTY_GRID]);
         }
         Some(self.patterns.len() - 1)
     }
@@ -1011,8 +1109,8 @@ impl Project {
         let name = self.unused_name(&self.patterns[p].name);
         self.patterns.push(Pattern { name });
         for t in &mut self.tracks {
-            let grid = t.patterns.get(p).copied().unwrap_or(EMPTY_GRID);
-            t.patterns.push(grid);
+            let part = t.patterns.get(p).cloned().unwrap_or(vec![EMPTY_GRID]);
+            t.patterns.push(part);
         }
         Some(self.patterns.len() - 1)
     }
@@ -1081,15 +1179,15 @@ impl Project {
         let beat: [&[usize]; 3] = [&[0, 4, 8, 12], &[4, 12], &[2, 6, 10, 14]];
         for (track, steps) in tracks.iter_mut().zip(beat) {
             for &s in steps {
-                track.patterns[0][0][s] = Some(Step::HIT);
+                track.patterns[0][0][0][s] = Some(Step::HIT);
             }
         }
         // A ghost snare and a hi-hat roll, to show off the groove features.
-        tracks[1].patterns[0][0][7] = Some(Step {
+        tracks[1].patterns[0][0][0][7] = Some(Step {
             velocity: GHOST,
             ..Step::HIT
         });
-        tracks[2].patterns[0][0][15] = Some(Step {
+        tracks[2].patterns[0][0][0][15] = Some(Step {
             ratchet: 2,
             velocity: 70,
             ..Step::HIT
@@ -1098,7 +1196,7 @@ impl Project {
         let mut lead = Track::synth("Lead");
         lead.midi_channel = Some(0);
         for (step, lane) in [(0, 0), (3, 3), (6, 7), (8, 10), (10, 7), (12, 3), (14, 5)] {
-            lead.patterns[0][lane][step] = Some(Step::HIT);
+            lead.patterns[0][0][lane][step] = Some(Step::HIT);
         }
         tracks.push(lead);
 
@@ -1120,9 +1218,9 @@ impl Project {
         }
         for (start, chord) in [(0, [0, 3, 7]), (8, [8, 0, 3])] {
             for lane in chord {
-                pad.patterns[0][lane][start] = Some(Step::HIT);
+                pad.patterns[0][0][lane][start] = Some(Step::HIT);
                 for step in start + 1..start + 7 {
-                    pad.patterns[0][lane][step] = Some(Step::TIE);
+                    pad.patterns[0][0][lane][step] = Some(Step::TIE);
                 }
             }
         }
@@ -1277,10 +1375,60 @@ mod tests {
         let b = block("Verse", &[Some(0), None, Some(2)]);
         assert_eq!(b.bars(), 3);
         assert_eq!(b.len(), 48);
-        assert_eq!(b.at(5), (Some(0), 5));
-        assert_eq!(b.at(20), (None, 4), "a silent bar");
-        assert_eq!(b.at(35), (Some(2), 3));
+        assert_eq!(b.at(5), (Some(0), 0, 5));
+        assert_eq!(b.at(20), (None, 0, 4), "a silent bar");
+        assert_eq!(b.at(35), (Some(2), 0, 3));
         assert_eq!(Block::new("Empty").bars(), 1, "at least one bar");
+        // A pattern in bars next to each other plays its bars in turn.
+        let b = block("Run", &[Some(1), Some(1), Some(1), Some(0)]);
+        assert_eq!(b.at(2 * STEPS + 1), (Some(1), 2, 1));
+        assert_eq!(b.at(3 * STEPS), (Some(0), 0, 0));
+    }
+
+    #[test]
+    fn parts_can_be_longer_than_a_bar_and_loop() {
+        let mut p = Project::demo();
+        let kick = &mut p.tracks[0];
+        kick.patterns[0][0][0] = [None; STEPS];
+        kick.patterns[0][0][0][3] = Some(Step::HIT);
+        kick.set_bars(0, 2);
+        assert_eq!(kick.bars(0), 2);
+        assert_eq!(
+            kick.patterns[0][1], kick.patterns[0][0],
+            "the new bar repeats"
+        );
+        kick.grid_mut(0, 1).unwrap()[0][5] = Some(Step::HIT);
+        assert!(kick.hit_at(0, 1, 5) && !kick.hit_at(0, 0, 5));
+        assert!(kick.hit_at(0, 3, 5), "bar 4 plays bar 2 again");
+        assert_eq!(p.pattern_bars(0), 2, "the longest part");
+        assert!(p.tracks[1].hit_at(0, 1, 0) == p.tracks[1].hit_at(0, 0, 0));
+        p.tracks[0].set_bars(0, 1);
+        assert_eq!(p.pattern_bars(0), 1, "shorter cuts bars off");
+        p.set_pattern_bars(0, 4);
+        assert!(p.tracks.iter().all(|t| t.bars(0) == 4));
+        assert_eq!(p.duplicate_pattern(0).map(|c| p.pattern_bars(c)), Some(4));
+    }
+
+    #[test]
+    fn long_patterns_take_a_chain_slot_per_bar() {
+        let mut p = Project::demo();
+        p.blocks = vec![Block::new("Verse")];
+        p.set_pattern_bars(1, 2);
+        p.place_pattern(0, 0, 1);
+        p.place_pattern(0, 2, 0);
+        p.place_pattern(0, 3, 1);
+        assert_eq!(
+            &p.blocks[0].chain[..5],
+            &[Some(1), Some(1), Some(0), Some(1), Some(1)]
+        );
+        // Clearing either bar of a play-through clears both.
+        p.clear_pattern_at(0, 4);
+        assert_eq!(
+            &p.blocks[0].chain[..5],
+            &[Some(1), Some(1), Some(0), None, None]
+        );
+        p.place_pattern(0, CHAIN_SLOTS - 1, 1);
+        assert_eq!(p.blocks[0].chain.len(), CHAIN_SLOTS, "as much as fits");
     }
 
     #[test]

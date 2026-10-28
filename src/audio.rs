@@ -109,6 +109,9 @@ pub struct Shared {
     bpm_bits: AtomicU32,
     pub playing: AtomicBool,
     pub current_step: AtomicUsize,
+    /// How many bars the pattern being heard has played, so far in a row:
+    /// a track's part plays its bar number this modulo its length.
+    pub current_bar: AtomicUsize,
     /// Play the song arrangement instead of looping the edited pattern.
     pub song_mode: AtomicBool,
     /// Outside Song mode, play the chain of the block being edited instead
@@ -177,6 +180,7 @@ impl Shared {
             bpm_bits: AtomicU32::new(120f32.to_bits()),
             playing: AtomicBool::new(false),
             current_step: AtomicUsize::new(0),
+            current_bar: AtomicUsize::new(0),
             song_mode: AtomicBool::new(false),
             chain_mode: AtomicBool::new(false),
             edit_block: AtomicUsize::new(0),
@@ -540,6 +544,9 @@ struct Engine {
     song_step: usize,
     /// The next step starts the song from the top instead of advancing.
     restart_song: bool,
+    /// The bar of the looping pattern, outside Song and Chain mode; `None`
+    /// until the first bar starts.
+    pattern_bar: Option<usize>,
     /// Song and chain mode last step, to restart when they change.
     was_mode: (bool, bool),
     was_playing: bool,
@@ -598,6 +605,7 @@ impl Engine {
             fx_quiet: u32::MAX,
             song_step: 0,
             restart_song: true,
+            pattern_bar: None,
             was_mode: (false, false),
             was_playing: false,
             click: Click::new(sr),
@@ -1194,9 +1202,15 @@ impl Engine {
         // Pattern mode follows the editor right away, like FL Studio.
         let pattern = self.shared.edit_pattern.load(Relaxed) as usize;
         let step = (self.tick / TICKS_PER_STEP) as usize;
+        if step == 0 || self.pattern_bar.is_none() {
+            let next = self.pattern_bar.map_or(0, |b| b + 1);
+            self.pattern_bar = Some(next % project.pattern_bars(pattern));
+        }
+        let bar = self.pattern_bar.unwrap_or(0);
         self.shared.play_pattern.store(pattern as u8, Relaxed);
         self.shared.current_step.store(step, Relaxed);
-        self.schedule_hits(pattern, step, step, STEPS - 1 - step, step == 0);
+        self.shared.current_bar.store(bar, Relaxed);
+        self.schedule_hits(pattern, bar, step, step, STEPS - 1 - step, step == 0);
     }
 
     /// The next song position: one step on, or where a seek says, kept
@@ -1234,12 +1248,13 @@ impl Engine {
     /// Jam view's Chain mode: plays the block being edited, bar by bar.
     fn chain_step(&mut self, block: &Block) {
         let pos = self.advance(block.len(), None);
-        let (pattern, step) = block.at(pos);
+        let (pattern, bar, step) = block.at(pos);
         let shown = pattern.map_or(NONE, |p| p as u8);
         self.shared.play_pattern.store(shown, Relaxed);
         self.shared.current_step.store(step, Relaxed);
+        self.shared.current_bar.store(bar, Relaxed);
         if let Some(p) = pattern {
-            self.schedule_hits(p, step, pos, STEPS - 1 - step, step == 0);
+            self.schedule_hits(p, bar, step, pos, STEPS - 1 - step, step == 0);
         }
     }
 
@@ -1265,21 +1280,22 @@ impl Engine {
                 self.schedule_notes(part, at, c.end() - pos);
                 continue;
             }
-            let (Some(pattern), step) = block.at(at) else {
+            let (Some(pattern), bar, step) = block.at(at) else {
                 continue;
             };
             // Steps left in this bar of the block, within the clip.
             let room = (c.end() - pos - 1).min(STEPS - 1 - step);
             // Nothing looked ahead to a clip's first step.
             let fresh = pos == c.start || step == 0;
-            self.schedule_hits(pattern, step, pos, room, fresh);
+            self.schedule_hits(pattern, bar, step, pos, room, fresh);
             if shown.is_none() || pattern == edit {
-                shown = Some((pattern, step));
+                shown = Some((pattern, bar, step));
             }
         }
-        let (pattern, step) = shown.map_or((NONE, 0), |(p, s)| (p as u8, s));
+        let (pattern, bar, step) = shown.map_or((NONE, 0, 0), |(p, b, s)| (p as u8, b, s));
         self.shared.play_pattern.store(pattern, Relaxed);
         self.shared.current_step.store(step, Relaxed);
+        self.shared.current_bar.store(bar, Relaxed);
     }
 
     /// Schedules the notes of a MIDI block that start during its step
@@ -1321,18 +1337,20 @@ impl Engine {
     /// Schedules one lane's step to play `start` samples from now. `room`
     /// is how many steps of the pattern follow before it stops or wraps,
     /// so a tie only carries on if the next step will actually play.
+    #[allow(clippy::too_many_arguments)]
     fn schedule_step(
         &mut self,
         i: usize,
         lane: usize,
         pattern: usize,
+        bar: usize,
         step: usize,
         start: f32,
         room: usize,
     ) {
         let project = self.project.clone();
         let track = &project.tracks[i];
-        let Some(grid) = track.patterns.get(pattern) else {
+        let Some(grid) = track.grid(pattern, bar) else {
             return;
         };
         let steps = &grid[lane];
@@ -1370,16 +1388,25 @@ impl Engine {
         }
     }
 
-    /// Schedules the hits that belong to step `step` of a pattern, plus
+    /// Schedules the hits that belong to step `step` of a pattern's `bar`
+    /// (counted from where it started playing), plus
     /// any on the next step nudged early into this one. `at` is the step's
     /// place in the song (it decides swing); `room` is how many steps
     /// follow before the pattern stops or wraps. When `fresh`, nothing
     /// looked ahead to this step, so its early hits just play on time.
-    fn schedule_hits(&mut self, pattern: usize, step: usize, at: usize, room: usize, fresh: bool) {
+    fn schedule_hits(
+        &mut self,
+        pattern: usize,
+        bar: usize,
+        step: usize,
+        at: usize,
+        room: usize,
+        fresh: bool,
+    ) {
         let step_len = self.samples_per_tick * TICKS_PER_STEP as f32;
         let project = self.project.clone();
         for (i, track) in project.tracks.iter().enumerate().take(MAX_TRACKS) {
-            let Some(grid) = track.patterns.get(pattern) else {
+            let Some(grid) = track.grid(pattern, bar) else {
                 continue;
             };
             for (lane, steps) in grid.iter().enumerate().take(track.lanes()) {
@@ -1395,7 +1422,7 @@ impl Engine {
                     let offset = self.offset(at, &s);
                     if offset >= 0.0 || fresh {
                         let start = offset.max(0.0) * step_len;
-                        self.schedule_step(i, lane, pattern, step, start, room);
+                        self.schedule_step(i, lane, pattern, bar, step, start, room);
                     }
                 }
                 if room > 0 {
@@ -1403,7 +1430,8 @@ impl Engine {
                         let offset = self.offset(at + 1, &s);
                         if offset < 0.0 {
                             let start = (1.0 + offset) * step_len;
-                            self.schedule_step(i, lane, pattern, step + 1, start, room - 1);
+                            let next = step + 1;
+                            self.schedule_step(i, lane, pattern, bar, next, start, room - 1);
                         }
                     }
                 }
@@ -1489,6 +1517,7 @@ impl Engine {
                 self.tick = 0;
                 self.samples_to_next_tick = 0.0;
                 self.restart_song = true;
+                self.pattern_bar = None;
                 // Another device's clock can't wait for a count-in.
                 if !external && self.shared.count_in.load(Relaxed) {
                     self.count_in = TICKS_PER_BAR;
@@ -1511,6 +1540,7 @@ impl Engine {
             if self.shared.ext_start.swap(false, Relaxed) {
                 self.tick = 0;
                 self.restart_song = true;
+                self.pattern_bar = None;
             }
             self.samples_since_tick += 1;
             let ticks = self.shared.ext_ticks.swap(0, Relaxed);
@@ -1721,7 +1751,7 @@ pub fn render(
     let steps = if song_steps > 0 {
         song_steps
     } else {
-        chain.unwrap_or(loops * STEPS)
+        chain.unwrap_or(loops * project.pattern_bars(edit.pattern) * STEPS)
     };
     let shared = Arc::new(Shared::new(Arc::new(project)));
     shared.set_bpm(bpm);
@@ -1866,7 +1896,7 @@ mod tests {
     fn quiet_demo() -> Project {
         let mut p = Project::demo();
         for t in &mut p.tracks {
-            t.patterns.fill(EMPTY_GRID);
+            t.patterns.fill(vec![EMPTY_GRID]);
         }
         p
     }
@@ -1887,6 +1917,22 @@ mod tests {
             note,
             velocity: 90,
         }
+    }
+
+    #[test]
+    fn long_parts_play_their_bars_in_turn_and_short_ones_repeat() {
+        let mut project = quiet_demo();
+        project.tracks[KICK].set_bars(0, 2);
+        project.tracks[KICK].patterns[0][1][0][4] = hit(); // bar 2 only
+        project.tracks[HAT].patterns[0][0][0][0] = hit(); // one bar, looping
+        let (kick, hat) = (project.tracks[KICK].note(0), project.tracks[HAT].note(0));
+        let mut rig = Rig::new(project.clone());
+        let bar = STEPS * STEP;
+        let kicks = rig.note_times(4 * bar, kick);
+        assert_eq!(kicks, [bar + 4 * STEP, 3 * bar + 4 * STEP]);
+        let mut rig = Rig::new(project);
+        let hats = rig.note_times(2 * bar, hat);
+        assert_eq!(hats, [0, bar]);
     }
 
     #[test]
@@ -2234,7 +2280,7 @@ mod tests {
     #[test]
     fn song_mode_plays_bars_in_order() {
         let mut project = Project::demo();
-        project.tracks[LEAD].patterns[1][2][0] = hit(); // pattern B: D on step 1
+        project.tracks[LEAD].patterns[1][0][2][0] = hit(); // pattern B: D on step 1
         project.blocks.push(chain_block(&[Some(1)]));
         project.clips.push(Clip {
             block: 1,
@@ -2271,7 +2317,7 @@ mod tests {
     /// (start, len, offset).
     fn kick_clips(clips: &[(usize, usize, usize)]) -> Project {
         let mut project = quiet_demo();
-        project.tracks[KICK].patterns[1][0][0] = hit();
+        project.tracks[KICK].patterns[1][0][0][0] = hit();
         project.blocks = vec![chain_block(&[Some(1)])];
         project.clips = clips
             .iter()
@@ -2535,7 +2581,7 @@ mod tests {
     #[test]
     fn count_in_waits_a_bar_before_playing() {
         let mut project = quiet_demo();
-        project.tracks[KICK].patterns[0][0][0] = hit();
+        project.tracks[KICK].patterns[0][0][0][0] = hit();
         let mut rig = Rig::new(project);
         rig.shared.count_in.store(true, Relaxed);
         let times = rig.note_times(STEP * STEPS + 10, drums::NOTES[0]);
@@ -2814,7 +2860,7 @@ mod tests {
     #[test]
     fn tied_steps_hold_the_note() {
         let mut project = quiet_demo();
-        let lane = &mut project.tracks[LEAD].patterns[0][0];
+        let lane = &mut project.tracks[LEAD].patterns[0][0][0];
         lane[0] = hit();
         lane[1] = Some(Step::TIE);
         lane[2] = Some(Step::TIE);
@@ -2837,7 +2883,7 @@ mod tests {
     fn tied_chord(last: usize) -> Project {
         let mut project = arp_lead(1.0, 0.0);
         for lane in [0, 4, 7] {
-            let steps = &mut project.tracks[LEAD].patterns[0][lane];
+            let steps = &mut project.tracks[LEAD].patterns[0][0][lane];
             steps[0] = hit();
             for s in &mut steps[1..=last] {
                 *s = Some(Step::TIE);
@@ -2890,7 +2936,7 @@ mod tests {
         let mut rig = Rig::new(project.clone());
         rig.shared.playing.store(true, Relaxed);
         rig.run(STEP * 4);
-        project.tracks[LEAD].patterns[0] = EMPTY_GRID;
+        project.tracks[LEAD].patterns[0] = vec![EMPTY_GRID];
         rig.shared.publish(Arc::new(project));
         rig.run(STEP * 2);
         let offs = rig.midi().iter().filter(|m| m.bytes()[0] == 0x80).count();
@@ -2933,7 +2979,7 @@ mod tests {
     fn swing_delays_every_other_step() {
         let mut project = quiet_demo();
         project.swing = 0.5;
-        project.tracks[HAT].patterns[0][0] = [hit(); STEPS];
+        project.tracks[HAT].patterns[0][0][0] = [hit(); STEPS];
         let mut rig = Rig::new(project);
         let times = rig.note_times(STEP * 4, drums::NOTES[2]);
         // Even steps on the grid; odd ones a quarter step (swing/2) late.
@@ -2943,7 +2989,7 @@ mod tests {
     #[test]
     fn nudge_moves_a_hit_early_or_late() {
         let mut project = quiet_demo();
-        let lane = &mut project.tracks[KICK].patterns[0][0];
+        let lane = &mut project.tracks[KICK].patterns[0][0][0];
         lane[2] = Some(Step {
             nudge: -50,
             ..Step::HIT
@@ -2960,7 +3006,7 @@ mod tests {
     #[test]
     fn ratchets_repeat_within_a_step() {
         let mut project = quiet_demo();
-        project.tracks[HAT].patterns[0][0][0] = Some(Step {
+        project.tracks[HAT].patterns[0][0][0][0] = Some(Step {
             ratchet: 4,
             ..Step::HIT
         });
@@ -2972,7 +3018,7 @@ mod tests {
     #[test]
     fn velocity_sets_loudness_and_midi_velocity() {
         let mut project = quiet_demo();
-        project.tracks[KICK].patterns[0][0][0] = Some(Step {
+        project.tracks[KICK].patterns[0][0][0][0] = Some(Step {
             velocity: GHOST,
             ..Step::HIT
         });
@@ -2984,7 +3030,7 @@ mod tests {
             .contains(&Msg::three(0x99, drums::NOTES[0], GHOST)));
 
         let mut project = quiet_demo();
-        project.tracks[KICK].patterns[0][0][0] = hit();
+        project.tracks[KICK].patterns[0][0][0][0] = hit();
         let mut rig = Rig::new(project);
         rig.shared.playing.store(true, Relaxed);
         let normal: f32 = rig.run(STEP).iter().map(|s| s.abs()).sum();
@@ -2998,7 +3044,7 @@ mod tests {
     #[test]
     fn chance_skips_some_hits() {
         let mut project = quiet_demo();
-        project.tracks[HAT].patterns[0][0] = [Some(Step {
+        project.tracks[HAT].patterns[0][0][0] = [Some(Step {
             chance: 50,
             ..Step::HIT
         }); STEPS];
@@ -3015,7 +3061,7 @@ mod tests {
     #[test]
     fn humanize_varies_timing_slightly() {
         let mut project = quiet_demo();
-        project.tracks[HAT].patterns[0][0] = [hit(); STEPS];
+        project.tracks[HAT].patterns[0][0][0] = [hit(); STEPS];
         project.tracks[HAT].humanize = 1.0;
         let mut rig = Rig::new(project);
         let times = rig.note_times(STEP * STEPS, drums::NOTES[2]);
