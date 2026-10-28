@@ -92,6 +92,9 @@ menus).
 
 Newest first, by release.
 
+- v0.50.1: fix: right-clicking the piano roll could add or drag a note
+  instead of opening its menu or holding the note before; a right-click
+  may drift a little before it counts as a drag
 - v0.50: Drone slider on its own wide row with Notes / Free and semitone
   steps; Play a note is now a small Tap; selecting a track is silent
 - v0.49: ties across the bar line in multi-bar patterns
