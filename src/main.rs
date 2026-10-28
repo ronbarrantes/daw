@@ -139,8 +139,8 @@ fn main() -> eframe::Result<()> {
     // Sized to fit the 1366x768 screen of an 11" MacBook Air.
     let mut viewport = egui::ViewportBuilder::default()
         .with_inner_size([1080.0, 700.0])
-        // Matches daw.desktop, so Linux desktops (e.g. Hyprland) show the
-        // right name and icon for the window.
+        // Matches daw.desktop, so Linux desktops and window managers
+        // (e.g. Hyprland) show the right name and icon for the window.
         .with_app_id("daw");
     if let Ok(icon) = eframe::icon_data::from_png_bytes(include_bytes!("../assets/icon.png")) {
         viewport = viewport.with_icon(icon);
