@@ -77,7 +77,6 @@ menus).
   16 steps
 - Linked parts ("components"): one track's part, or a group's, shared by
   several patterns, so editing it once changes it everywhere
-- Ties across the bar line in multi-bar patterns
 - Clip overrides: mute a track, transpose or change the volume of one block
   without unlinking it
 - Sample editor: chop a sample into slices
@@ -93,6 +92,7 @@ menus).
 
 Newest first, by release.
 
+- v0.49: ties across the bar line in multi-bar patterns
 - v0.48: salsa drums (timbales, cascara, guiro) and a Grand piano preset
   made from the string engine
 - v0.47.1: fix: deleting a track from its right-click menu crashed the

@@ -1210,7 +1210,13 @@ impl Engine {
         self.shared.play_pattern.store(pattern as u8, Relaxed);
         self.shared.current_step.store(step, Relaxed);
         self.shared.current_bar.store(bar, Relaxed);
-        self.schedule_hits(pattern, bar, step, step, STEPS - 1 - step, step == 0);
+        // A tie carries into the next bar if the pattern goes on to one.
+        let more = if bar + 1 < project.pattern_bars(pattern) {
+            STEPS
+        } else {
+            0
+        };
+        self.schedule_hits(pattern, bar, step, step, STEPS - 1 - step + more, step == 0);
     }
 
     /// The next song position: one step on, or where a seek says, kept
@@ -1254,7 +1260,8 @@ impl Engine {
         self.shared.current_step.store(step, Relaxed);
         self.shared.current_bar.store(bar, Relaxed);
         if let Some(p) = pattern {
-            self.schedule_hits(p, bar, step, pos, STEPS - 1 - step, step == 0);
+            let room = STEPS - 1 - step + block.more(pos);
+            self.schedule_hits(p, bar, step, pos, room, step == 0);
         }
     }
 
@@ -1283,8 +1290,8 @@ impl Engine {
             let (Some(pattern), bar, step) = block.at(at) else {
                 continue;
             };
-            // Steps left in this bar of the block, within the clip.
-            let room = (c.end() - pos - 1).min(STEPS - 1 - step);
+            // Steps left in this play of the pattern, within the clip.
+            let room = (c.end() - pos - 1).min(STEPS - 1 - step + block.more(at));
             // Nothing looked ahead to a clip's first step.
             let fresh = pos == c.start || step == 0;
             self.schedule_hits(pattern, bar, step, pos, room, fresh);
@@ -1353,13 +1360,16 @@ impl Engine {
         let Some(grid) = track.grid(pattern, bar) else {
             return;
         };
-        let steps = &grid[lane];
-        let Some(s) = steps[step] else {
+        let Some(s) = grid[lane][step] else {
             return;
         };
         let note = track.note(lane);
         let step_len = self.samples_per_tick * TICKS_PER_STEP as f32;
-        let next_tied = room > 0 && steps[step + 1].is_some_and(|n| n.tie);
+        let (next_bar, next_step) = next_cell(bar, step);
+        let next_tied = room > 0
+            && track
+                .grid(pattern, next_bar)
+                .is_some_and(|g| g[lane][next_step].is_some_and(|n| n.tie));
 
         if s.tie {
             // The note was started by an earlier step; end it here unless
@@ -1425,14 +1435,13 @@ impl Engine {
                         self.schedule_step(i, lane, pattern, bar, step, start, room);
                     }
                 }
-                if room > 0 {
-                    if let Some(s) = steps[step + 1] {
-                        let offset = self.offset(at + 1, &s);
-                        if offset < 0.0 {
-                            let start = (1.0 + offset) * step_len;
-                            let next = step + 1;
-                            self.schedule_step(i, lane, pattern, bar, next, start, room - 1);
-                        }
+                let (next_bar, next) = next_cell(bar, step);
+                let ahead = track.grid(pattern, next_bar).and_then(|g| g[lane][next]);
+                if let Some(s) = ahead.filter(|_| room > 0) {
+                    let offset = self.offset(at + 1, &s);
+                    if offset < 0.0 {
+                        let start = (1.0 + offset) * step_len;
+                        self.schedule_step(i, lane, pattern, next_bar, next, start, room - 1);
                     }
                 }
             }
@@ -1729,6 +1738,15 @@ pub struct Rendered {
     pub midi: Vec<(usize, Msg)>,
 }
 
+/// The step after `step` of `bar`: the next bar's first, after the last.
+fn next_cell(bar: usize, step: usize) -> (usize, usize) {
+    if step + 1 < STEPS {
+        (bar, step + 1)
+    } else {
+        (bar + 1, 0)
+    }
+}
+
 /// Plays a project offline, faster than real time, for exporting. Plays the
 /// timeline once if it has blocks, else the edited block's chain once,
 /// else the edited pattern `loops` times, then
@@ -1933,6 +1951,40 @@ mod tests {
         let mut rig = Rig::new(project);
         let hats = rig.note_times(2 * bar, hat);
         assert_eq!(hats, [0, bar]);
+    }
+
+    #[test]
+    fn ties_carry_over_the_bar_line_while_the_pattern_goes_on() {
+        let mut project = quiet_demo();
+        let lead = &mut project.tracks[LEAD];
+        lead.midi_channel = Some(0);
+        lead.set_bars(0, 2);
+        lead.patterns[0][0][0][STEPS - 1] = hit();
+        for s in 0..3 {
+            lead.patterns[0][1][0][s] = Some(Step::TIE);
+        }
+        let note = lead.note(0);
+        let mut rig = Rig::new(project);
+        rig.shared.playing.store(true, Relaxed);
+        let bar = STEPS * STEP;
+        let mut on_off = Vec::new();
+        for t in 0..2 * bar {
+            rig.engine.next_sample();
+            for m in rig.midi.try_iter() {
+                let b = m.bytes();
+                if b.len() == 3 && b[1] == note && b[0] & 0xE0 == 0x80 {
+                    on_off.push((t, b[0] & 0xF0 == 0x90 && b[2] > 0));
+                }
+            }
+        }
+        assert_eq!(on_off.len(), 2, "one note: {on_off:?}");
+        let (on, off) = (on_off[0], on_off[1]);
+        assert!(on.1 && !off.1);
+        assert_eq!(on.0, bar - STEP);
+        assert!(
+            off.0 > bar + 2 * STEP && off.0 < bar + 3 * STEP,
+            "held to bar 2: {off:?}"
+        );
     }
 
     #[test]

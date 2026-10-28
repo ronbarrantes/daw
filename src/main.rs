@@ -2555,6 +2555,16 @@ impl App {
         let command = command || self.tool == Tool::Erase;
         let pointer = held_pointer(ui);
         let lanes = track.lanes();
+        // Lanes whose note reaches the end of the bar before, which a tie
+        // on this bar's first step can hold on.
+        let mut held_over = [false; LANES];
+        if !bar.is_multiple_of(bars) {
+            if let Some(before) = track.grid(pattern, bar - 1) {
+                for (held, steps) in held_over.iter_mut().zip(before) {
+                    *held = steps[STEPS - 1].is_some();
+                }
+            }
+        }
         let Some(grid) = track.grid_mut(pattern, bar) else {
             return;
         };
@@ -2684,10 +2694,11 @@ impl App {
                         }
                     } else if resp.secondary_clicked()
                         && value.is_none()
-                        && step > 0
-                        && lane_steps[step - 1].is_some()
+                        && ((step > 0 && lane_steps[step - 1].is_some())
+                            || (step == 0 && held_over[lane]))
                     {
-                        // Hold the note before through this step.
+                        // Hold the note before (maybe from the bar before)
+                        // through this step.
                         lane_steps[step] = Some(Step::TIE);
                         self.dirty = true;
                     }
