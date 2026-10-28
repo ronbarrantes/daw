@@ -152,7 +152,10 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "daw",
         options,
-        Box::new(move |_cc| Ok(Box::new(App::new(project, path, bpm)))),
+        Box::new(move |cc| {
+            loose_clicks(&cc.egui_ctx);
+            Ok(Box::new(App::new(project, path, bpm)))
+        }),
     )
 }
 
@@ -175,11 +178,20 @@ fn main() {
             .start(
                 web::canvas(),
                 eframe::WebOptions::default(),
-                Box::new(move |_cc| Ok(Box::new(App::new(project, path, bpm)))),
+                Box::new(move |cc| {
+                    loose_clicks(&cc.egui_ctx);
+                    Ok(Box::new(App::new(project, path, bpm)))
+                }),
             )
             .await
             .expect("couldn't start daw");
     });
+}
+
+/// Lets a click drift a little further before it counts as a drag, so a
+/// two-finger trackpad click still opens a right-click menu.
+fn loose_clicks(ctx: &egui::Context) {
+    ctx.options_mut(|o| o.input_options.max_click_dist = 12.0);
 }
 
 /// The two halves of the app.
@@ -2556,7 +2568,13 @@ impl App {
         ui.add_space(4.0);
         ui.spacing_mut().item_spacing.y = 2.0;
         let base = track.base_note();
-        let (shift, command) = ui.input(|i| (i.modifiers.shift, i.modifiers.command));
+        let (shift, command, primary) = ui.input(|i| {
+            (
+                i.modifiers.shift,
+                i.modifiers.command,
+                i.pointer.primary_down(),
+            )
+        });
         // Ctrl-drag, or the Erase tool, erases.
         let command = command || self.tool == Tool::Erase;
         let pointer = held_pointer(ui);
@@ -2638,7 +2656,7 @@ impl App {
                             } else if self.note_drag.is_none() && hover.is_some() {
                                 ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
                             }
-                            if resp.drag_started() {
+                            if resp.drag_started_by(egui::PointerButton::Primary) {
                                 // Where the press began: the pointer has moved
                                 // on a little by the time it counts as a drag.
                                 let at = ui.input(|i| i.pointer.press_origin()).map(|p| p.x);
@@ -2653,7 +2671,9 @@ impl App {
                     }
                     // Pressing an empty cell adds a note, and dragging on
                     // along the row adds more; Ctrl-drag erases instead.
-                    let pressed = resp.is_pointer_button_down_on() || resp.clicked();
+                    // (Left button only: a right-click opens the note's menu
+                    // or holds the note before.)
+                    let pressed = (resp.is_pointer_button_down_on() && primary) || resp.clicked();
                     // (Not while a note is being dragged: the step it was
                     // picked up from may be empty now.)
                     let start = !shift
