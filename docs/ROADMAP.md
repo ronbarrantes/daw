@@ -93,6 +93,8 @@ menus).
 
 Newest first, by release.
 
+- v0.47.1: fix: deleting a track from its right-click menu crashed the
+  app when tracks came after it
 - v0.47: patterns up to 8 bars, with each track its own length (shorter
   parts repeat); multi-bar patterns fill a chain square per bar
 - v0.46: View > Low power: redraw less often while playing, to save
