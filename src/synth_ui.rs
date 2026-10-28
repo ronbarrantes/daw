@@ -80,6 +80,12 @@ fn free_pitch(hz: f32) -> (u8, f32) {
     (note as u8, exact - note)
 }
 
+/// The Drone's range: free in Hz, or note by note (C0 to C8).
+const DRONE_LOW: f32 = 0.1;
+const DRONE_HIGH: f32 = 20_000.0;
+const NOTE_LOW: f32 = 12.0;
+const NOTE_HIGH: f32 = 108.0;
+
 /// Two sounds remembered for a synth track (by `Track::id`), and where
 /// the morph between them is (0 = A, 1 = B).
 pub(super) struct Snapshot {
@@ -438,31 +444,91 @@ impl App {
         let mut toggle = on;
         let hint = "Play a note nonstop, so you can turn knobs and hear\n\
                                 the sound change. Click again to stop.";
-        let flip = ui.toggle_value(&mut toggle, "Drone").on_hover_text(hint);
-        // Any pitch, sliding smoothly: the note it's held on
-        // is bent the rest of the way.
-        let pick = egui::Slider::new(&mut self.drone_hz, 0.1..=20000.0)
-            .logarithmic(true)
-            .show_value(false);
-        let moved = ui
-            .add(pick)
-            .on_hover_text("The drone's pitch: slide anywhere, between notes too")
-            .changed();
+        let flip = ui
+            .horizontal(|ui| {
+                let flip = ui.toggle_value(&mut toggle, "Drone").on_hover_text(hint);
+                let pitch = free_pitch(self.drone_hz);
+                let note = (pitch.0 as f32 + pitch.1).round().clamp(0.0, 127.0) as u8;
+                let tap = "Play one short note at this pitch, to hear its\n\
+                           attack and release";
+                if ui.small_button("Tap").on_hover_text(tap).clicked() {
+                    let _ = self.events.try_send(Event::Preview { track: i, note });
+                }
+                ui.separator();
+                ui.selectable_value(&mut self.drone_free, false, "Notes")
+                    .on_hover_text("The slider moves note by note");
+                ui.selectable_value(&mut self.drone_free, true, "Free")
+                    .on_hover_text("The slider moves smoothly, between notes too");
+                flip
+            })
+            .inner;
+        // Any pitch: the note it's held on is bent the rest of the way.
+        let mut moved = false;
+        ui.horizontal(|ui| {
+            let step = |hz: f32, by: f32| (hz * 2f32.powf(by / 12.0)).clamp(DRONE_LOW, DRONE_HIGH);
+            if ui
+                .small_button("-")
+                .on_hover_text("Down a semitone")
+                .clicked()
+            {
+                self.drone_hz = step(self.drone_hz, -1.0);
+                moved = true;
+            }
+            // As wide as the panel allows, leaving room for + and the readout.
+            ui.spacing_mut().slider_width = (ui.available_width() - 110.0).max(80.0);
+            if self.drone_free {
+                let pick = egui::Slider::new(&mut self.drone_hz, DRONE_LOW..=DRONE_HIGH)
+                    .logarithmic(true)
+                    .show_value(false);
+                let hint = "The drone's pitch: slide anywhere, between notes too";
+                moved |= ui.add(pick).on_hover_text(hint).changed();
+            } else {
+                let mut n = (free_pitch(self.drone_hz).0 as f32 + free_pitch(self.drone_hz).1)
+                    .round()
+                    .clamp(NOTE_LOW, NOTE_HIGH);
+                let pick = egui::Slider::new(&mut n, NOTE_LOW..=NOTE_HIGH)
+                    .step_by(1.0)
+                    .show_value(false);
+                if ui
+                    .add(pick)
+                    .on_hover_text("The drone's note, C0 to C8")
+                    .changed()
+                {
+                    self.drone_hz = synth::midi_to_hz(n as u8);
+                    moved = true;
+                }
+            }
+            if ui
+                .small_button("+")
+                .on_hover_text("Up a semitone")
+                .clicked()
+            {
+                self.drone_hz = step(self.drone_hz, 1.0);
+                moved = true;
+            }
+            if moved && !self.drone_free {
+                // Land on the nearest note.
+                let (base, semis) = free_pitch(self.drone_hz);
+                let n = (base as f32 + semis).round().clamp(NOTE_LOW, NOTE_HIGH);
+                self.drone_hz = synth::midi_to_hz(n as u8);
+            }
+            let (base, semis) = free_pitch(self.drone_hz);
+            let pitch = base as f32 + semis;
+            let hz = self.drone_hz;
+            // Named down to MIDI's lowest note (C-1, about 8 Hz).
+            let note = if (-0.5..=127.5).contains(&pitch) {
+                notes::note_name(pitch.round() as u8)
+            } else {
+                String::new()
+            };
+            let hz = if hz < 10.0 {
+                format!("{hz:.1} Hz")
+            } else {
+                format!("{hz:.0} Hz")
+            };
+            ui.label(RichText::new(format!("{note}  {hz}")).small());
+        });
         let (base, semis) = free_pitch(self.drone_hz);
-        let hz = self.drone_hz;
-        let pitch = base as f32 + semis;
-        // Below about 20 Hz it's separate wobbles or clicks, not a note.
-        let note = if hz >= 20.0 && pitch <= 127.0 {
-            notes::note_name(pitch.round() as u8)
-        } else {
-            String::new()
-        };
-        let hz = if hz < 10.0 {
-            format!("{hz:.1} Hz")
-        } else {
-            format!("{hz:.0} Hz")
-        };
-        ui.label(RichText::new(format!("{hz}  {note}")).small());
         if flip.clicked() {
             if let Some((t, note)) = self.drone.take() {
                 let _ = self.events.try_send(Event::Release { track: t, note });
@@ -659,14 +725,15 @@ impl App {
         ui.add_space(4.0);
         // Hear the track: a quick note, or a drone that keeps playing.
         let synth = matches!(self.project.tracks[self.selected].kind, Kind::Synth(_));
-        ui.horizontal(|ui| {
-            if ui.button("Play a note").clicked() {
-                self.preview(self.selected, 0);
-            }
-            if synth {
-                self.drone_controls(ui);
-            }
-        });
+        if synth {
+            self.drone_controls(ui);
+        } else if ui
+            .small_button("Tap")
+            .on_hover_text("Play the sound once")
+            .clicked()
+        {
+            self.preview(self.selected, 0);
+        }
         ui.add_space(4.0);
         if !synth {
             if let Some(sound) = self.drum_browser.show(ui, &self.project.tracks) {

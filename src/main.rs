@@ -294,6 +294,8 @@ struct App {
     drone: Option<(usize, u8)>,
     /// The Drone's pitch, in Hz: anywhere, not just on the 12 notes.
     drone_hz: f32,
+    /// The Drone's slider moves freely in Hz instead of note by note.
+    drone_free: bool,
     /// The theremin pad's note while it's held: (track, MIDI note).
     theremin: Option<(usize, u8)>,
     /// The piano-roll column the pointer was over last frame, for naming
@@ -429,6 +431,7 @@ impl App {
             roll_hover: None,
             drone: None,
             drone_hz: synth::midi_to_hz(48),
+            drone_free: false,
             theremin: None,
             show_scope: true,
             low_power: file::low_power(),
@@ -2185,7 +2188,7 @@ impl App {
             let highlighted =
                 (self.selected == i && self.selected_group.is_none()) || self.picked.contains(&i);
             let name = egui::Button::new(RichText::new(&track.name).small()).selected(highlighted);
-            let hint = "Click to select and hear it · Ctrl/Cmd-click to pick several · right-click for more";
+            let hint = "Click to select · Ctrl/Cmd-click to pick several · right-click for more";
             let resp = ui.add_sized([width, 26.0], name).on_hover_text(hint);
             if resp.clicked() {
                 if ui.input(|i| i.modifiers.command) {
@@ -2195,11 +2198,11 @@ impl App {
                         self.picked.push(i);
                     }
                 } else {
+                    // Silent: switching tracks while jamming shouldn't make
+                    // a sound. Tap in the panel plays one.
                     self.selected = i;
                     self.selected_group = None;
                     self.picked.clear();
-                    let note = track.note(0);
-                    let _ = self.events.try_send(Event::Preview { track: i, note });
                 }
             }
             resp.context_menu(|ui| {
@@ -2295,7 +2298,10 @@ impl App {
             for step in 0..STEPS {
                 // Every lane with something at this step, lowest note first.
                 let notes: Vec<usize> = (0..lanes).filter(|&l| grid[l][step].is_some()).collect();
-                let first = notes.iter().copied().find(|&l| Step::is_hit(&grid[l][step]));
+                let first = notes
+                    .iter()
+                    .copied()
+                    .find(|&l| Step::is_hit(&grid[l][step]));
                 // Melodic steps show their chord's name (or their lowest
                 // note and how many more); groove settings show as marks.
                 let chord = (melodic && notes.len() > 1)
