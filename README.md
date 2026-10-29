@@ -141,6 +141,11 @@ To build it yourself: `rustup target add wasm32-unknown-unknown`,
 
 Press **F1** (or **Help → How to use**) for the built-in guide.
 
+**Help → Diagnostics** shows how the sound engine is doing (audio load,
+dropouts, buffer size, device) and a log of recent errors. **Copy all**
+puts it on the clipboard for a bug report. The desktop app also keeps the
+log in a small file (the window shows where).
+
 - **Space** or **▶ Play** starts and stops. Drag **BPM** to change the tempo.
 - **Master** (top bar) is the volume of the whole song. The meter next to
   it shows the output level, green to yellow to red. A **limiter** keeps

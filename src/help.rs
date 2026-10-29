@@ -296,6 +296,15 @@ const SECTIONS: &[(&str, &str)] = &[
          • Ctrl+N opens a browser window; use File > New song.",
     ),
     (
+        "Diagnostics",
+        "Help > Diagnostics shows how the sound engine is doing and a log of \
+         recent errors.\n\n\
+         • Audio load: how much of its time the engine needs. Near 100% the \
+         sound crackles; try Low power, fewer tracks or the desktop app.\n\
+         • Dropouts: how many times it ran late.\n\
+         • Copy all puts it all on the clipboard, for a bug report.",
+    ),
+    (
         "Shortcuts",
         "Space — play / stop\n\
          Ctrl+S / Ctrl+Shift+S — save / save as (Cmd on Mac)\n\

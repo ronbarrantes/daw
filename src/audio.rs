@@ -153,6 +153,18 @@ pub struct Shared {
     scope_pos: AtomicUsize,
     /// The engine's sample rate, for the scope's time scale.
     pub sample_rate: AtomicU32,
+    /// The output device's name, once it's open.
+    pub device: Mutex<String>,
+    /// The most of its time budget an audio callback has used since the UI
+    /// last looked (1 = all of it), as `f32` bits.
+    load: AtomicU32,
+    /// Frames the last audio callback was asked for.
+    pub buffer: AtomicU32,
+    /// Callbacks that took longer than the sound they made: likely
+    /// crackles.
+    pub dropouts: AtomicU32,
+    /// Errors the audio system reported (e.g. the device went away).
+    pub stream_errors: AtomicU32,
     /// The loudest left and right samples since the UI last looked, as
     /// `f32` bits (`take_meter` reads and resets them).
     meter: [AtomicU32; 2],
@@ -202,6 +214,11 @@ impl Shared {
             scope: (0..SCOPE_LEN).map(|_| AtomicU32::new(0)).collect(),
             scope_pos: AtomicUsize::new(0),
             sample_rate: AtomicU32::new(48_000),
+            device: Mutex::new(String::new()),
+            load: AtomicU32::new(0),
+            buffer: AtomicU32::new(0),
+            dropouts: AtomicU32::new(0),
+            stream_errors: AtomicU32::new(0),
             meter: [AtomicU32::new(0), AtomicU32::new(0)],
             limiting: AtomicU32::new(0),
             mod_live: (0..synth::PARAMS.len())
@@ -252,6 +269,23 @@ impl Shared {
             .each_ref()
             .map(|m| f32::from_bits(m.swap(0, Relaxed)));
         (peak, f32::from_bits(self.limiting.swap(0, Relaxed)))
+    }
+
+    /// The busiest audio callback since the last call, 0-1 of its time
+    /// budget (more than 1 when it ran late).
+    pub fn take_load(&self) -> f32 {
+        f32::from_bits(self.load.swap(0, Relaxed))
+    }
+
+    /// Called from the audio callback: no locks, no allocation.
+    fn report_callback(&self, frames: usize, seconds: f64, sr: f32) {
+        let budget = frames as f64 / sr as f64;
+        let load = (seconds / budget.max(1e-9)) as f32;
+        self.load.fetch_max(load.max(0.0).to_bits(), Relaxed);
+        self.buffer.store(frames as u32, Relaxed);
+        if load > 1.0 {
+            self.dropouts.fetch_add(1, Relaxed);
+        }
     }
 
     /// Positive floats keep their order as bits, so `fetch_max` works.
@@ -1708,6 +1742,9 @@ pub fn start(
         .ok_or("no audio output device found")?;
     let supported = device.default_output_config().map_err(|e| e.to_string())?;
     let sr = supported.sample_rate().0 as f32;
+    if let Ok(mut name) = shared.device.lock() {
+        *name = device.name().unwrap_or_else(|_| "unknown".into());
+    }
     let engine = Engine::new(shared, events, midi_out, sr);
     let config = supported.config();
     let stream = match supported.sample_format() {
@@ -1798,16 +1835,34 @@ pub fn render(
     Rendered { audio, midi }
 }
 
+/// Seconds on a steady clock, for timing the audio callback.
+#[cfg(not(target_arch = "wasm32"))]
+fn clock() -> f64 {
+    use std::sync::OnceLock;
+    use std::time::Instant;
+    static START: OnceLock<Instant> = OnceLock::new();
+    START.get_or_init(Instant::now).elapsed().as_secs_f64()
+}
+
+/// The browser's clock (to the millisecond), as `Instant` isn't there.
+#[cfg(target_arch = "wasm32")]
+fn clock() -> f64 {
+    js_sys::Date::now() / 1000.0
+}
+
 fn build<T: SizedSample + FromSample<f32>>(
     device: &cpal::Device,
     config: &cpal::StreamConfig,
     mut engine: Engine,
 ) -> Result<cpal::Stream, String> {
     let channels = config.channels as usize;
+    let sr = config.sample_rate.0 as f32;
+    let errors = engine.shared.clone();
     device
         .build_output_stream(
             config,
             move |data: &mut [T], _| {
+                let started = clock();
                 for frame in data.chunks_mut(channels) {
                     let [l, r] = engine.next_sample();
                     match frame {
@@ -1820,8 +1875,13 @@ fn build<T: SizedSample + FromSample<f32>>(
                         [] => {}
                     }
                 }
+                let frames = data.len() / channels.max(1);
+                engine.shared.report_callback(frames, clock() - started, sr);
             },
-            |e| eprintln!("audio error: {e}"),
+            move |e| {
+                errors.stream_errors.fetch_add(1, Relaxed);
+                eprintln!("audio error: {e}");
+            },
             None,
         )
         .map_err(|e| e.to_string())
