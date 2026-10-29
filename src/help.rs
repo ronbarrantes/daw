@@ -63,6 +63,8 @@ const SECTIONS: &[(&str, &str)] = &[
          F8 instrument panel.\n\
          • View > Focus: Tracks only, or Piano roll and sound.\n\
          • F9 shows everything again.\n\
+         • The instrument panel is a drawer: > at its top slides it shut \
+         to a strip on the right; click the strip or press F8 to open it.\n\
          • View > Low power redraws less often while playing, to save \
          battery.",
     ),
