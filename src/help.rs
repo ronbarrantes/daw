@@ -112,9 +112,9 @@ const SECTIONS: &[(&str, &str)] = &[
           W E   T Y U   O P    <- black keys\n\
          A S D F G H J K L     <- white keys (A = C)\n\n\
          Hold several keys for a chord or the arpeggiator. Z and X change \
-         octave. 1 and 2 are a pitch wheel: hold 1 to bend the held notes \
-         down, 2 up, and let go to slide back; Bend (next to MIDI in) sets \
-         how far. Turn on ⏺ Rec and press Play to write what \
+         octave. With Bend on (next to MIDI in), 1 and 2 are a pitch wheel: \
+         hold 1 to bend the held notes down, 2 up, and let go to slide \
+         back; the box next to Bend sets how far. Turn on ⏺ Rec and press Play to write what \
          you play into the pattern. With Rec on, Play clicks one bar first \
          (the count-in) so you can come in on time.\n\n\
          Click (top bar) turns the metronome on: a click on every beat, \

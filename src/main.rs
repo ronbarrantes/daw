@@ -280,6 +280,8 @@ struct App {
     bend: f32,
     /// How far 1 and 2 bend, in semitones.
     bend_range: f32,
+    /// Whether 1 and 2 bend at all.
+    bend_keys: bool,
     show_help: bool,
     show_about: bool,
     /// Help > Diagnostics.
@@ -443,6 +445,7 @@ impl App {
             held_keys: Vec::new(),
             bend: 0.0,
             bend_range: file::bend_range(),
+            bend_keys: file::bend_keys(),
             show_help: false,
             show_about: false,
             show_diagnostics: false,
@@ -1936,7 +1939,7 @@ impl App {
         focused: bool,
         down: &std::collections::HashSet<egui::Key>,
     ) {
-        let held = |k| focused && down.contains(&k);
+        let held = |k| self.bend_keys && focused && down.contains(&k);
         let target = match (held(egui::Key::Num1), held(egui::Key::Num2)) {
             (true, false) => -self.bend_range,
             (false, true) => self.bend_range,
@@ -1987,7 +1990,15 @@ impl App {
                 s.external_sync.store(ext, Relaxed);
             }
             ui.separator();
-            ui.label("Bend");
+            let hint = "Turn on to bend with the keyboard: while you play, hold 1\n\
+                        to bend the notes down, 2 to bend them up";
+            if ui
+                .toggle_value(&mut self.bend_keys, "Bend")
+                .on_hover_text(hint)
+                .changed()
+            {
+                file::remember_bend_keys(self.bend_keys);
+            }
             let range = egui::DragValue::new(&mut self.bend_range)
                 .range(1.0..=12.0)
                 .speed(0.05)
@@ -1995,7 +2006,11 @@ impl App {
                 .suffix(" st");
             let hint = "While you play on the computer keyboard, hold 1 to bend\n\
                         the notes down this many semitones, 2 to bend them up";
-            if ui.add(range).on_hover_text(hint).changed() {
+            if ui
+                .add_enabled(self.bend_keys, range)
+                .on_hover_text(hint)
+                .changed()
+            {
                 self.bend_range = self.bend_range.round();
                 file::remember_bend_range(self.bend_range);
             }

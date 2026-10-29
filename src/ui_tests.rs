@@ -196,6 +196,14 @@ fn keys_1_and_2_bend_the_held_chord_like_a_wheel() {
     use egui::Key;
     let mut ui = Harness::new();
     ui.click("Lead");
+    ui.app.bend_keys = false;
+    ui.key(Key::A, true);
+    ui.key(Key::Num1, true);
+    ui.frames(30);
+    assert_eq!(ui.app.bend, 0.0, "off: 1 does nothing");
+    ui.key(Key::Num1, false);
+    ui.key(Key::A, false);
+    ui.app.bend_keys = true;
     // A chord on the keys, then the wheel down.
     for k in [Key::A, Key::D, Key::G] {
         ui.key(k, true);

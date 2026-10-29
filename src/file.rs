@@ -1056,6 +1056,16 @@ pub fn bend_range() -> f32 {
         .map_or(2.0, |r: f32| r.clamp(1.0, 12.0))
 }
 
+/// Whether the keyboard's 1 and 2 keys bend notes (off unless turned on).
+pub fn bend_keys() -> bool {
+    remembered("bend-keys").first().is_some_and(|l| l == "on")
+}
+
+/// Remembers whether the bend keys are on.
+pub fn remember_bend_keys(on: bool) {
+    remember_lines("bend-keys", &[if on { "on" } else { "off" }.to_string()]);
+}
+
 /// Remembers the bend range.
 pub fn remember_bend_range(semis: f32) {
     remember_lines("bend-range", &[semis.to_string()]);
