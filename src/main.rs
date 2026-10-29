@@ -275,6 +275,13 @@ struct App {
     /// The computer-keyboard keys holding notes (several at once, for
     /// chords and the arpeggiator): each key, its track and MIDI note.
     held_keys: Vec<(egui::Key, usize, u8)>,
+    /// The keyboard's pitch wheel: how far notes played on it are bent
+    /// now, in semitones (1 and 2 bend down and up while held).
+    bend: f32,
+    /// How far 1 and 2 bend, in semitones.
+    bend_range: f32,
+    /// Whether 1 and 2 bend at all.
+    bend_keys: bool,
     show_help: bool,
     show_about: bool,
     /// Help > Diagnostics.
@@ -436,6 +443,9 @@ impl App {
             load_error: None,
             recording: false,
             held_keys: Vec::new(),
+            bend: 0.0,
+            bend_range: file::bend_range(),
+            bend_keys: file::bend_keys(),
             show_help: false,
             show_about: false,
             show_diagnostics: false,
@@ -1881,6 +1891,15 @@ impl App {
                             note,
                             velocity: NORMAL,
                         });
+                        // Played while the wheel is pushed: starts bent.
+                        if self.bend != 0.0 {
+                            let _ = self.events.try_send(Event::Bend {
+                                track: self.selected,
+                                note,
+                                semis: self.bend,
+                                filter: 0.0,
+                            });
+                        }
                         if self.recording && rolling {
                             to_record.push(note);
                         }
@@ -1902,12 +1921,49 @@ impl App {
             }
             still
         });
+        self.bend_wheel(ctx, focused, &down);
         if octave_changed {
             self.dirty = true;
         }
         for note in to_record {
             self.record(self.selected, note, NORMAL);
         }
+    }
+
+    /// The keyboard's pitch wheel: holding 1 slides the notes played on
+    /// the keys down by `bend_range` semitones, 2 slides them up, and
+    /// letting go slides them back, like a wheel springing to the middle.
+    fn bend_wheel(
+        &mut self,
+        ctx: &egui::Context,
+        focused: bool,
+        down: &std::collections::HashSet<egui::Key>,
+    ) {
+        let held = |k| self.bend_keys && focused && down.contains(&k);
+        let target = match (held(egui::Key::Num1), held(egui::Key::Num2)) {
+            (true, false) => -self.bend_range,
+            (false, true) => self.bend_range,
+            _ => 0.0,
+        };
+        if self.bend == target {
+            return;
+        }
+        // A quick sweep, about a fifth of a second end to end.
+        let step = self.bend_range * ctx.input(|i| i.stable_dt).min(0.1) / 0.2;
+        self.bend = if (target - self.bend).abs() <= step {
+            target
+        } else {
+            self.bend + step * (target - self.bend).signum()
+        };
+        for &(_, track, note) in &self.held_keys {
+            let _ = self.events.try_send(Event::Bend {
+                track,
+                note,
+                semis: self.bend,
+                filter: 0.0,
+            });
+        }
+        ctx.request_repaint();
     }
 
     fn midi_row(&mut self, ui: &mut egui::Ui) {
@@ -1932,6 +1988,31 @@ impl App {
             let mut ext = s.external_sync.load(Relaxed);
             if ui.checkbox(&mut ext, "Follow MIDI clock").changed() {
                 s.external_sync.store(ext, Relaxed);
+            }
+            ui.separator();
+            let hint = "Turn on to bend with the keyboard: while you play, hold 1\n\
+                        to bend the notes down, 2 to bend them up";
+            if ui
+                .toggle_value(&mut self.bend_keys, "Bend")
+                .on_hover_text(hint)
+                .changed()
+            {
+                file::remember_bend_keys(self.bend_keys);
+            }
+            let range = egui::DragValue::new(&mut self.bend_range)
+                .range(1.0..=12.0)
+                .speed(0.05)
+                .fixed_decimals(0)
+                .suffix(" st");
+            let hint = "While you play on the computer keyboard, hold 1 to bend\n\
+                        the notes down this many semitones, 2 to bend them up";
+            if ui
+                .add_enabled(self.bend_keys, range)
+                .on_hover_text(hint)
+                .changed()
+            {
+                self.bend_range = self.bend_range.round();
+                file::remember_bend_range(self.bend_range);
             }
         });
     }

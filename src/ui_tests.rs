@@ -108,6 +108,18 @@ impl Harness {
         self.press(label, egui::PointerButton::Secondary);
     }
 
+    /// Presses or lets go of a key on the computer keyboard.
+    fn key(&mut self, key: egui::Key, pressed: bool) {
+        self.events.push(egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers: Default::default(),
+        });
+        self.frame();
+    }
+
     fn track_names(&self) -> Vec<&str> {
         self.app
             .project
@@ -177,4 +189,34 @@ fn menus_and_views_open() {
     ui.frames(3);
     ui.click("Jam");
     ui.frames(3);
+}
+
+#[test]
+fn keys_1_and_2_bend_the_held_chord_like_a_wheel() {
+    use egui::Key;
+    let mut ui = Harness::new();
+    ui.click("Lead");
+    ui.app.bend_keys = false;
+    ui.key(Key::A, true);
+    ui.key(Key::Num1, true);
+    ui.frames(30);
+    assert_eq!(ui.app.bend, 0.0, "off: 1 does nothing");
+    ui.key(Key::Num1, false);
+    ui.key(Key::A, false);
+    ui.app.bend_keys = true;
+    // A chord on the keys, then the wheel down.
+    for k in [Key::A, Key::D, Key::G] {
+        ui.key(k, true);
+    }
+    ui.key(Key::Num1, true);
+    ui.frames(30);
+    assert_eq!(ui.app.held_keys.len(), 3);
+    assert_eq!(ui.app.bend, -ui.app.bend_range, "all the way down");
+    // Let go: it springs back to the notes.
+    ui.key(Key::Num1, false);
+    ui.frames(30);
+    assert_eq!(ui.app.bend, 0.0);
+    ui.key(Key::Num2, true);
+    ui.frames(30);
+    assert_eq!(ui.app.bend, ui.app.bend_range, "and up");
 }
