@@ -35,8 +35,8 @@ use audio::{Event, Shared};
 use midi::{Midi, Played, Route};
 use project::{
     move_note, note_head, note_len, set_note_length, Effects, Kind, Part, Project, Row, Sample,
-    Step, Track, ACCENT, BAR_CHOICES, EMPTY_GRID, GHOST, LANES, MAX_OCTAVES, MAX_RATCHET,
-    MAX_TRACKS, NORMAL, STEPS,
+    Step, Track, ACCENT, BAR_CHOICES, GHOST, LANES, MAX_OCTAVES, MAX_RATCHET, MAX_TRACKS, NORMAL,
+    STEPS,
 };
 use synth::{Param, Unit};
 use synth_ui::{section_titles, Snapshot};
@@ -1499,7 +1499,7 @@ impl App {
     fn clear_pattern(&mut self) {
         let edit = self.edit_pattern();
         for track in &mut self.project.tracks {
-            track.patterns[edit].fill(EMPTY_GRID);
+            track.patterns[edit].clear();
         }
         self.dirty = true;
     }

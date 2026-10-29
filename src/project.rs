@@ -182,7 +182,71 @@ pub type Grid = [Lane; LANES];
 pub const EMPTY_GRID: Grid = [[None; STEPS]; LANES];
 /// A track's notes in one pattern: a grid per bar, 1 to `MAX_BARS`. In a
 /// longer pattern, or played longer in a chain, it loops.
-pub type Part = Vec<Grid>;
+///
+/// Copies of the song (each undo step, each snapshot for the engine) share
+/// their bars until one is edited, so copying a song costs next to nothing
+/// however many notes it has.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Part(Vec<Arc<Grid>>);
+
+impl Default for Part {
+    /// One empty bar.
+    fn default() -> Self {
+        Part(vec![Arc::new(EMPTY_GRID)])
+    }
+}
+
+impl Part {
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn get(&self, bar: usize) -> Option<&Grid> {
+        self.0.get(bar).map(|g| &**g)
+    }
+
+    /// A bar to edit: its own copy if other copies of the song share it.
+    pub fn get_mut(&mut self, bar: usize) -> Option<&mut Grid> {
+        self.0.get_mut(bar).map(Arc::make_mut)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &Grid> {
+        self.0.iter().map(|g| &**g)
+    }
+
+    /// Adds a bar sharing `bar`'s notes.
+    fn repeat(&mut self, bar: usize) {
+        let grid = self.0[bar].clone();
+        self.0.push(grid);
+    }
+
+    fn truncate(&mut self, bars: usize) {
+        self.0.truncate(bars);
+    }
+
+    /// Empties every bar, keeping the length.
+    pub fn clear(&mut self) {
+        let empty = Arc::new(EMPTY_GRID);
+        self.0.fill(empty);
+    }
+}
+
+impl std::ops::Index<usize> for Part {
+    type Output = Grid;
+    fn index(&self, bar: usize) -> &Grid {
+        &self.0[bar]
+    }
+}
+
+impl std::ops::IndexMut<usize> for Part {
+    fn index_mut(&mut self, bar: usize) -> &mut Grid {
+        Arc::make_mut(&mut self.0[bar])
+    }
+}
 
 /// How many steps the note starting at `head` lasts: it and its ties.
 pub fn note_len(lane: &Lane, head: usize) -> usize {
@@ -299,7 +363,7 @@ impl Track {
             id: 0,
             name: name.to_string(),
             kind,
-            patterns: vec![vec![EMPTY_GRID]; DEFAULT_PATTERNS],
+            patterns: vec![Part::default(); DEFAULT_PATTERNS],
             volume: 0.8,
             pan: 0.0,
             reverb: 0.0,
@@ -390,12 +454,12 @@ impl Track {
             return;
         };
         if part.is_empty() {
-            part.push(EMPTY_GRID);
+            *part = Part::default();
         }
         let bars = bars.clamp(1, MAX_BARS);
         let old = part.len();
         for b in old..bars {
-            part.push(part[b % old]);
+            part.repeat(b % old);
         }
         part.truncate(bars);
     }
@@ -863,7 +927,7 @@ impl Project {
 
     /// Adds a track, giving it a part for every pattern.
     pub fn add_track(&mut self, mut track: Track) {
-        track.patterns.resize(self.patterns.len(), vec![EMPTY_GRID]);
+        track.patterns.resize(self.patterns.len(), Part::default());
         track.id = self.tracks.iter().map(|t| t.id + 1).max().unwrap_or(1);
         self.tracks.push(track);
     }
@@ -1106,7 +1170,7 @@ impl Project {
         let name = self.unused_name(&base);
         self.patterns.push(Pattern { name });
         for t in &mut self.tracks {
-            t.patterns.push(vec![EMPTY_GRID]);
+            t.patterns.push(Part::default());
         }
         Some(self.patterns.len() - 1)
     }
@@ -1119,7 +1183,7 @@ impl Project {
         let name = self.unused_name(&self.patterns[p].name);
         self.patterns.push(Pattern { name });
         for t in &mut self.tracks {
-            let part = t.patterns.get(p).cloned().unwrap_or(vec![EMPTY_GRID]);
+            let part = t.patterns.get(p).cloned().unwrap_or(Part::default());
             t.patterns.push(part);
         }
         Some(self.patterns.len() - 1)
@@ -1417,6 +1481,32 @@ mod tests {
         p.set_pattern_bars(0, 4);
         assert!(p.tracks.iter().all(|t| t.bars(0) == 4));
         assert_eq!(p.duplicate_pattern(0).map(|c| p.pattern_bars(c)), Some(4));
+    }
+
+    #[test]
+    fn copies_of_a_song_share_bars_until_one_is_edited() {
+        let mut p = Project::demo();
+        p.tracks[0].set_bars(0, 4);
+        let copy = p.clone();
+        let shared = |a: &Part, b: &Part| {
+            (0..a.len())
+                .filter(|&i| Arc::ptr_eq(&a.0[i], &b.0[i]))
+                .count()
+        };
+        assert_eq!(
+            shared(&p.tracks[0].patterns[0], &copy.tracks[0].patterns[0]),
+            4
+        );
+        p.tracks[0].patterns[0][2][0][5] = Some(Step::HIT);
+        assert_eq!(
+            copy.tracks[0].patterns[0][2][0][5], None,
+            "the copy keeps its notes"
+        );
+        assert_eq!(
+            shared(&p.tracks[0].patterns[0], &copy.tracks[0].patterns[0]),
+            3,
+            "only the edited bar was copied"
+        );
     }
 
     #[test]
