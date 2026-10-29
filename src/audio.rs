@@ -1830,7 +1830,7 @@ fn build<T: SizedSample + FromSample<f32>>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::project::{Clip, Track, EMPTY_GRID, GHOST};
+    use crate::project::{Clip, Part, Track, GHOST};
     use crate::{drums, synth};
     use std::sync::mpsc::sync_channel;
 
@@ -1914,7 +1914,7 @@ mod tests {
     fn quiet_demo() -> Project {
         let mut p = Project::demo();
         for t in &mut p.tracks {
-            t.patterns.fill(vec![EMPTY_GRID]);
+            t.patterns.fill(Part::default());
         }
         p
     }
@@ -2988,7 +2988,7 @@ mod tests {
         let mut rig = Rig::new(project.clone());
         rig.shared.playing.store(true, Relaxed);
         rig.run(STEP * 4);
-        project.tracks[LEAD].patterns[0] = vec![EMPTY_GRID];
+        project.tracks[LEAD].patterns[0] = Part::default();
         rig.shared.publish(Arc::new(project));
         rig.run(STEP * 2);
         let offs = rig.midi().iter().filter(|m| m.bytes()[0] == 0x80).count();

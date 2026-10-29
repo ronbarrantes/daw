@@ -92,6 +92,8 @@ menus).
 
 Newest first, by release.
 
+- v0.50.2: copies of a song (undo steps, the engine's snapshot) share
+  unchanged bars, so long patterns don't eat memory
 - v0.50.1: fix: right-clicking the piano roll could add or drag a note
   instead of opening its menu or holding the note before; a right-click
   may drift a little before it counts as a drag

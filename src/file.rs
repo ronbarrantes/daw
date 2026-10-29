@@ -25,9 +25,9 @@ use zip::{CompressionMethod, ZipArchive, ZipWriter};
 use crate::drums;
 use crate::project::{
     builtin_drums, default_patterns, AutoLane, AutoPoint, Block, Clip, Effects, Group, Kind,
-    MidiPart, Pattern, Project, Sample, SampleShape, Step, Target, Track, EMPTY_GRID, LANES,
-    MAX_BLOCKS, MAX_NOTES, MAX_OCTAVES, MAX_PATTERNS, MAX_SONG_STEPS, MAX_TRACKS, MIX_TARGETS,
-    NORMAL, PPS, STEPS,
+    MidiPart, Part, Pattern, Project, Sample, SampleShape, Step, Target, Track, LANES, MAX_BLOCKS,
+    MAX_NOTES, MAX_OCTAVES, MAX_PATTERNS, MAX_SONG_STEPS, MAX_TRACKS, MIX_TARGETS, NORMAL, PPS,
+    STEPS,
 };
 use crate::synth;
 
@@ -734,7 +734,7 @@ fn read_zip(bytes: Vec<u8>) -> Result<Song, String> {
         };
         let mut track = Track::synth(&t.name);
         track.kind = kind;
-        track.patterns = vec![vec![EMPTY_GRID]; patterns.len()];
+        track.patterns = vec![Part::default(); patterns.len()];
         for (p, &bars) in t.bars.iter().enumerate().take(patterns.len()) {
             track.set_bars(p, bars as usize);
         }
