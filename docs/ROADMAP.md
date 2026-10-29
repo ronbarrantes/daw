@@ -92,6 +92,8 @@ menus).
 
 Newest first, by release.
 
+- v0.53: the instrument panel slides shut to a strip on the right edge
+  and open again, like a drawer
 - v0.52: a pitch wheel on the computer keyboard (turn on Bend): hold
   1 / 2 to bend the held notes down / up
 - v0.51.1: the Jam view's editor moved into its own module; UI smoke

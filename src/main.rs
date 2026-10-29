@@ -645,18 +645,41 @@ impl App {
             ui.add_space(4.0);
         });
 
-        if self.view.panel {
-            egui::SidePanel::right("instrument")
-                .resizable(false)
-                .exact_width(290.0)
-                .show(ctx, |ui| {
-                    // Scrolls when the window is short (the scope adds height).
-                    egui::ScrollArea::vertical().show(ui, |ui| match self.selected_group {
-                        Some(id) => self.group_panel(ui, id),
-                        None => self.instrument_panel(ui),
-                    });
-                });
-        }
+        // The instrument panel is a drawer: it slides shut to a thin strip
+        // on the right edge, and open again from it (or F8).
+        let closed = egui::SidePanel::right("instrument drawer")
+            .resizable(false)
+            .exact_width(22.0);
+        let open = egui::SidePanel::right("instrument")
+            .resizable(false)
+            .exact_width(290.0);
+        egui::SidePanel::show_animated_between(ctx, self.view.panel, closed, open, |ui, how| {
+            if how == 0.0 {
+                let handle = egui::Button::new("<").frame(false);
+                if ui
+                    .add_sized(ui.available_size(), handle)
+                    .on_hover_text("Show the instrument panel (F8)")
+                    .clicked()
+                {
+                    self.view.panel = true;
+                }
+                return;
+            }
+            ui.horizontal(|ui| {
+                if ui
+                    .small_button(">")
+                    .on_hover_text("Hide the instrument panel (F8)")
+                    .clicked()
+                {
+                    self.view.panel = false;
+                }
+            });
+            // Scrolls when the window is short (the scope adds height).
+            egui::ScrollArea::vertical().show(ui, |ui| match self.selected_group {
+                Some(id) => self.group_panel(ui, id),
+                None => self.instrument_panel(ui),
+            });
+        });
 
         egui::CentralPanel::default().show(ctx, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {

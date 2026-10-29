@@ -220,3 +220,16 @@ fn keys_1_and_2_bend_the_held_chord_like_a_wheel() {
     ui.frames(30);
     assert_eq!(ui.app.bend, ui.app.bend_range, "and up");
 }
+
+#[test]
+fn the_instrument_panel_slides_shut_and_open() {
+    let mut ui = Harness::new();
+    assert!(ui.app.view.panel);
+    ui.click(">");
+    ui.frames(30); // let it slide
+    assert!(!ui.app.view.panel);
+    ui.click("<");
+    ui.frames(30);
+    assert!(ui.app.view.panel);
+    assert!(ui.find("Tap").is_some(), "its controls are back");
+}
