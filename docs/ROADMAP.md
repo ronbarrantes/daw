@@ -92,6 +92,8 @@ menus).
 
 Newest first, by release.
 
+- v0.52: a pitch wheel on the computer keyboard: hold 1 / 2 to bend the
+  held notes down / up; Bend sets the range
 - v0.51.1: the Jam view's editor moved into its own module; UI smoke
   tests click through menus and track actions headless
 - v0.51: Help > Diagnostics: audio load, dropouts, device and a log of

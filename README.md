@@ -291,6 +291,9 @@ A S D F G H J K L         ← white keys (A = C)
 - Hold several keys for a chord, or to feed the **Arpeggiator** (most
   laptop keyboards manage three or four keys at once).
 - **Z** / **X** move down or up an octave.
+- **1** / **2** are a pitch wheel: hold 1 to bend the notes you're holding
+  down, 2 to bend them up (chords too); let go and they slide back.
+  **Bend** (next to MIDI in) sets how far, 1 to 12 semitones (2 at first).
 - Turn on **⏺ Rec** and press Play: notes you play are written into the
   pattern at the step that's playing. Play first clicks one bar (the
   count-in) so you can come in on time.
