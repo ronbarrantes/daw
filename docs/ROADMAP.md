@@ -92,6 +92,8 @@ menus).
 
 Newest first, by release.
 
+- v0.51: Help > Diagnostics: audio load, dropouts, device and a log of
+  recent errors (also in a small file on desktop), with Copy all
 - v0.50.2: copies of a song (undo steps, the engine's snapshot) share
   unchanged bars, so long patterns don't eat memory
 - v0.50.1: fix: right-clicking the piano roll could add or drag a note

@@ -9,6 +9,7 @@ mod export;
 mod file;
 mod fx;
 mod help;
+mod log;
 mod midi;
 mod notes;
 mod project;
@@ -293,6 +294,13 @@ struct App {
     held_keys: Vec<(egui::Key, usize, u8)>,
     show_help: bool,
     show_about: bool,
+    /// Help > Diagnostics.
+    show_diagnostics: bool,
+    /// The busiest the audio has been lately, 0-1 of its time, for
+    /// Diagnostics.
+    audio_load: f32,
+    /// The errors last shown, so each new one is logged once.
+    logged: [Option<String>; 3],
     show_fx: bool,
     /// Jam (make patterns and blocks) or Arrange (the timeline).
     tab: Tab,
@@ -401,6 +409,20 @@ impl App {
         let midi = Midi::new(shared.clone(), events.clone(), played_tx, midi_rx);
         let stream = audio::start(shared.clone(), events_rx, midi_tx);
         let audio_error = stream.as_ref().err().cloned();
+        log::add(&format!(
+            "daw {} started ({} {})",
+            env!("CARGO_PKG_VERSION"),
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        ));
+        match &audio_error {
+            Some(e) => log::add(&format!("Audio didn't start: {e}")),
+            None => log::add(&format!(
+                "Audio: {}, {} Hz",
+                shared.device.lock().map(|d| d.clone()).unwrap_or_default(),
+                shared.sample_rate.load(Relaxed)
+            )),
+        }
         #[cfg(target_arch = "wasm32")]
         if let Ok(stream) = stream {
             web::play_on_first_input(stream);
@@ -421,7 +443,7 @@ impl App {
             dirty: false,
             events,
             midi,
-            audio_error,
+            audio_error: audio_error.clone(),
             clipboard: None,
             edit_bar: 0,
             selected,
@@ -433,6 +455,10 @@ impl App {
             held_keys: Vec::new(),
             show_help: false,
             show_about: false,
+            show_diagnostics: false,
+            audio_load: 0.0,
+            // The audio error is already logged above.
+            logged: [audio_error.clone(), None, None],
             show_fx: false,
             tab: Tab::Jam,
             timeline: timeline::State::default(),
@@ -919,6 +945,8 @@ impl eframe::App for App {
 
         help::guide(ctx, &mut self.show_help);
         help::about(ctx, &mut self.show_about);
+        self.log_errors();
+        self.diagnostics_window(ctx);
         self.fx_window(ctx);
         self.popped_windows(ctx);
         self.confirm_dialog(ctx);
@@ -1661,6 +1689,10 @@ impl App {
                     self.show_help = true;
                     ui.close_menu();
                 }
+                if ui.button("Diagnostics").clicked() {
+                    self.show_diagnostics = true;
+                    ui.close_menu();
+                }
                 if ui.button("About").clicked() {
                     self.show_about = true;
                     ui.close_menu();
@@ -1669,6 +1701,108 @@ impl App {
             ui.separator();
             ui.weak("Space = play · A–K = notes · Z/X = octave · F1 = help");
         });
+    }
+
+    /// Logs each error the app shows, once, as it appears.
+    fn log_errors(&mut self) {
+        let now = [
+            self.audio_error.clone(),
+            self.load_error.clone(),
+            self.midi.error.clone(),
+        ];
+        for (seen, error) in self.logged.iter_mut().zip(now) {
+            if *seen != error {
+                if let Some(e) = &error {
+                    log::add(e);
+                }
+                *seen = error;
+            }
+        }
+    }
+
+    /// Help > Diagnostics: how the audio is doing, and the recent log, to
+    /// copy into a bug report.
+    fn diagnostics_window(&mut self, ctx: &egui::Context) {
+        if !self.show_diagnostics {
+            return;
+        }
+        let s = &self.shared;
+        // The busiest callback lately, falling slowly so peaks stay readable.
+        self.audio_load = s.take_load().max(self.audio_load * 0.97);
+        let sr = s.sample_rate.load(Relaxed).max(1);
+        let buffer = s.buffer.load(Relaxed);
+        let facts = [
+            ("Version", env!("CARGO_PKG_VERSION").to_string()),
+            (
+                "System",
+                format!("{} {}", std::env::consts::OS, std::env::consts::ARCH),
+            ),
+            (
+                "Audio device",
+                s.device.lock().map(|d| d.clone()).unwrap_or_default(),
+            ),
+            ("Sample rate", format!("{sr} Hz")),
+            (
+                "Buffer",
+                format!(
+                    "{buffer} frames ({:.1} ms)",
+                    buffer as f32 * 1000.0 / sr as f32
+                ),
+            ),
+            ("Audio load", format!("{:.0}%", self.audio_load * 100.0)),
+            ("Dropouts", s.dropouts.load(Relaxed).to_string()),
+            ("Audio errors", s.stream_errors.load(Relaxed).to_string()),
+            (
+                "Low power",
+                if self.low_power { "on" } else { "off" }.into(),
+            ),
+        ];
+        let lines = log::lines();
+        let mut open = true;
+        egui::Window::new("Diagnostics")
+            .open(&mut open)
+            .default_width(420.0)
+            .show(ctx, |ui| {
+                egui::Grid::new("diagnostics")
+                    .num_columns(2)
+                    .show(ui, |ui| {
+                        for (name, value) in &facts {
+                            ui.label(*name);
+                            ui.label(value);
+                            ui.end_row();
+                        }
+                    });
+                ui.weak(
+                    "Audio load is how much of its time the sound engine needs; \
+                     near 100% it starts to crackle. Dropouts count the times it \
+                     ran late.",
+                );
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.strong("Recent log");
+                    if ui.button("Copy all").clicked() {
+                        let mut report: Vec<String> =
+                            facts.iter().map(|(n, v)| format!("{n}: {v}")).collect();
+                        report.push(String::new());
+                        report.extend(lines.iter().cloned());
+                        ui.ctx().copy_text(report.join("\n"));
+                    }
+                });
+                #[cfg(not(target_arch = "wasm32"))]
+                if let Some(path) = log::path() {
+                    ui.weak(format!("Also saved in {}", path.display()));
+                }
+                egui::ScrollArea::vertical()
+                    .max_height(220.0)
+                    .stick_to_bottom(true)
+                    .show(ui, |ui| {
+                        for line in &lines {
+                            ui.label(RichText::new(line).monospace().small());
+                        }
+                    });
+            });
+        self.show_diagnostics = open;
+        ctx.request_repaint_after(Duration::from_millis(250));
     }
 
     /// Lists MIDI inputs: tick to connect, and pick where each one's notes go.
