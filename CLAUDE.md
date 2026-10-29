@@ -30,8 +30,10 @@ Ron reads in short bursts: keep replies short and plain.
   Arrange view's timeline and block drawer. A block is a chain or a MIDI
   block (free notes for one track, `Block::midi`, times in `PPS`ths of a
   step); `src/notes.rs` is the MIDI block's note editor.
-- `src/main.rs`: the app shell; `src/synth_ui.rs` the instrument panel and
-  pop-out windows; `src/widgets.rs` small widgets; `src/help.rs` the
+- `src/main.rs`: the app shell; `src/jam.rs` the Jam view's pattern editor
+  (bar picker, track list and step rows, piano roll); `src/synth_ui.rs`
+  the instrument panel and pop-out windows; `src/log.rs` the error log for
+  Help > Diagnostics; `src/widgets.rs` small widgets; `src/help.rs` the
   F1 guide (keep it in step with the README).
 - The web version is the same app built for `wasm32-unknown-unknown`:
   `src/web.rs` has the browser-only parts (downloads, uploads, autosave),

@@ -92,6 +92,8 @@ menus).
 
 Newest first, by release.
 
+- v0.51.1: the Jam view's editor moved into its own module; UI smoke
+  tests click through menus and track actions headless
 - v0.51: Help > Diagnostics: audio load, dropouts, device and a log of
   recent errors (also in a small file on desktop), with Copy all
 - v0.50.2: copies of a song (undo steps, the engine's snapshot) share

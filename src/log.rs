@@ -122,11 +122,11 @@ mod tests {
         for i in 0..KEEP + 5 {
             add(&format!("line {i}"));
         }
+        // (Other tests may log at the same time, so look for ours.)
         let lines = lines();
         assert_eq!(lines.len(), KEEP);
-        assert!(lines
-            .last()
-            .unwrap()
-            .ends_with(&format!("line {}", KEEP + 4)));
+        let has = |n: usize| lines.iter().any(|l| l.ends_with(&format!("  line {n}")));
+        assert!(has(KEEP + 4), "the newest is kept");
+        assert!(!has(0), "the oldest is dropped");
     }
 }
