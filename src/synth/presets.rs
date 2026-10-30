@@ -77,7 +77,7 @@ macro_rules! knobs {
 use Source::{Lfo2, ModEnv, Velocity};
 
 #[rustfmt::skip]
-pub const PRESETS: [Preset; 32] = [
+pub const PRESETS: [Preset; 33] = [
     // Keys
     // A hammered string: the Pluck engine struck near its end, with a
     // filter that opens on the hit and closes as it rings, so it starts
@@ -202,6 +202,10 @@ pub const PRESETS: [Preset; 32] = [
         (ATTACK, 0.005), (SUSTAIN, 0.8), (RELEASE, 0.2), (VOICES, 1.0), (GLIDE, 0.04)],
         &[(ModEnv, PITCH_2, 0.15), (Velocity, CUTOFF, 0.15)]),
     // Effects
+    // Bend dives every note an octave: a sci-fi zap.
+    p("Effects", "Laser", &[(LEVEL_2, 0.0), (CUTOFF, 5000.0), (RESONANCE, 0.2),
+        (ENV_AMOUNT, 0.0), (ATTACK, 0.001), (DECAY, 0.3), (SUSTAIN, 0.0), (RELEASE, 0.1),
+        (BEND, -12.0), (BEND_TIME, 0.2)], &[]),
     p("Effects", "Shaker (noise)", &[(WAVE, 4.0), (LEVEL_2, 0.0), (CUTOFF, 7000.0),
         (RESONANCE, 0.2), (ENV_AMOUNT, 0.0), (ATTACK, 0.005), (DECAY, 0.06), (SUSTAIN, 0.0),
         (RELEASE, 0.05)], &[]),

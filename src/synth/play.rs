@@ -3,7 +3,8 @@
 //! mallet, FM, a wavetable). Poly plays chords; Mono and Legato play one note at a time,
 //! and Glide slides between them.
 //! Volume is the synth's own level (automation can move it; the track's
-//! Mix volume comes after).
+//! Mix volume comes after). Bend slides every note's pitch by that many
+//! semitones over Bend time (a pitch envelope), for droops and dives.
 
 use super::{choice, param, ModuleInfo, Unit};
 
@@ -11,6 +12,8 @@ pub const VOICES: usize = 0;
 pub const GLIDE: usize = 1;
 pub const VOLUME: usize = 2;
 pub const ENGINE: usize = 3;
+pub const BEND: usize = 4;
+pub const BEND_TIME: usize = 5;
 
 pub const MODES: [&str; 3] = ["Poly", "Mono", "Legato"];
 /// What makes the sound; each has its own panel section.
@@ -28,8 +31,10 @@ pub const INFO: ModuleInfo = ModuleInfo {
         param("Glide", 0.0, 1.0, 0.0, false, Unit::Seconds),
         param("Volume", 0.0, 1.0, 0.7, false, Unit::Percent),
         param("Engine", 0.0, 4.0, 0.0, false, Unit::Choice(&ENGINES)),
+        param("Bend", -12.0, 12.0, 0.0, false, Unit::Semitones),
+        param("Bend time", 0.01, 4.0, 0.3, true, Unit::Seconds),
     ],
-    rows: &[&[ENGINE, VOICES, GLIDE]],
+    rows: &[&[ENGINE, VOICES, GLIDE], &[BEND, BEND_TIME]],
     open: true,
     engine: None,
 };

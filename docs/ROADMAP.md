@@ -92,6 +92,8 @@ menus).
 
 Newest first, by release.
 
+- v0.55: Bend and Bend time (Voice): every note slides its pitch by a set
+  amount, a pitch envelope
 - v0.54: sample Fade out: a trimmed hit dies away instead of stopping dead
 - v0.53: the instrument panel slides shut to a strip on the right edge
   and open again, like a drawer

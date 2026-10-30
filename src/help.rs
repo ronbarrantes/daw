@@ -223,7 +223,9 @@ const SECTIONS: &[(&str, &str)] = &[
          brightness) or Wavetable (sweep Position, or drag LFO 2 onto it). \
          Try the (pluck), (mallet), FM and wavetable presets. Voices is Poly (chords), Mono (one note at a time) or Legato (one \
          at a time, overlapping notes don't restart). Glide slides between \
-         notes in Mono and Legato.\n\
+         notes in Mono and Legato. Bend slides every note's pitch by that \
+         many semitones (fractions too) over Bend time; drag a chip onto \
+         Bend to vary it.\n\
          • Arpeggiator: plays held notes one at a time in a pattern (Up, \
          Down, Up/Down, Random, As played) at a rate tied to the tempo, over \
          1-4 octaves. Hold a chord on the keys, or draw long notes. Arp notes \
