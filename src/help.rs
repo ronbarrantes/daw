@@ -266,7 +266,8 @@ const SECTIONS: &[(&str, &str)] = &[
          • Pitched on: plays higher or lower with each note, like an \
          instrument. C at octave 4 is the original pitch.\n\
          • Start and End trim the sample (see the waveform), Fade in softens \
-         it, Reverse plays it backwards.\n\
+         it, Fade out makes the end die away (to shorten a hit without a hard \
+         cut), Reverse plays it backwards.\n\
          • Ring out plays to the end; off, it fades out over Release when \
          the note ends.",
     ),

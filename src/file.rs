@@ -275,6 +275,8 @@ enum Instrument {
         #[serde(default = "one")]
         end: f32,
         #[serde(default)]
+        fade_out: f32,
+        #[serde(default)]
         attack: f32,
         #[serde(default = "default_release")]
         release: f32,
@@ -433,6 +435,7 @@ pub fn to_bytes(project: &Project, bpm: f32) -> Result<Vec<u8>, String> {
                     pitched: *pitched,
                     start: shape.start,
                     end: shape.end,
+                    fade_out: shape.fade_out,
                     attack: shape.attack,
                     release: shape.release,
                     ring: shape.ring,
@@ -694,6 +697,7 @@ fn read_zip(bytes: Vec<u8>) -> Result<Song, String> {
                 pitched,
                 start,
                 end,
+                fade_out,
                 attack,
                 release,
                 ring,
@@ -702,6 +706,7 @@ fn read_zip(bytes: Vec<u8>) -> Result<Song, String> {
                 let shape = SampleShape {
                     start: start.clamp(0.0, 1.0),
                     end: end.clamp(0.0, 1.0),
+                    fade_out: fade_out.clamp(0.0, 1.0),
                     attack: attack.clamp(0.0, 1.0),
                     release: release.clamp(0.01, 3.0),
                     ring,
@@ -1199,6 +1204,7 @@ mod tests {
         let shaped = SampleShape {
             start: 0.2,
             end: 0.9,
+            fade_out: 0.3,
             attack: 0.05,
             release: 0.4,
             ring: false,

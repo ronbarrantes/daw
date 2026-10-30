@@ -92,6 +92,7 @@ menus).
 
 Newest first, by release.
 
+- v0.54: sample Fade out: a trimmed hit dies away instead of stopping dead
 - v0.53: the instrument panel slides shut to a strip on the right edge
   and open again, like a drawer
 - v0.52: a pitch wheel on the computer keyboard (turn on Bend): hold
