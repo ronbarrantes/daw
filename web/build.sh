@@ -11,3 +11,4 @@ wasm-bindgen --target web --no-typescript --out-dir web/dist \
 cp web/index.html web/dist/
 cp assets/icon-512.png web/dist/icon.png
 cp assets/apple-touch-icon.png web/dist/
+cp -r web/designs web/dist/
