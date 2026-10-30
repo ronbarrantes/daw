@@ -284,6 +284,8 @@ pub const PITCH_2: usize = first_knob(&osc::INFO) + osc::PITCH_2;
 pub const DETUNE: usize = first_knob(&osc::INFO) + osc::DETUNE;
 pub const VOICES: usize = first_knob(&play::INFO) + play::VOICES;
 pub const GLIDE: usize = first_knob(&play::INFO) + play::GLIDE;
+pub const BEND: usize = first_knob(&play::INFO) + play::BEND;
+pub const BEND_TIME: usize = first_knob(&play::INFO) + play::BEND_TIME;
 pub const VOLUME: usize = first_knob(&play::INFO) + play::VOLUME;
 pub const ENGINE: usize = first_knob(&play::INFO) + play::ENGINE;
 pub const STRING_TONE: usize = first_knob(&pluck::INFO) + pluck::TONE;
@@ -403,6 +405,11 @@ pub struct Voice {
     bend_filter: f32,
     bend_target: (f32, f32),
     bend_coef: f32,
+    /// The pitch envelope: every note slides `slide` semitones, getting
+    /// `slide_step` of the way further each sample (`slide_at`, 0 to 1).
+    slide: f32,
+    slide_step: f32,
+    slide_at: f32,
 }
 
 impl Voice {
@@ -428,6 +435,9 @@ impl Voice {
             bend_filter: 0.0,
             bend_target: (0.0, 0.0),
             bend_coef: coef(0.01, sr),
+            slide: 0.0,
+            slide_step: 1.0,
+            slide_at: 0.0,
         };
         v.set_params(&PARAMS.map(|p| p.default));
         v
@@ -456,6 +466,8 @@ impl Voice {
             coef(play[play::GLIDE] / 3.0, sr)
         };
         self.volume = play[play::VOLUME];
+        self.slide = play[play::BEND];
+        self.slide_step = 1.0 / (play[play::BEND_TIME].max(0.001) * sr);
     }
 
     /// Moves the note's pitch by `semis` (fractions allowed, so between the
@@ -476,6 +488,7 @@ impl Voice {
             self.freq = self.target;
         }
         if retrigger || self.env.is_releasing() {
+            self.slide_at = 0.0;
             self.env.trigger();
             self.filter.trigger();
             match self.engine {
@@ -509,6 +522,10 @@ impl Voice {
             self.bend_filter += (self.bend_target.1 - self.bend_filter) * self.bend_coef;
             pitch *= 2f32.powf(self.bend_semis / 12.0);
             cutoff_octaves += self.bend_filter;
+        }
+        if self.slide != 0.0 {
+            self.slide_at = (self.slide_at + self.slide_step).min(1.0);
+            pitch *= 2f32.powf(self.slide * self.slide_at / 12.0);
         }
         let mut level = 1.0;
         if self.lfo_amount > 0.0 {
@@ -623,6 +640,27 @@ mod tests {
     }
 
     #[test]
+    fn bend_slides_every_note_by_its_semitones() {
+        let mut values = open_filter();
+        values[WAVE] = 0.0; // a sine, for a clean pitch
+        values[SUSTAIN] = 1.0;
+        values[BEND] = -1.0;
+        values[BEND_TIME] = 0.1;
+        let out = play(&values, 60, 24_000);
+        let start = pitch_of(&out[200..1_400]);
+        let end = pitch_of(&out[12_000..24_000]);
+        let c4 = midi_to_hz(60);
+        assert!((start / c4 - 1.0).abs() < 0.03, "starts on C4: {start} Hz");
+        let b3 = midi_to_hz(59);
+        assert!((end / b3 - 1.0).abs() < 0.01, "ends on B3: {end} Hz");
+        // A quarter of a semitone, the other way.
+        values[BEND] = 0.25;
+        let end = pitch_of(&play(&values, 60, 24_000)[12_000..]);
+        let up = c4 * 2f32.powf(0.25 / 12.0);
+        assert!((end / up - 1.0).abs() < 0.005, "{end} Hz, not {up}");
+    }
+
+    #[test]
     fn waves_sound_different_and_noise_has_no_pitch() {
         let mut sine = open_filter();
         sine[WAVE] = 0.0;
@@ -717,10 +755,10 @@ mod tests {
     fn modules_sound_exactly_like_the_old_synth() {
         use legacy::{Lfo as OldLfo, Voice as OldVoice, PARAMS as OLD_PARAMS};
         let sr = 48_000.0;
-        // The old synth only had the analog oscillators.
+        // The old synth only had the analog oscillators, and no Bend.
         let mut patches: Vec<Values> = (0..PRESETS.len())
             .map(preset)
-            .filter(|v| engine(v) == ANALOG)
+            .filter(|v| engine(v) == ANALOG && v[BEND] == 0.0)
             .collect();
         for (i, p) in patches.clone().iter().enumerate() {
             let mut p = *p;

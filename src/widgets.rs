@@ -140,6 +140,8 @@ pub fn format_value(p: &Param, v: f32) -> String {
                 format!("{}/{}", WAVES[i], WAVES[i + 1])
             }
         }
+        // Whole semitones as +7 or -12; in between as -0.25.
+        Unit::Semitones if (v - v.round()).abs() >= 0.005 => format!("{v:+.2}"),
         Unit::Semitones => match v.round() as i32 {
             0 => "0".into(),
             n => format!("{n:+}"),

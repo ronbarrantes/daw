@@ -476,7 +476,7 @@ it. Hover for what each one does. To keep scrolling down:
   changed one). Pick a starting sound, in groups: **Keys** (grand piano,
   electric piano, organ...), **Plucks** (guitars, harp, koto), **Mallets &
   bells**, **Bass**, **Strings & pads**, **Leads** (brass, violin,
-  flute...) and **Effects** (shaker, wind, random bleeps). Each uses
+  flute...) and **Effects** (laser, shaker, wind, random bleeps). Each uses
   whichever engine suits it, and most bring modulation with them: slow
   movement on pads and strings, a swell on brass, and Velocity, so notes
   played harder on a MIDI keyboard come out brighter. Every knob can be
@@ -495,8 +495,11 @@ it. Hover for what each one does. To keep scrolling down:
   its own section. **Voices** on **Poly** plays chords, **Mono**
   one note at a time, and **Legato** one at a time where a note played
   while another is held just changes pitch without restarting. **Glide**
-  slides between notes in Mono and Legato (portamento). **Humanize** varies
-  timing and loudness.
+  slides between notes in Mono and Legato (portamento). **Bend** slides
+  every note's pitch by that many semitones (fractions too, like -0.25)
+  over **Bend time**: a droop, a dive or a rise on each note, no extra
+  keys. Drag a chip onto Bend to vary it, e.g. Velocity so harder notes
+  bend further. **Humanize** varies timing and loudness.
 - **Pluck** (Engine on Pluck): a plucked string that rings and dies away
   by itself, like a guitar, harp or koto. **String tone** is dull to
   bright, **String decay** how long it rings, **Pick spot** where it's
