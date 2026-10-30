@@ -92,6 +92,8 @@ menus).
 
 Newest first, by release.
 
+- v0.55.1: the Mac app builds on GitHub's current macOS runners (the old
+  ones stopped, so v0.55.0 had no release); includes v0.55.0's Bend
 - v0.55: Bend and Bend time (Voice): every note slides its pitch by a set
   amount, a pitch envelope
 - v0.54: sample Fade out: a trimmed hit dies away instead of stopping dead

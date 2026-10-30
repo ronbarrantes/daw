@@ -77,7 +77,9 @@ jobs:
           # An older Ubuntu, so the binary runs on older and newer distros alike.
           - os: ubuntu-22.04
             name: linux-x86_64
-          - os: macos-14
+          # Apple Silicon. (macos-14 runners stopped being handed out in
+          # October 2026; jobs asking for them were cancelled at once.)
+          - os: macos-latest
             name: macos-arm64
           - os: windows-latest
             name: windows-x86_64
