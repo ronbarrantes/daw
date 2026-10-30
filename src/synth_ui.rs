@@ -105,9 +105,27 @@ pub(super) struct Snapshot {
 /// section per synth module, then the rest.
 pub(super) fn section_titles() -> impl Iterator<Item = &'static str> {
     std::iter::once("Scope")
-        .chain(synth::MODULES.iter().map(|m| m.name))
+        .chain(SYNTH_ORDER)
         .chain(["Sample", "Mix", "Theremin"])
 }
+
+/// The synth's sections in the panel, which isn't their order in
+/// `synth::MODULES`: the LFOs sit by the sound they wobble and the mod
+/// envelope by the envelope, so they read as connected.
+const SYNTH_ORDER: [&str; 12] = [
+    "Voice",
+    "Oscillators",
+    "Pluck",
+    "Mallet",
+    "FM",
+    "Wavetable",
+    "LFO",
+    "LFO 2",
+    "Filter",
+    "Envelope (ADSR)",
+    "Mod envelope",
+    "Arpeggiator",
+];
 
 /// Whether a section starts unfolded.
 fn starts_open(title: &str) -> bool {
@@ -968,6 +986,20 @@ impl App {
             .clicked()
         {
             self.delete_selected();
+        }
+    }
+}
+
+#[cfg(test)]
+mod order_tests {
+    use super::*;
+
+    #[test]
+    fn the_panel_shows_every_synth_section_once() {
+        assert_eq!(SYNTH_ORDER.len(), synth::MODULES.len());
+        for m in synth::MODULES {
+            let n = SYNTH_ORDER.iter().filter(|&&t| t == m.name).count();
+            assert_eq!(n, 1, "{}", m.name);
         }
     }
 }

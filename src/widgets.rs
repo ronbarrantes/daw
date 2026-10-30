@@ -69,6 +69,28 @@ pub fn disclosure_arrow(ui: &mut egui::Ui, collapsed: bool) -> egui::Response {
     resp
 }
 
+/// A triangle pointing left or right, like `disclosure_arrow`'s, over a
+/// clickable area of `size`; `label` names it for screen readers (and tests).
+pub fn side_arrow(ui: &mut egui::Ui, size: Vec2, left: bool, label: &str) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
+    let color = if resp.hovered() {
+        Color32::WHITE
+    } else {
+        Color32::from_gray(180)
+    };
+    let c = rect.center();
+    let x = if left { -1.0 } else { 1.0 };
+    let points = vec![
+        c + Vec2::new(-3.5 * x, -5.0),
+        c + Vec2::new(3.5 * x, 0.0),
+        c + Vec2::new(-3.5 * x, 5.0),
+    ];
+    ui.painter()
+        .add(egui::Shape::convex_polygon(points, color, Stroke::NONE));
+    resp
+}
+
 /// A dropdown of MIDI ports. Returns `Some(choice)` when the user picks one,
 /// where the choice is `None` for "Off".
 pub fn port_picker(
