@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>A · Tidy</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Ubuntu:wght@400;500&amp;display=swap">
+<style>
+body{margin:0}
+button{font-family:inherit}
+</style>
+</helmet>
+<div style="width: 1366px; height: 768px; box-sizing: border-box; background: #1c1c1e; color: #e6e6e6; font-family: Ubuntu, sans-serif; font-size: 13px; display: flex; flex-direction: column">
+
+  <!-- Top bar: grouped clusters -->
+  <div style="height: 48px; box-sizing: border-box; padding: 0 16px; display: flex; align-items: center; gap: 20px; background: #232326; border-bottom: 1px solid #2f2f33">
+    <div style="display: flex; gap: 2px; background: #18181a; border-radius: 3px; padding: 3px">
+      <button style="border: 0; border-radius: 4px; padding: 6px 14px; background: #3a6fd8; color: #fff; font-size: 13px">Jam</button>
+      <button style="border: 0; border-radius: 4px; padding: 6px 14px; background: transparent; color: #b8b8bd; font-size: 13px">Arrange</button>
+    </div>
+    <div style="display: flex; align-items: center; gap: 8px">
+      <button aria-label="Play" style="width: 34px; height: 30px; border: 0; border-radius: 3px; background: #2f2f33; color: #e6e6e6">
+        <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12"><path d="M2 1l9 5-9 5z" fill="currentColor"></path></svg>
+      </button>
+      <button aria-label="Record" style="width: 34px; height: 30px; border: 0; border-radius: 3px; background: #2f2f33; color: #e05a4f">
+        <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="5" fill="currentColor"></circle></svg>
+      </button>
+      <span style="color: #9a9aa0; margin-left: 6px">BPM</span><span style="background: #2f2f33; border-radius: 4px; padding: 5px 8px">100</span>
+      <span style="color: #9a9aa0">Swing</span><span style="background: #2f2f33; border-radius: 4px; padding: 5px 8px">0%</span>
+    </div>
+    <div style="display: flex; gap: 2px; background: #18181a; border-radius: 3px; padding: 3px">
+      <button style="border: 0; border-radius: 4px; padding: 5px 10px; background: #3a3a3f; color: #fff; font-size: 12px">Pattern</button>
+      <button style="border: 0; border-radius: 4px; padding: 5px 10px; background: transparent; color: #b8b8bd; font-size: 12px">Chain</button>
+    </div>
+    <div style="display: flex; gap: 6px">
+      <button style="border: 1px solid #3a3a3f; border-radius: 4px; padding: 5px 10px; background: transparent; color: #b8b8bd; font-size: 12px">Click</button>
+      <button style="border: 1px solid #3a3a3f; border-radius: 4px; padding: 5px 10px; background: transparent; color: #b8b8bd; font-size: 12px">FX</button>
+    </div>
+    <div style="flex-grow: 1"></div>
+    <span style="color: #9a9aa0">Master</span>
+    <div style="width: 120px; height: 8px; border-radius: 4px; background: #2f2f33; overflow: hidden"><div style="width: 62%; height: 8px; background: #57b36a"></div></div>
+  </div>
+
+  <div style="flex-grow: 1; display: flex; min-height: 0">
+    <!-- Editor -->
+    <div style="flex-grow: 1; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0">
+      <div style="display: flex; align-items: center; gap: 10px">
+        <span style="width: 64px; color: #9a9aa0">Patterns</span>
+        <sc-for list="{{patterns}}" as="p" hint-placeholder-count="4">
+          <button style="{{p.style}}">{{p.name}}</button>
+        </sc-for>
+        <button aria-label="New pattern" style="width: 30px; height: 30px; border: 1px solid #3a3a3f; border-radius: 3px; background: transparent; color: #9a9aa0">+</button>
+        <div style="width: 1px; height: 22px; background: #333338; margin: 0 6px"></div>
+        <span style="color: #9a9aa0">Length</span>
+        <div style="display: flex; gap: 2px; background: #18181a; border-radius: 3px; padding: 3px">
+          <button style="border: 0; border-radius: 4px; padding: 4px 9px; background: transparent; color: #b8b8bd; font-size: 12px">1</button>
+          <button style="border: 0; border-radius: 4px; padding: 4px 9px; background: #3a3a3f; color: #fff; font-size: 12px">2</button>
+          <button style="border: 0; border-radius: 4px; padding: 4px 9px; background: transparent; color: #b8b8bd; font-size: 12px">4</button>
+          <button style="border: 0; border-radius: 4px; padding: 4px 9px; background: transparent; color: #b8b8bd; font-size: 12px">8</button>
+        </div>
+        <span style="color: #9a9aa0">bars</span>
+        <div style="display: flex; gap: 4px; margin-left: 8px">
+          <button style="border: 0; border-radius: 4px; padding: 4px 10px; background: #3a6fd8; color: #fff; font-size: 12px">Bar 1</button>
+          <button style="border: 0; border-radius: 4px; padding: 4px 10px; background: #2f2f33; color: #b8b8bd; font-size: 12px">Bar 2</button>
+        </div>
+      </div>
+
+      <!-- Tool bar, visible -->
+      <div style="display: flex; align-items: center; gap: 8px; color: #9a9aa0; font-size: 12px">
+        <span style="width: 64px">Tool</span>
+        <button style="border: 0; border-radius: 4px; padding: 5px 10px; background: #3a3a3f; color: #fff; font-size: 12px">Draw</button>
+        <button style="border: 0; border-radius: 4px; padding: 5px 10px; background: #2f2f33; color: #b8b8bd; font-size: 12px">Select</button>
+        <button style="border: 0; border-radius: 4px; padding: 5px 10px; background: #2f2f33; color: #b8b8bd; font-size: 12px">Erase</button>
+        <span style="margin-left: 10px">Drag to paint · Shift-drag to select · right-click a step for groove</span>
+      </div>
+
+      <!-- Tracks -->
+      <div style="display: flex; flex-direction: column; gap: 4px">
+        <sc-for list="{{tracks}}" as="t" hint-placeholder-count="6">
+          <div style="display: flex; align-items: center; gap: 6px">
+            <button style="{{t.nameStyle}}">{{t.name}}</button>
+            <button style="width: 24px; height: 28px; border: 0; border-radius: 4px; background: #2f2f33; color: #b8b8bd; font-size: 11px">M</button>
+            <button style="width: 24px; height: 28px; border: 0; border-radius: 4px; background: #2f2f33; color: #b8b8bd; font-size: 11px">S</button>
+            <button style="width: 44px; height: 28px; border: 0; border-radius: 4px; background: #2f2f33; color: #b8b8bd; font-size: 11px">{{t.bars}}</button>
+            <div style="display: flex; gap: 3px; margin-left: 6px">
+              <sc-for list="{{t.steps}}" as="s" hint-placeholder-count="16">
+                <div style="{{s.style}}"></div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+      <div style="display: flex; gap: 8px; padding-left: 0">
+        <button style="border: 1px solid #3a3a3f; border-radius: 3px; padding: 5px 12px; background: transparent; color: #b8b8bd; font-size: 12px">+ Synth</button>
+        <button style="border: 1px solid #3a3a3f; border-radius: 3px; padding: 5px 12px; background: transparent; color: #b8b8bd; font-size: 12px">+ Drum</button>
+        <button style="border: 1px solid #3a3a3f; border-radius: 3px; padding: 5px 12px; background: transparent; color: #b8b8bd; font-size: 12px">+ Sample</button>
+      </div>
+    </div>
+
+    <!-- Instrument drawer with tabs -->
+    <div style="width: 300px; box-sizing: border-box; background: #232326; border-left: 1px solid #2f2f33; padding: 12px 14px; display: flex; flex-direction: column; gap: 12px">
+      <div style="display: flex; align-items: center; gap: 8px">
+        <button aria-label="Hide the instrument panel" style="width: 22px; height: 22px; border: 0; background: transparent; color: #9a9aa0; padding: 0">
+          <svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10"><path d="M2 0l7 5-7 5z" fill="currentColor"></path></svg>
+        </button>
+        <span style="font-size: 18px; font-weight: 500">Lead</span>
+        <div style="flex-grow: 1"></div>
+        <span style="color: #9a9aa0; font-size: 12px">Synth</span>
+      </div>
+      <div style="display: flex; gap: 6px">
+        <button style="border: 0; border-radius: 3px; padding: 6px 12px; background: #2f2f33; color: #e6e6e6; font-size: 12px">Drone</button>
+        <button style="border: 0; border-radius: 3px; padding: 6px 12px; background: #2f2f33; color: #e6e6e6; font-size: 12px">Tap</button>
+        <div style="flex-grow: 1"></div>
+        <span style="background: #18181a; border-radius: 4px; padding: 6px 8px; font-size: 12px">Preset: Grand piano</span>
+      </div>
+      <!-- Tabs instead of one long scroll -->
+      <div style="display: flex; gap: 2px; background: #18181a; border-radius: 3px; padding: 3px">
+        <button style="flex-grow: 1; border: 0; border-radius: 4px; padding: 6px 0; background: transparent; color: #b8b8bd; font-size: 12px">Sound</button>
+        <button style="flex-grow: 1; border: 0; border-radius: 4px; padding: 6px 0; background: transparent; color: #b8b8bd; font-size: 12px">Shape</button>
+        <button style="flex-grow: 1; border: 0; border-radius: 4px; padding: 6px 0; background: #3a6fd8; color: #fff; font-size: 12px">Motion</button>
+        <button style="flex-grow: 1; border: 0; border-radius: 4px; padding: 6px 0; background: transparent; color: #b8b8bd; font-size: 12px">Mix</button>
+      </div>
+      <div style="color: #9a9aa0; font-size: 11px; letter-spacing: 0.04em">MODULATION</div>
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <sc-for list="{{mods}}" as="m" hint-placeholder-count="3">
+          <div style="display: flex; align-items: center; gap: 8px; background: #2a2a2e; border-radius: 3px; padding: 8px 10px">
+            <span style="{{m.chip}}">{{m.source}}</span>
+            <span style="color: #9a9aa0">to</span>
+            <span style="flex-grow: 1">{{m.knob}}</span>
+            <div style="width: 54px; height: 6px; border-radius: 3px; background: #3a3a3f"><div style="{{m.bar}}"></div></div>
+            <button aria-label="Remove link" style="border: 0; background: transparent; color: #9a9aa0; font-size: 14px; padding: 0 2px">×</button>
+          </div>
+        </sc-for>
+        <button style="border: 1px solid #3a3a3f; border-radius: 3px; padding: 8px; background: transparent; color: #b8b8bd; font-size: 12px">+ Add modulation</button>
+      </div>
+      <div style="color: #9a9aa0; font-size: 11px; letter-spacing: 0.04em; margin-top: 4px">LFO 2</div>
+      <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px">
+        <sc-for list="{{knobs}}" as="k" hint-placeholder-count="4">
+          <div style="display: flex; flex-direction: column; align-items: center; gap: 4px">
+            <div style="width: 40px; height: 40px; border-radius: 20px; border: 3px solid #e0913a; box-sizing: border-box; background: #2a2a2e"></div>
+            <span style="font-size: 11px">{{k.name}}</span>
+            <span style="font-size: 10px; color: #9a9aa0">{{k.value}}</span>
+          </div>
+        </sc-for>
+      </div>
+      <div style="color: #9a9aa0; font-size: 11px; margin-top: auto">Right-click any knob: Modulate with...</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#3a6fd8"},"$preview":{"width":1366,"height":768}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const accent = this.props.accent ?? '#3a6fd8';
+    const pat = (on) => 'width: 30px; height: 30px; border-radius: 3px; font-size: 13px; ' + (on ? 'border: 2px solid #fff; background: ' + accent + '; color: #fff' : 'border: 0; background: #2f2f33; color: #b8b8bd');
+    const patterns = ['A', 'B', 'C', 'D'].map((n, i) => ({ name: n, style: pat(i === 0) }));
+    const rows = [
+      ['Kick', 'x...x...x...x...', '#e0913a', '1 bar'],
+      ['Snare', '....x.......x...', '#e0913a', '1 bar'],
+      ['Hat', 'x.x.x.x.x.x.x.x.', '#e0913a', '1 bar'],
+      ['Clave', 'x..x..x...x.x...', '#e0913a', '2 bars'],
+      ['Lead', 'x..x..x.x...x...', '#5b8ef0', '2 bars'],
+      ['Pad', 'x...............', '#5b8ef0', '1 bar'],
+    ];
+    const tracks = rows.map(([name, s, on, bars], ti) => ({
+      name, bars,
+      nameStyle: 'width: 84px; height: 28px; border-radius: 4px; font-size: 12px; text-align: left; padding: 0 10px; ' + (ti === 4 ? 'border: 1px solid ' + accent + '; background: #2b3550; color: #fff' : 'border: 0; background: #2a2a2e; color: #e6e6e6'),
+      steps: s.split('').map((c, i) => ({
+        style: 'width: 34px; height: 28px; border-radius: 4px; ' + (i % 4 === 0 && i > 0 ? 'margin-left: 6px; ' : '') + 'background: ' + (c === 'x' ? on : (Math.floor(i / 4) % 2 ? '#26262a' : '#2e2e33')),
+      })),
+    }));
+    const chip = (c) => 'border-radius: 2px; padding: 2px 7px; font-size: 11px; color: #111; background: ' + c;
+    const mods = [
+      { source: 'LFO 2', knob: 'Cutoff', chip: chip('#e0913a'), bar: 'width: 60%; height: 6px; border-radius: 3px; background: #e0913a' },
+      { source: 'Mod env', knob: 'Bend', chip: chip('#c98ce6'), bar: 'width: 35%; height: 6px; border-radius: 3px; background: #c98ce6' },
+      { source: 'Velocity', knob: 'Tone', chip: chip('#7fd18a'), bar: 'width: 30%; height: 6px; border-radius: 3px; background: #7fd18a' },
+    ];
+    const knobs = [{ name: 'Wave', value: 'Sine' }, { name: 'Rate', value: '1/8' }, { name: 'Sync', value: 'On' }, { name: 'Retrig', value: 'Off' }];
+    return { patterns, tracks, mods, knobs };
+  }
+}
+</script>
+</body>
+</html>
