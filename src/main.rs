@@ -655,9 +655,8 @@ impl App {
             .exact_width(290.0);
         egui::SidePanel::show_animated_between(ctx, self.view.panel, closed, open, |ui, how| {
             if how == 0.0 {
-                let handle = egui::Button::new("<").frame(false);
-                if ui
-                    .add_sized(ui.available_size(), handle)
+                let size = ui.available_size();
+                if widgets::side_arrow(ui, size, true, "Show the instrument panel")
                     .on_hover_text("Show the instrument panel (F8)")
                     .clicked()
                 {
@@ -666,8 +665,8 @@ impl App {
                 return;
             }
             ui.horizontal(|ui| {
-                if ui
-                    .small_button(">")
+                let size = Vec2::new(18.0, 18.0);
+                if widgets::side_arrow(ui, size, false, "Hide the instrument panel")
                     .on_hover_text("Hide the instrument panel (F8)")
                     .clicked()
                 {

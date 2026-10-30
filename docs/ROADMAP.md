@@ -92,6 +92,8 @@ menus).
 
 Newest first, by release.
 
+- v0.55.2: the LFOs sit by the sound engine and Mod envelope by the
+  envelope in the panel; the drawer's arrows are triangles like the rest
 - v0.55.1: the Mac app builds on GitHub's current macOS runners (the old
   ones stopped, so v0.55.0 had no release); includes v0.55.0's Bend
 - v0.55: Bend and Bend time (Voice): every note slides its pitch by a set
