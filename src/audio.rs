@@ -340,11 +340,13 @@ struct TrackVoice {
     pos: f64,
     rate: f64,
     gain: f32,
-    /// The part of the sample it plays, in samples, and its fade: `env`
+    /// The part of the sample it plays, in samples, and its fades: `env`
     /// rises by `attack_step` each sample, and once released (unless it
-    /// rings out) falls by `release_coef` of itself.
+    /// rings out) falls by `release_coef` of itself. The last `fade_len`
+    /// samples before the part's end fade out on a curve.
     begin: f64,
     end: f64,
+    fade_len: f64,
     env: f32,
     attack_step: f32,
     release_coef: f32,
@@ -378,6 +380,7 @@ impl TrackVoice {
             gain: 1.0,
             begin: 0.0,
             end: 0.0,
+            fade_len: 0.0,
             env: 1.0,
             attack_step: 1.0,
             release_coef: 0.0,
@@ -409,7 +412,16 @@ impl TrackVoice {
         // Linear interpolation, so pitched-up or -down samples stay smooth.
         let frac = (self.pos - i as f64) as f32;
         self.pos += self.rate;
-        let out = s.data[i] + (s.data[i + 1] - s.data[i]) * frac;
+        let mut out = s.data[i] + (s.data[i + 1] - s.data[i]) * frac;
+        let left = if self.rate > 0.0 {
+            self.end - self.pos
+        } else {
+            self.pos - self.begin
+        };
+        if left < self.fade_len {
+            let x = (left / self.fade_len).max(0.0) as f32;
+            out *= x * x;
+        }
         if self.releasing && !self.ring {
             self.env -= self.env * self.release_coef;
             if self.env < 1e-4 {
@@ -829,6 +841,12 @@ impl Engine {
                 let (a, b) = (shape.start.min(shape.end), shape.start.max(shape.end));
                 voice.begin = (a as f64 * len).floor();
                 voice.end = (b as f64 * len).min(len);
+                // Trimmed where it stops, it always gets a few ms of fade
+                // so the cut doesn't click.
+                let cut = if shape.reverse { a > 0.0 } else { b < 1.0 };
+                let anti_click = if cut { 0.003 * sample.rate as f64 } else { 0.0 };
+                let part = voice.end - voice.begin;
+                voice.fade_len = (shape.fade_out as f64 * part).max(anti_click).min(part);
                 (voice.pos, voice.rate) = if shape.reverse {
                     (voice.end - 2.0, -rate)
                 } else {
@@ -2888,7 +2906,7 @@ mod tests {
             "half a second: {}",
             sound.len()
         );
-        assert!(sound[0] < sound[sound.len() - 1], "rising");
+        assert!(sound[0] < sound[sound.len() - 500], "rising");
         let (project, i) = shaped_sample(SampleShape {
             reverse: true,
             ..half
@@ -2897,6 +2915,40 @@ mod tests {
         rig.send(Event::Preview { track: i, note: 60 });
         let sound: Vec<f32> = rig.run(48_000).into_iter().filter(|s| *s != 0.0).collect();
         assert!(sound[0] > sound[sound.len() - 1], "falling: backwards");
+    }
+
+    #[test]
+    fn trimmed_samples_fade_out_to_their_end() {
+        use crate::project::SampleShape;
+        // The first half, its second half fading out.
+        let (project, i) = shaped_sample(SampleShape {
+            end: 0.5,
+            fade_out: 0.5,
+            ..SampleShape::DEFAULT
+        });
+        let mut rig = Rig::new(project);
+        rig.send(Event::Preview { track: i, note: 60 });
+        let out = rig.run(24_000);
+        // The ramp, at whatever level the mix plays it.
+        let level = out[0] / 0.1;
+        let ramp = |n: usize| level * (0.1 + 0.8 * n as f32 / 48_000.0);
+        let near = |got: f32, want: f32| (got - want).abs() < 0.02 * want.max(0.05);
+        assert!(near(out[6_000], ramp(6_000)), "untouched before the fade");
+        // Halfway through the fade it's at a quarter: a curve, not a line.
+        assert!(near(out[18_000], ramp(18_000) * 0.25), "{}", out[18_000]);
+        assert!(out[23_990].abs() < 1e-3, "silent at the end");
+        // With no fade, a trimmed end still doesn't stop dead.
+        let (project, i) = shaped_sample(SampleShape {
+            end: 0.5,
+            ..SampleShape::DEFAULT
+        });
+        let mut rig = Rig::new(project);
+        rig.send(Event::Preview { track: i, note: 60 });
+        let out = rig.run(24_000);
+        let level = out[0] / 0.1;
+        let ramp = |n: usize| level * (0.1 + 0.8 * n as f32 / 48_000.0);
+        assert!(near(out[23_000], ramp(23_000)), "only the last few ms fade");
+        assert!(out[23_990].abs() < 0.05, "no click: {}", out[23_990]);
     }
 
     #[test]

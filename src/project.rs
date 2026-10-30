@@ -76,6 +76,9 @@ pub struct SampleShape {
     /// Where it starts and ends, 0-1 of the sample's length.
     pub start: f32,
     pub end: f32,
+    /// How much of the part played fades out to silence at its end, 0-1,
+    /// so a trimmed hit dies away instead of stopping dead.
+    pub fade_out: f32,
     /// Fade-in time, in seconds.
     pub attack: f32,
     /// Fade-out time after the note ends, in seconds, unless it rings out.
@@ -91,6 +94,7 @@ impl SampleShape {
     pub const DEFAULT: SampleShape = SampleShape {
         start: 0.0,
         end: 1.0,
+        fade_out: 0.0,
         attack: 0.0,
         release: 0.1,
         ring: true,

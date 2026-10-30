@@ -32,6 +32,12 @@ const SAMPLE_END: Param = Param {
     ..SAMPLE_START
 };
 
+const SAMPLE_FADE_OUT: Param = Param {
+    name: "Fade out",
+    default: 0.0,
+    ..SAMPLE_START
+};
+
 const SAMPLE_ATTACK: Param = Param {
     name: "Fade in",
     min: 0.0,
@@ -669,7 +675,7 @@ impl App {
             ) => {
                 ui.label(format!("Sample: {}", sample.name));
                 ui.weak(format!("{:.2} s, {} Hz", sample.seconds(), sample.rate));
-                waveform(ui, &sample.data, shape.start, shape.end, shape.reverse);
+                waveform(ui, &sample.data, shape);
                 ui.horizontal(|ui| {
                     let hint = "Off: plays as recorded, like a drum.\n\
                                 On: plays at the pitch of each note, like an instrument (C4 = as recorded).";
@@ -689,6 +695,7 @@ impl App {
                 ui.horizontal(|ui| {
                     changed |= knob(ui, &SAMPLE_START, &mut shape.start);
                     changed |= knob(ui, &SAMPLE_END, &mut shape.end);
+                    changed |= knob(ui, &SAMPLE_FADE_OUT, &mut shape.fade_out);
                     changed |= knob(ui, &SAMPLE_ATTACK, &mut shape.attack);
                     ui.add_enabled_ui(!shape.ring, |ui| {
                         changed |= knob(ui, &SAMPLE_RELEASE, &mut shape.release);

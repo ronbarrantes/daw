@@ -4,6 +4,7 @@ use std::f32::consts::PI;
 
 use eframe::egui::{self, Align, Color32, Layout, Pos2, RichText, Sense, Stroke, Vec2};
 
+use crate::project::SampleShape;
 use crate::synth::{choice, Param, Source, Unit, WAVES};
 
 pub const DRUM_ON: Color32 = Color32::from_rgb(255, 140, 40);
@@ -416,9 +417,16 @@ pub fn meter(ui: &mut egui::Ui, levels: [f32; 2], limiting: f32) -> egui::Respon
 }
 
 /// A sample's waveform, with the parts outside `start`..`end` (0-1)
-/// dimmed, so trimming shows what's left. An arrow-ish marker shows the
-/// direction when it plays backwards.
-pub fn waveform(ui: &mut egui::Ui, data: &[f32], start: f32, end: f32, reverse: bool) {
+/// dimmed, so trimming shows what's left, and the fade out drawn as loud
+/// as it plays. A label shows when it plays backwards.
+pub fn waveform(ui: &mut egui::Ui, data: &[f32], shape: &SampleShape) {
+    let SampleShape {
+        start,
+        end,
+        fade_out,
+        reverse,
+        ..
+    } = *shape;
     let size = Vec2::new(ui.available_width().min(270.0), 46.0);
     let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
     let painter = ui.painter_at(rect);
@@ -439,6 +447,15 @@ pub fn waveform(ui: &mut egui::Ui, data: &[f32], start: f32, end: f32, reverse: 
             .iter()
             .fold((0.0_f32, 0.0_f32), |(lo, hi), s| (lo.min(*s), hi.max(*s)));
         let t = c as f32 / columns as f32;
+        // Inside the fade, drawn as loud as it plays.
+        let left = if reverse { t - a } else { b - t };
+        let fade = fade_out * (b - a);
+        let gain = if (a..=b).contains(&t) && left < fade {
+            (left / fade).powi(2)
+        } else {
+            1.0
+        };
+        let (lo, hi) = (lo * gain, hi * gain);
         let color = if (a..=b).contains(&t) {
             Color32::from_rgb(90, 170, 230)
         } else {

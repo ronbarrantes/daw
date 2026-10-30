@@ -318,7 +318,9 @@ sounds with **+ Sample…** or drag and drop.
   instrument. C at octave 4 is the original pitch.
 - The **Sample** section shows its waveform. **Start** and **End** trim it
   (the part that plays stays blue), **Fade in** softens the start,
-  **Reverse** plays it backwards (try it on a cymbal).
+  **Fade out** makes the end die away smoothly (to shorten a hit, pull
+  **End** in and turn this up), **Reverse** plays it backwards (try it on
+  a cymbal).
 - **Ring out** on (the default) plays to the end however short the note,
   like a drum. Off, it fades out over **Release** when the note ends, for
   sustained sounds you play like an instrument.
