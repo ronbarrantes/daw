@@ -138,6 +138,9 @@ menus).
 
 Newest first, by release.
 
+- v0.62.2: steps a modest size (no stretching, spare room on the right),
+  the meter and Mix right after the steps, no Level label, and meters
+  that show even when silent
 - v0.62.1: the Tool (Draw, Erase) sits over the track names, and + Synth,
   + Drum and + Sample under the last track, so they read as the tracks'
 - v0.62: patterns, Length and Plays on the tracks' top line; steps stretch

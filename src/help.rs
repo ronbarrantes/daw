@@ -12,8 +12,7 @@ const SECTIONS: &[(&str, &str)] = &[
          • The tracks are for editing. Their top line has the patterns as \
          tabs (A, B...), the pattern's Length and what Plays (pattern or \
          chain). Each row is a color dot and name, its volume, M and S, its \
-         steps (two bars side by side, stretching to fill the window) and a \
-         meter at the right edge. A synth's piano roll \
+         steps (two bars side by side) and a meter right after them. A synth's piano roll \
          opens under its row when you click its name.\n\
          • The instrument drawer: the selected track's sound. Shut, it's one \
          line that sketches the sound; open (I or F8), its sections sit side by \
@@ -56,7 +55,7 @@ const SECTIONS: &[(&str, &str)] = &[
          tracks play. Use solo to hear one part on its own.\n\
          • Each row has the track's volume (the small slider by its name; \
          double-click to reset) and a meter after its steps. Mix (over the \
-         tracks, by Level) adds Pan, Reverb and Delay sliders to every row.\n\
+         meters) adds Pan, Reverb and Delay sliders to every row.\n\
          • Mix (instrument drawer): Volume, Pan (left or right; double-click for \
          centre), and Reverb and Delay: how much of the track goes to the \
          shared effects.\n\

@@ -469,7 +469,8 @@ pub fn level_bar(ui: &mut egui::Ui, level: f32, width: f32) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(Vec2::new(width, 20.0), Sense::hover());
     let bar = egui::Rect::from_center_size(rect.center(), Vec2::new(width, 6.0));
     let painter = ui.painter_at(rect);
-    painter.rect_filled(bar, 1.0, Color32::from_gray(40));
+    // Visible even when silent, so it reads as a meter.
+    painter.rect_filled(bar, 1.0, ui.visuals().widgets.inactive.weak_bg_fill);
     let level = level.clamp(0.0, 1.0);
     let lit = egui::Rect::from_min_size(bar.min, Vec2::new(level * width, bar.height()));
     painter.rect_filled(lit, 1.0, level_color(level));

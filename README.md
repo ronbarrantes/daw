@@ -149,8 +149,8 @@ Press **F1** (or **Help → How to use**) for the built-in guide.
 - **The tracks** are for editing. Their top line has the patterns as tabs
   (**A**, **B**...), the pattern's **Length** (1, 2, 4 or 8 bars) and what
   **Plays** (the pattern or the chain). Each row is a color dot and name,
-  its volume, **M** and **S**, its steps (two bars side by side, stretching
-  to fill the window) and, at the right edge, a meter. A synth's piano roll
+  its volume, **M** and **S**, its steps (two bars side by side) and a meter
+  right after them. A synth's piano roll
   opens under its row when you click its name.
 - **The instrument drawer:** the selected track's sound. Shut, it's one
   line that sketches the sound; open (**I** or **F8**), its sections sit
@@ -224,7 +224,7 @@ soloed tracks so you can hear a part on its own.
 - Rename a track by editing its name at the start of the instrument
   drawer's top line. **More** at the end of that line has its MIDI channel,
   closed sections and **Delete track**.
-- **Mix** (over the tracks, by **Level**) adds **Pan**, **Reverb** and
+- **Mix** (over the meters) adds **Pan**, **Reverb** and
   **Delay** as small sliders at the end of each row, for balancing tracks
   side by side.
 - **Mix** (instrument drawer): **Volume**, **Pan** (left or right in the stereo
