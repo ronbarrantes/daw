@@ -168,6 +168,9 @@ pub struct Shared {
     /// The loudest left and right samples since the UI last looked, as
     /// `f32` bits (`take_meter` reads and resets them).
     meter: [AtomicU32; 2],
+    /// Each track's loudest sample (after its volume and pan) since the UI
+    /// last looked, as `f32` bits, for the meters in the track rows.
+    track_meter: [AtomicU32; MAX_TRACKS],
     /// The most the limiter turned the mix down since the UI last looked,
     /// 0-1, as `f32` bits.
     limiting: AtomicU32,
@@ -220,6 +223,7 @@ impl Shared {
             dropouts: AtomicU32::new(0),
             stream_errors: AtomicU32::new(0),
             meter: [AtomicU32::new(0), AtomicU32::new(0)],
+            track_meter: std::array::from_fn(|_| AtomicU32::new(0)),
             limiting: AtomicU32::new(0),
             mod_live: (0..synth::PARAMS.len())
                 .map(|_| AtomicU32::new(0))
@@ -271,6 +275,13 @@ impl Shared {
         (peak, f32::from_bits(self.limiting.swap(0, Relaxed)))
     }
 
+    /// Track `i`'s peak level since the last call (0-1).
+    pub fn take_track_meter(&self, i: usize) -> f32 {
+        self.track_meter
+            .get(i)
+            .map_or(0.0, |m| f32::from_bits(m.swap(0, Relaxed)))
+    }
+
     /// The busiest audio callback since the last call, 0-1 of its time
     /// budget (more than 1 when it ran late).
     pub fn take_load(&self) -> f32 {
@@ -289,8 +300,11 @@ impl Shared {
     }
 
     /// Positive floats keep their order as bits, so `fetch_max` works.
-    fn report_meter(&self, peak: [f32; 2], limiting: f32) {
+    fn report_meter(&self, peak: [f32; 2], limiting: f32, tracks: &[f32; MAX_TRACKS]) {
         for (m, p) in self.meter.iter().zip(peak) {
+            m.fetch_max(p.max(0.0).to_bits(), Relaxed);
+        }
+        for (m, p) in self.track_meter.iter().zip(tracks) {
             m.fetch_max(p.max(0.0).to_bits(), Relaxed);
         }
         self.limiting
@@ -582,6 +596,8 @@ struct Engine {
     /// Peaks and limiting gathered for the meter, sent every
     /// `METER_INTERVAL` samples.
     meter_peak: [f32; 2],
+    /// Each track's peak, gathered the same way.
+    track_peak: [f32; MAX_TRACKS],
     meter_limiting: f32,
     meter_count: u32,
     /// Samples since anything was sent to the effects.
@@ -646,6 +662,7 @@ impl Engine {
             delay: Delay::new(sr),
             limiter: Limiter::new(sr),
             meter_peak: [0.0; 2],
+            track_peak: [0.0; MAX_TRACKS],
             meter_limiting: 0.0,
             meter_count: 0,
             fx_quiet: u32::MAX,
@@ -1706,6 +1723,8 @@ impl Engine {
             };
             mix[0] += out * gains[0];
             mix[1] += out * gains[1];
+            let peak = &mut self.track_peak[i];
+            *peak = peak.max(out.abs() * gains[0].max(gains[1]));
             send[0] += out * self.sends[i][0];
             send[1] += out * self.sends[i][1];
         }
@@ -1739,8 +1758,9 @@ impl Engine {
         self.meter_count += 1;
         if self.meter_count >= METER_INTERVAL {
             self.shared
-                .report_meter(self.meter_peak, self.meter_limiting);
+                .report_meter(self.meter_peak, self.meter_limiting, &self.track_peak);
             self.meter_peak = [0.0; 2];
+            self.track_peak = [0.0; MAX_TRACKS];
             self.meter_limiting = 0.0;
             self.meter_count = 0;
         }

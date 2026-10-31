@@ -317,6 +317,10 @@ struct App {
     tool: Tool,
     /// The oscilloscope and envelope drawing in the instrument panel.
     show_scope: bool,
+    /// Pan and the effect sends as columns on each track row.
+    show_mix: bool,
+    /// Each track's level for its meter, falling slowly between peaks.
+    track_levels: [f32; MAX_TRACKS],
     /// Redraw less often while playing, to save battery.
     low_power: bool,
     /// Instrument panel sections popped out into their own windows, by
@@ -465,6 +469,8 @@ impl App {
             drone_free: false,
             theremin: None,
             show_scope: true,
+            show_mix: false,
+            track_levels: [0.0; MAX_TRACKS],
             low_power: file::low_power(),
             popped: file::popped_sections(),
             popped_changed: false,
@@ -579,6 +585,9 @@ impl App {
             self.computer_keyboard(ctx, rolling);
         }
         self.shared.selected_track.store(self.selected, Relaxed);
+        for (i, level) in self.track_levels.iter_mut().enumerate() {
+            *level = self.shared.take_track_meter(i).max(*level * 0.85);
+        }
         while let Ok(result) = self.export_rx.try_recv() {
             self.exporting = false;
             match result {
@@ -685,7 +694,10 @@ impl App {
                         bar: self.shared.current_bar.load(Relaxed),
                         step: self.shared.current_step.load(Relaxed),
                     });
-                if self.view.tracks || self.view.piano {
+                // Only when there's something to pick: the bar of a longer
+                // pattern, or the length when the patterns are hidden.
+                let bars = self.project.pattern_bars(edit);
+                if (self.view.tracks || self.view.piano) && (bars > 1 || !self.view.song) {
                     self.bar_row(ui, edit, current);
                     ui.add_space(4.0);
                 }
@@ -699,7 +711,8 @@ impl App {
                     .tracks
                     .get(self.selected)
                     .is_some_and(Track::is_melodic);
-                if self.view.piano && melodic {
+                // Only with the tracks hidden: otherwise it's under its track.
+                if self.view.piano && melodic && !self.view.tracks {
                     ui.add_space(8.0);
                     self.piano_roll(ui, edit, current);
                 }
