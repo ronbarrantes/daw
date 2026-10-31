@@ -143,12 +143,14 @@ Press **F1** (or **Help → How to use**) for the built-in guide.
 
 **The screen**, top to bottom:
 
-- **The top bar:** the menus, **Jam** and **Arrange**, **▶** and **⏺**, a
-  display with where it's playing, the tempo and the swing, then the
-  patterns (**A**, **B**...) and **Bars**, **Pattern** or **Chain**,
+- **The top bar** is for playing: the menus, **Jam** and **Arrange**, **▶**
+  and **⏺**, a display with where it's playing, the tempo and the swing,
   **Click**, **Master** and the meter.
-- **The tracks:** each row is a color dot and name, its volume, **M** and
-  **S**, its steps (two bars side by side) and a meter. A synth's piano roll
+- **The tracks** are for editing. Their top line has the patterns as tabs
+  (**A**, **B**...), the pattern's **Length** (1, 2, 4 or 8 bars) and what
+  **Plays** (the pattern or the chain). Each row is a color dot and name,
+  its volume, **M** and **S**, its steps (two bars side by side, stretching
+  to fill the window) and, at the right edge, a meter. A synth's piano roll
   opens under its row when you click its name.
 - **The instrument drawer:** the selected track's sound. Shut, it's one
   line that sketches the sound; open (**I** or **F8**), its sections sit
@@ -385,14 +387,14 @@ Arrange.
 
 ### Patterns (Jam)
 
-The patterns are in the top bar (**A**, **B**...). Click one to edit it in
+The patterns are tabs on the tracks' top line (**A**, **B**...). Click one to edit it in
 the grid below; each holds every track's steps.
 
 - **+** adds a pattern (up to 64). Right-click one to **rename**,
   **duplicate** or **delete** it.
 - **Edit → Copy pattern / Paste pattern / Clear pattern** work on the
   pattern you're editing.
-- **Pattern** mode (top bar) loops the pattern you're editing.
+- **Plays: Pattern** (tracks' top line) loops the pattern you're editing.
 
 **Longer patterns.** A pattern can be 1, 2, 4 or 8 bars, and each track
 picks its own length in it, so a 2-bar clave can play over a 1-bar cowbell
@@ -401,7 +403,7 @@ without copying anything.
 - Right-click a track's name for its **Length** in this pattern: 1, 2, 4
   or 8 bars. New bars start as a copy of the ones before. Shorter parts
   repeat to fill the pattern.
-- **Bars 1 2 4 8** (top bar, next to the patterns) sets every track at
+- **Length 1 2 4 8** (tracks' top line, next to the patterns) sets every track at
   once. The pattern lasts as long as its longest track.
 - Two bars show side by side. A longer pattern gets **1-2**, **3-4**...
   over the tracks to pick which two. A track that's shorter shows the bar
@@ -417,7 +419,7 @@ appears over the tracks in **Chain** mode.
 - Click a square to put the selected pattern there; click it again (or
   right-click) to empty it. A longer pattern fills a square per bar: its
   name, then **2**, **3**... Side by side, a pattern plays its bars in turn.
-- **Chain** mode (top bar) plays the chain bar by bar, round and round.
+- **Plays: Chain** (tracks' top line) plays the chain bar by bar, round and round.
 - Pick another block from the drop-down, **+** starts an empty one, and
   **Save as new block** copies this chain into a new block to keep working
   on. Right-click the drop-down to rename, duplicate or delete the block.
