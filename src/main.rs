@@ -626,59 +626,38 @@ impl App {
 
         egui::TopBottomPanel::top("transport").show(ctx, |ui| {
             ui.add_space(4.0);
-            for err in [&self.audio_error, &self.midi.error, &self.load_error]
-                .into_iter()
-                .flatten()
-            {
-                ui.colored_label(Color32::RED, err);
-            }
-            if self.exporting {
-                ui.horizontal(|ui| {
-                    ui.spinner();
-                    ui.label("Exporting…");
-                });
-            } else if let Some(notice) = &self.notice {
-                ui.colored_label(Color32::LIGHT_GREEN, notice);
-            }
             self.transport_row(ui, playing);
             self.midi_row(ui);
             ui.add_space(4.0);
         });
 
-        // The instrument panel is a drawer: it slides shut to a thin strip
-        // on the right edge, and open again from it (or F8).
-        let closed = egui::SidePanel::right("instrument drawer")
-            .resizable(false)
-            .exact_width(22.0);
-        let open = egui::SidePanel::right("instrument")
-            .resizable(false)
-            .exact_width(290.0);
-        egui::SidePanel::show_animated_between(ctx, self.view.panel, closed, open, |ui, how| {
-            if how == 0.0 {
-                let size = ui.available_size();
-                if widgets::side_arrow(ui, size, true, "Show the instrument panel")
-                    .on_hover_text("Show the instrument panel (F8)")
-                    .clicked()
-                {
-                    self.view.panel = true;
-                }
-                return;
-            }
-            ui.horizontal(|ui| {
-                let size = Vec2::new(18.0, 18.0);
-                if widgets::side_arrow(ui, size, false, "Hide the instrument panel")
-                    .on_hover_text("Hide the instrument panel (F8)")
-                    .clicked()
-                {
-                    self.view.panel = false;
-                }
-            });
-            // Scrolls when the window is short (the scope adds height).
-            egui::ScrollArea::vertical().show(ui, |ui| match self.selected_group {
-                Some(id) => self.group_panel(ui, id),
-                None => self.instrument_panel(ui),
-            });
-        });
+        // Errors, notices and how hard the audio is working, always in view.
+        egui::TopBottomPanel::bottom("status")
+            .exact_height(20.0)
+            .show(ctx, |ui| self.status_line(ui));
+
+        // The instrument is a drawer along the bottom: shut, it's one line
+        // saying what's selected; open (I or F8), it lays every section
+        // out side by side.
+        if self.view.panel {
+            egui::TopBottomPanel::bottom("instrument")
+                .resizable(true)
+                .default_height(330.0)
+                .height_range(120.0..=(ctx.screen_rect().height() * 0.75).max(130.0))
+                .show(ctx, |ui| {
+                    self.drawer_bar(ui, true);
+                    egui::ScrollArea::vertical()
+                        .auto_shrink(false)
+                        .show(ui, |ui| match self.selected_group {
+                            Some(id) => self.group_panel(ui, id),
+                            None => self.instrument_panel(ui),
+                        });
+                });
+        } else {
+            egui::TopBottomPanel::bottom("instrument drawer")
+                .exact_height(24.0)
+                .show(ctx, |ui| self.drawer_bar(ui, false));
+        }
 
         egui::CentralPanel::default().show(ctx, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
@@ -1261,6 +1240,9 @@ impl App {
                     *shown = !*shown;
                 }
             }
+            if i.key_pressed(I) && i.modifiers.is_none() {
+                v.panel = !v.panel;
+            }
             if i.key_pressed(F9) {
                 *v = View {
                     others: v.others,
@@ -1507,6 +1489,90 @@ impl App {
         });
     }
 
+    /// The line along the very bottom: any error (or what just happened),
+    /// then how hard the audio is working. Click the load for Diagnostics.
+    fn status_line(&mut self, ui: &mut egui::Ui) {
+        // The busiest callback lately, falling slowly so peaks stay readable.
+        self.audio_load = self.shared.take_load().max(self.audio_load * 0.97);
+        ui.horizontal_centered(|ui| {
+            let errors: Vec<&String> = [&self.audio_error, &self.midi.error, &self.load_error]
+                .into_iter()
+                .flatten()
+                .collect();
+            if !errors.is_empty() {
+                for err in errors {
+                    ui.colored_label(Color32::LIGHT_RED, RichText::new(err).small());
+                }
+            } else if self.exporting {
+                ui.spinner();
+                ui.label(RichText::new("Exporting…").small());
+            } else if let Some(notice) = &self.notice {
+                ui.colored_label(Color32::LIGHT_GREEN, RichText::new(notice).small());
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let dropouts = self.shared.dropouts.load(Relaxed);
+                let load = format!("Audio {:.0}%", self.audio_load * 100.0);
+                let text = if dropouts > 0 {
+                    RichText::new(format!("{load} · {dropouts} dropouts"))
+                        .small()
+                        .color(Color32::from_rgb(230, 170, 90))
+                } else {
+                    RichText::new(load).small().weak()
+                };
+                let resp = ui
+                    .add(egui::Label::new(text).sense(egui::Sense::click()))
+                    .on_hover_text("How hard the audio is working. Click for Diagnostics.");
+                if resp.clicked() {
+                    self.show_diagnostics = true;
+                }
+            });
+        });
+    }
+
+    /// The instrument drawer's top line: an arrow to open or shut it, and
+    /// what's selected, so even shut it says what you'd be shaping.
+    fn drawer_bar(&mut self, ui: &mut egui::Ui, open: bool) {
+        ui.horizontal(|ui| {
+            let (label, hint) = if open {
+                ("Hide the instrument", "Hide the instrument (I or F8)")
+            } else {
+                ("Show the instrument", "Show the instrument (I or F8)")
+            };
+            if widgets::drawer_arrow(ui, !open, label)
+                .on_hover_text(hint)
+                .clicked()
+            {
+                self.view.panel = !open;
+            }
+            ui.label(RichText::new("Instrument").small().strong());
+            if open {
+                return;
+            }
+            if let Some(id) = self.selected_group {
+                if let Some(g) = self.project.groups.iter().find(|g| g.id == id) {
+                    ui.label(RichText::new(format!("{} (group)", g.name)).small());
+                }
+            } else if let Some(t) = self.project.tracks.get(self.selected) {
+                ui.label(RichText::new(&t.name).small());
+                let what = match &t.kind {
+                    Kind::Synth(v) => format!("Synth · {}", synth_ui::preset_name(v)),
+                    Kind::Sampler { sample, .. } => format!("Sample · {}", sample.name),
+                };
+                ui.label(RichText::new(what).small().weak());
+                if ui
+                    .small_button("Tap")
+                    .on_hover_text("Play one short note")
+                    .clicked()
+                {
+                    self.preview(self.selected, 0);
+                }
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(RichText::new("I to open").small().weak());
+            });
+        });
+    }
+
     /// Logs each error the app shows, once, as it appears.
     fn log_errors(&mut self) {
         let now = [
@@ -1531,8 +1597,6 @@ impl App {
             return;
         }
         let s = &self.shared;
-        // The busiest callback lately, falling slowly so peaks stay readable.
-        self.audio_load = s.take_load().max(self.audio_load * 0.97);
         let sr = s.sample_rate.load(Relaxed).max(1);
         let buffer = s.buffer.load(Relaxed);
         let facts = [

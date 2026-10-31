@@ -67,7 +67,7 @@ const HUMANIZE: Param = Param {
 
 /// The preset whose sound the knobs are set to, or "Custom" once any
 /// knob differs from every preset.
-fn preset_name(values: &synth::Values) -> &'static str {
+pub(super) fn preset_name(values: &synth::Values) -> &'static str {
     if *values == PARAMS.map(|p| p.default) {
         return "Default";
     }
@@ -126,6 +126,12 @@ const SYNTH_ORDER: [&str; 12] = [
     "Mod envelope",
     "Arpeggiator",
 ];
+
+/// How wide the drawer's left column is.
+const HEAD_WIDTH: f32 = 250.0;
+
+/// How wide each section's column is in the drawer.
+const SECTION_WIDTH: f32 = 270.0;
 
 /// Whether a section starts unfolded.
 fn starts_open(title: &str) -> bool {
@@ -736,20 +742,81 @@ impl App {
         }
     }
 
+    /// The instrument drawer's insides: the track's own controls in a
+    /// column on the left, then its sections side by side, wrapping onto
+    /// more rows when the window is narrow.
     pub(super) fn instrument_panel(&mut self, ui: &mut egui::Ui) {
-        ui.add_space(4.0);
-        let Some(track) = self.project.tracks.get_mut(self.selected) else {
+        if self.project.tracks.get(self.selected).is_none() {
             ui.weak("Add a track to get started.");
             return;
+        }
+        let synth = matches!(self.project.tracks[self.selected].kind, Kind::Synth(_));
+        let mut sections = Sections {
+            closed: std::mem::take(&mut self.closed_sections),
+            close: None,
+            pop: None,
         };
+        ui.horizontal_top(|ui| {
+            ui.vertical(|ui| {
+                ui.set_width(HEAD_WIDTH);
+                self.instrument_head(ui, &mut sections, synth);
+            });
+            ui.separator();
+            ui.vertical(|ui| self.instrument_sections(ui, &mut sections, synth));
+        });
+        if let Some(t) = sections.close.take() {
+            sections.closed.push(t);
+            self.sections_changed = true;
+        }
+        if let Some(t) = sections.pop.take() {
+            self.popped.push((t, None));
+            self.popped_changed = true;
+        }
+        self.closed_sections = sections.closed;
+        if std::mem::take(&mut self.sections_changed) {
+            file::remember_closed_sections(&self.closed_sections);
+        }
+    }
+
+    /// Whether a section shows in the drawer: it fits this kind of track
+    /// and isn't popped out into its own window.
+    fn shows_here(&self, title: &str, synth: bool) -> bool {
+        section_fits(title, synth)
+            && !self.is_popped(title)
+            && (title != "Scope" || self.show_scope)
+            && self.other_engine(title).is_none()
+    }
+
+    /// The sections, each a column of the same width.
+    fn instrument_sections(&mut self, ui: &mut egui::Ui, sections: &mut Sections, synth: bool) {
+        let layout = egui::Layout::left_to_right(egui::Align::Min).with_main_wrap(true);
+        ui.with_layout(layout, |ui| {
+            ui.spacing_mut().item_spacing = Vec2::new(14.0, 10.0);
+            for title in section_titles() {
+                if !self.shows_here(title, synth) || !sections.is_open(title) {
+                    continue;
+                }
+                let size = Vec2::new(SECTION_WIDTH, 0.0);
+                ui.allocate_ui_with_layout(size, egui::Layout::top_down(egui::Align::Min), |ui| {
+                    ui.set_width(SECTION_WIDTH);
+                    let open = title == "Scope" || starts_open(title);
+                    sections.show(ui, title, open, |ui| self.section(ui, title, false));
+                });
+            }
+        });
+    }
+
+    /// The left column: the track's name, Drone and Tap, MIDI channel,
+    /// preset, Mutate and A/B, and bringing back closed sections.
+    fn instrument_head(&mut self, ui: &mut egui::Ui, sections: &mut Sections, synth: bool) {
+        let track = &mut self.project.tracks[self.selected];
         let mut changed = false;
         let name = egui::TextEdit::singleline(&mut track.name)
             .font(egui::TextStyle::Heading)
-            .desired_width(200.0);
+            .desired_width(HEAD_WIDTH - 10.0);
         changed |= ui.add(name).changed();
         ui.add_space(4.0);
         // Hear the track: a quick note, or a drone that keeps playing.
-        let synth = matches!(self.project.tracks[self.selected].kind, Kind::Synth(_));
         if synth {
             self.drone_controls(ui);
         } else if ui
@@ -765,23 +832,6 @@ impl App {
                 self.dirty |=
                     crate::drum_browser::replace(&mut self.project.tracks[self.selected], sound);
             }
-        }
-        let mut sections = Sections {
-            closed: std::mem::take(&mut self.closed_sections),
-            close: None,
-            pop: None,
-        };
-        // A section shows here unless it doesn't fit this kind of track or
-        // it's popped out into its own window.
-        let here = |app: &Self, t: &str| {
-            section_fits(t, synth)
-                && !app.is_popped(t)
-                && (t != "Scope" || app.show_scope)
-                && app.other_engine(t).is_none()
-        };
-        if here(self, "Scope") {
-            sections.show(ui, "Scope", true, |ui| self.section(ui, "Scope", false));
-            ui.add_space(4.0);
         }
         let track = &mut self.project.tracks[self.selected];
 
@@ -940,15 +990,7 @@ impl App {
         if changed {
             self.dirty = true;
         }
-        for title in section_titles().skip(1) {
-            if here(self, title) {
-                sections.show(ui, title, starts_open(title), |ui| {
-                    self.section(ui, title, false)
-                });
-            }
-        }
-
-        ui.add_space(12.0);
+        ui.add_space(8.0);
         ui.horizontal(|ui| {
             // Closed sections that belong on this kind of track.
             let reopen: Vec<&str> = section_titles()
@@ -968,19 +1010,7 @@ impl App {
                 .on_hover_text("Bring back a section you closed");
             }
         });
-        if let Some(t) = sections.close.take() {
-            sections.closed.push(t);
-            self.sections_changed = true;
-        }
-        if let Some(t) = sections.pop.take() {
-            self.popped.push((t, None));
-            self.popped_changed = true;
-        }
-        self.closed_sections = sections.closed;
-        if std::mem::take(&mut self.sections_changed) {
-            file::remember_closed_sections(&self.closed_sections);
-        }
-        ui.add_space(12.0);
+        ui.add_space(8.0);
         if ui
             .button(RichText::new("Delete track").color(Color32::LIGHT_RED))
             .clicked()

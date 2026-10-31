@@ -190,8 +190,8 @@ soloed tracks so you can hear a part on its own.
   on (starting on an empty step) or erase them (starting on a lit one),
   like a pencil and an eraser: a full row of hi-hats is one swipe.
 - Click a track's name to select it (silently, so switching while you jam
-  makes no sound; **Tap** in the panel plays one). The right panel shows its
-  settings; melodic tracks also get a **piano roll** below the rows.
+  makes no sound; **Tap** in the instrument drawer plays one). The instrument drawer along
+  the bottom shows its settings; melodic tracks also get a **piano roll** below the rows.
 - **+ Synth** adds a synth track. **+ Drum** adds a built-in drum: kick,
   snare, hat, clap, clave, bongos, congas, toms, shaker, cowbell, timbales,
   cascara or guiro (it goes
@@ -199,8 +199,9 @@ soloed tracks so you can hear a part on its own.
   or OGG files as sample tracks, or just drop files onto the window.
 - Right-click a track's name to **duplicate** it (sound and notes, for
   trying a variation), **move** it up or down, or delete it.
-- Rename a track by editing its name at the top of the right panel.
-- **Mix** (right panel): **Volume**, **Pan** (left or right in the stereo
+- Rename a track by editing its name at the top left of the instrument
+  drawer.
+- **Mix** (instrument drawer): **Volume**, **Pan** (left or right in the stereo
   mix; double-click to centre), and **Reverb** and **Delay**: how much of
   the track goes to the shared effects.
 
@@ -234,13 +235,17 @@ the four drums in a **Drums** group.
 Hiding a part never deletes it or stops it playing.
 
 - **View** menu, or **F5** chain and patterns, **F6** tracks, **F7** piano roll,
-  **F8** instrument panel.
+  **F8** (or **I**) instrument drawer.
 - **View → Focus** shows just the tracks, or just the piano roll and sound.
 - **F9** shows everything again.
-- The **instrument panel** is a drawer: the arrow at its top slides it
-  shut to a thin strip on the right edge, and clicking the strip or **F8**
-  slides it open again. Its sections run Voice, the sound engine, the
-  LFOs, Filter, Envelope and Mod envelope, so each sits by what it moves.
+- The **instrument** is a drawer along the bottom: its arrow (or **I**, or
+  **F8**) shuts it to one line saying what's selected, with **Tap**, and
+  opens it again. Drag its top edge to make it taller or shorter. Open, it
+  has the track's own controls on the left and its sections side by side:
+  Voice, the sound engine, the LFOs, Filter, Envelope and Mod envelope, so
+  each sits by what it moves.
+- The line along the very bottom shows errors and how hard the audio is
+  working; click the **%** for **Help → Diagnostics**.
 - **View → Low power** redraws less often while playing, to save battery on
   an old laptop. It's remembered.
 
@@ -251,7 +256,7 @@ Hiding a part never deletes it or stops it playing.
   Accent), **Chance** (plays only sometimes), **Ratchet** (repeats 2–4 times
   in the step, like a roll) and **Nudge** (a little early or late).
 - **Swing** (top bar) delays every other 16th note; 66% is a triplet shuffle.
-- **Humanize** (right panel) adds small random changes to a track's timing
+- **Humanize** (instrument drawer) adds small random changes to a track's timing
   and loudness.
 
 All of this goes out over MIDI too, with velocity.
@@ -457,20 +462,20 @@ chords that don't fit the step grid.
 
 ### Synth
 
-Select a synth track to see its knobs in the **instrument panel** on the
-right (F8 shows or hides it). Drag a knob up or down; double-click to reset
-it. Hover for what each one does. To keep scrolling down:
+Select a synth track to see its knobs in the **instrument drawer** along
+the bottom (I or F8 shows or hides it). Drag a knob up or down; double-click to reset
+it. Hover for what each one does. To make room:
 
 - **Click a section's heading** (Scope, Oscillators, Voice, Filter,
   Envelope, LFO, Arpeggiator, Mix, Theremin) to fold it; click again to
   unfold it.
-- **×** on a heading closes the section completely. **+ Section** (at the
-  bottom of the panel) or **View → Instrument panel sections** brings it
+- **×** on a heading closes the section completely. **+ Section** (in the
+  drawer's left column) or **View → Instrument panel sections** brings it
   back. Closed sections are remembered next time you open the app.
 - **⬈** on a heading pops the section out into its own window. Drag it
   anywhere, even over the timeline, to lay out the knobs you're playing
   with; the Scope and Theremin windows can be made as big as you like. They
-  show the selected track, like the panel. The window's **×** puts it back.
+  show the selected track, like the drawer. The window's **×** puts it back.
   Popped-out windows and where they sit are remembered too.
 
 - **Preset:** shows which preset the knobs match (Custom once you've
@@ -533,7 +538,7 @@ it. Hover for what each one does. To keep scrolling down:
   scale (**Major scale**, **Minor scale**, **Pentatonic**) built on the
   lowest held note, so one finger plays a whole pattern. **Latch** keeps
   it going after you let go, until you play a new chord or turn Latch off.
-- **Drone** and **Tap** are at the top of the panel. **Drone** plays a
+- **Drone** and **Tap** are in the drawer's left column. **Drone** plays a
   note nonstop, so you can turn knobs and hear the sound change; click
   again to stop. **Tap** plays one short note at the same pitch, to hear
   the attack and release. The slider below sets the pitch: **Notes** moves
@@ -543,7 +548,7 @@ it. Hover for what each one does. To keep scrolling down:
   Free, and slide up from the bottom: slow
   ticks turn into a buzz and then a tone at about 20 Hz. For a
   drone in a song, put one long note in a MIDI block.
-- **Theremin** (folded at the bottom of the panel; click it open): hold the
+- **Theremin** (folded, the drawer's last section; click it open): hold the
   mouse down on the pad and move. Left to right slides the pitch smoothly
   over four octaves, C2 to C6, with no steps; bottom to top opens the
   filter. Let go to stop.
@@ -596,7 +601,7 @@ Try:
   a sweep, plus a blip at the start of each note.
 - **Velocity** onto Cutoff: notes played harder are brighter.
 
-**Scope:** the green screen at the top of the panel is an oscilloscope of
+**Scope:** the green screen, the drawer's first section, is an oscilloscope of
 the selected track, so you can watch a knob change the wave. A saw is a
 ramp, a square is a square, and the filter rounds off the sharp corners.
 Click it to show more or less time. **⬈** pops it out into its own window
@@ -614,7 +619,7 @@ Plug gear in over USB (or a USB-MIDI cable), or pair a Bluetooth MIDI
 keyboard with your computer, then press **⟳** to rescan.
 
 - **MIDI out:** sends clock and Start/Stop so gear follows the tempo. Each
-  track's **MIDI ch** (right panel) sends its notes on that channel; the
+  track's **MIDI ch** (instrument drawer) sends its notes on that channel; the
   built-in drums use channel 10 with General MIDI notes (Kick 36, Snare 38,
   Hat 42, Clap 39, Clave 75, Bongos 60/61, Congas 63/64, Toms 50/47/45,
   Shaker 70, Cowbell 56, Timbales 65/66, Cascara 37, Guiro 73).
