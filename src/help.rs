@@ -43,10 +43,10 @@ const SECTIONS: &[(&str, &str)] = &[
          • Mix (instrument drawer): Volume, Pan (left or right; double-click for \
          centre), and Reverb and Delay: how much of the track goes to the \
          shared effects.\n\
-         • FX (top bar) sets up the effects: reverb Size and Tone, delay \
+         • View > Effects sets up the effects: reverb Size and Tone, delay \
          Time (in 16th notes; 3/16 is a classic) and Feedback (more echoes).\n\
-         • Rename a track at the top left of the instrument drawer; Delete track is at the \
-         bottom.",
+         • Rename a track at the start of the instrument drawer's top line; \
+         More, at its end, has the MIDI channel, closed sections and Delete track.",
     ),
     (
         "Groups",
@@ -122,7 +122,7 @@ const SECTIONS: &[(&str, &str)] = &[
           W E   T Y U   O P    <- black keys\n\
          A S D F G H J K L     <- white keys (A = C)\n\n\
          Hold several keys for a chord or the arpeggiator. Z and X change \
-         octave. With Keys & MIDI > Bend with keys 1 and 2 on, 1 and 2 are a pitch wheel: \
+         octave. With MIDI > Bend with keys 1 and 2 on, 1 and 2 are a pitch wheel: \
          hold 1 to bend the held notes down, 2 up, and let go to slide \
          back; the box under it sets how far. Turn on ⏺ Rec and press Play to write what \
          you play into the pattern. With Rec on, Play clicks one bar first \
@@ -142,14 +142,14 @@ const SECTIONS: &[(&str, &str)] = &[
     ),
     (
         "Patterns and chains (Jam)",
-        "• The Patterns row is your library. Click one to edit it in the \
-         grid below; + adds one; right-click to rename, duplicate or \
+        "• The patterns are in the top bar (A, B...). Click one to edit it in \
+         the grid below; + adds one; right-click to rename, duplicate or \
          delete.\n\
-         • Copy, Paste and Clear work on the pattern you're editing.\n\
-         • Longer patterns: the button next to a track's S is its length in \
-         this pattern (1, 2, 4 or 8 bars; click for longer, right-click for \
-         shorter). Shorter parts repeat. Bars (next to the patterns) sets every track at once; \
-         Bar 1, Bar 2... pick the bar you see.\n\
+         • Edit > Copy, Paste and Clear pattern work on the pattern you're editing.\n\
+         • Longer patterns: right-click a track's name for its Length in \
+         this pattern (1, 2, 4 or 8 bars). Shorter parts repeat. Bars (top \
+         bar) sets every track at once. Two bars show side by side; 1-2, \
+         3-4... over the tracks pick which two.\n\
          • The Chain row (it shows in Chain mode) is the block you're editing, one square per bar. \
          Click a square to put the selected pattern there (a longer one \
          fills a square per bar); click again or right-click to empty it.\n\
@@ -211,9 +211,9 @@ const SECTIONS: &[(&str, &str)] = &[
     (
         "Synth",
         "Drag a knob up or down; double-click to reset it; hover to see what \
-         it does. Click a section's heading to fold it (and again to open \
-         it); × closes it, and + Section in the drawer's left column (or View \
-         > Instrument panel sections) brings it back. The arrow next to × pops it out \
+         it does. Click a section's name to fold it (and again to open \
+         it). Right-click the name to close it (More > + Section, or View \
+         > Instrument panel sections, brings it back) or pop it out \
          into its own window to put anywhere (the Scope and Theremin can be \
          made big); its × puts it back.\n\n\
          • Preset: a starting sound, in groups (keys, plucks, mallets and \
@@ -283,7 +283,7 @@ const SECTIONS: &[(&str, &str)] = &[
     ),
     (
         "MIDI gear",
-        "Plug gear in over USB. Everything here is in the Keys & MIDI menu; \
+        "Plug gear in over USB. Everything here is in the MIDI menu; \
          ⟳ rescans.\n\n\
          • MIDI in: click it to connect controllers. Each one plays either \
          the selected track (follows your clicks) or a fixed track or group. \

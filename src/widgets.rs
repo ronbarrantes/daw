@@ -7,7 +7,7 @@ use eframe::egui::{self, Align, Color32, Layout, Pos2, RichText, Sense, Stroke, 
 use crate::project::SampleShape;
 use crate::synth::{choice, Param, Source, Unit, WAVES};
 
-pub use crate::theme::{drum_on, note_held, note_on};
+pub use crate::theme::{drum_on, note_on};
 
 pub const NOTE_NAMES: [&str; 12] = [
     "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
@@ -643,6 +643,18 @@ pub fn scope(
 /// level over the decay, held while the note is, then down over the release.
 pub fn envelope(ui: &mut egui::Ui, attack: f32, decay: f32, sustain: f32, release: f32) {
     let size = Vec2::new(ui.available_width().min(270.0), 46.0);
+    envelope_sized(ui, size, attack, decay, sustain, release);
+}
+
+/// `envelope` at `size`; small ones leave out the letters.
+pub fn envelope_sized(
+    ui: &mut egui::Ui,
+    size: Vec2,
+    attack: f32,
+    decay: f32,
+    sustain: f32,
+    release: f32,
+) {
     let (rect, resp) = ui.allocate_exact_size(size, Sense::hover());
     let painter = ui.painter_at(rect);
     painter.rect_filled(rect, 4.0, Color32::from_gray(28));
@@ -661,12 +673,16 @@ pub fn envelope(ui: &mut egui::Ui, attack: f32, decay: f32, sustain: f32, releas
         points.push(Pos2::new(x(t), y(level)));
     }
     painter.add(egui::Shape::line(points, Stroke::new(1.5_f32, note_on())));
+    let labels = if size.y >= 30.0 { 4 } else { 0 };
     for (label, at) in [
         ("A", widths[0] / 2.0),
         ("D", widths[0] + widths[1] / 2.0),
         ("S", widths[0] + widths[1] + held / 2.0),
         ("R", total - widths[3] / 2.0),
-    ] {
+    ]
+    .into_iter()
+    .take(labels)
+    {
         painter.text(
             Pos2::new(x(at), inner.bottom()),
             egui::Align2::CENTER_BOTTOM,
@@ -683,6 +699,17 @@ pub fn envelope(ui: &mut egui::Ui, attack: f32, decay: f32, sustain: f32, releas
 /// where modulation has the cutoff now, drawn as a second, brighter line.
 pub fn filter_curve(ui: &mut egui::Ui, cutoff: f32, reso: f32, live: Option<f32>) {
     let size = Vec2::new(ui.available_width().min(260.0), 46.0);
+    filter_curve_sized(ui, size, cutoff, reso, live);
+}
+
+/// `filter_curve` at `size`.
+pub fn filter_curve_sized(
+    ui: &mut egui::Ui,
+    size: Vec2,
+    cutoff: f32,
+    reso: f32,
+    live: Option<f32>,
+) {
     let (rect, resp) = ui.allocate_exact_size(size, Sense::hover());
     let painter = ui.painter_at(rect);
     painter.rect_filled(rect, 4.0, Color32::from_gray(28));
@@ -732,6 +759,17 @@ pub fn filter_curve(ui: &mut egui::Ui, cutoff: f32, reso: f32, live: Option<f32>
 /// with a dot where it is now (`phase`, 0-1) in its chip's colour.
 pub fn lfo_shape(ui: &mut egui::Ui, shape: usize, phase: Option<f32>, color: Color32) {
     let size = Vec2::new(ui.available_width().min(260.0), 30.0);
+    lfo_shape_sized(ui, size, shape, phase, color);
+}
+
+/// `lfo_shape` at `size`.
+pub fn lfo_shape_sized(
+    ui: &mut egui::Ui,
+    size: Vec2,
+    shape: usize,
+    phase: Option<f32>,
+    color: Color32,
+) {
     let (rect, resp) = ui.allocate_exact_size(size, Sense::hover());
     let painter = ui.painter_at(rect);
     painter.rect_filled(rect, 4.0, Color32::from_gray(28));
@@ -860,29 +898,6 @@ fn fft(re: &mut [f32], im: &mut [f32]) {
         }
         len <<= 1;
     }
-}
-
-/// A small button with an arrow pointing up and out, for popping a panel
-/// section into its own window; `size` matches the × beside it. (The ⬈
-/// glyph comes from the emoji font and draws far too big.)
-pub fn pop_out_button(ui: &mut egui::Ui, size: Vec2) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
-    let visuals = ui.style().interact(&resp);
-    let painter = ui.painter();
-    painter.rect(
-        rect,
-        visuals.rounding,
-        visuals.weak_bg_fill,
-        visuals.bg_stroke,
-    );
-    let stroke = Stroke::new(1.5_f32, visuals.fg_stroke.color);
-    let r = rect.shrink2(Vec2::new(rect.width() * 0.3, rect.height() * 0.3));
-    let (from, to) = (r.left_bottom(), r.right_top());
-    painter.line_segment([from, to], stroke);
-    let head = r.width() * 0.6;
-    painter.line_segment([to, to - Vec2::new(head, 0.0)], stroke);
-    painter.line_segment([to, to + Vec2::new(0.0, head)], stroke);
-    resp
 }
 
 #[cfg(test)]

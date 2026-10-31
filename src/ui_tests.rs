@@ -161,8 +161,8 @@ fn longer_patterns_and_their_bars() {
     let mut ui = Harness::new();
     ui.click("2");
     assert_eq!(ui.app.project.pattern_bars(0), 2);
-    ui.click("Bar 2");
-    assert_eq!(ui.app.edit_bar, 1);
+    assert_eq!(ui.app.shown_bars(0), vec![0, 1], "both bars side by side");
+    ui.app.edit_bar = 1;
     ui.click("1");
     ui.frames(2);
     assert_eq!(ui.app.edit_bar, 0, "back in range when the bar is gone");

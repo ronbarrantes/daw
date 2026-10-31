@@ -203,9 +203,10 @@ soloed tracks so you can hear a part on its own.
   or OGG files as sample tracks, or just drop files onto the window.
 - Right-click a track's name to **duplicate** it (sound and notes, for
   trying a variation), **move** it up or down, or delete it.
-- Rename a track by editing its name at the top left of the instrument
-  drawer.
-- **Mix** (the button next to the tools) adds **Pan**, **Reverb** and
+- Rename a track by editing its name at the start of the instrument
+  drawer's top line. **More** at the end of that line has its MIDI channel,
+  closed sections and **Delete track**.
+- **Mix** (over the tracks, by **Level**) adds **Pan**, **Reverb** and
   **Delay** as small sliders at the end of each row, for balancing tracks
   side by side.
 - **Mix** (instrument drawer): **Volume**, **Pan** (left or right in the stereo
@@ -215,7 +216,7 @@ soloed tracks so you can hear a part on its own.
 ### Effects
 
 Every track can send to one shared reverb and one delay. Turn up a
-track's **Reverb** or **Delay** knob, then press **FX** in the top bar to
+track's **Reverb** or **Delay** knob, then open **View → Effects** to
 shape them:
 
 - **Reverb:** **Size** (how long it rings) and **Tone** (muffled to airy).
@@ -310,7 +311,7 @@ A S D F G H J K L         ← white keys (A = C)
 - Hold several keys for a chord, or to feed the **Arpeggiator** (most
   laptop keyboards manage three or four keys at once).
 - **Z** / **X** move down or up an octave.
-- **1** / **2** can be a pitch wheel: turn on **Keys & MIDI → Bend with keys 1
+- **1** / **2** can be a pitch wheel: turn on **MIDI → Bend with keys 1
   and 2**, then hold 1 to bend the notes you're holding down, 2 to bend them up
   (chords too); let go and they slide back. The box under it sets how
   far, 1 to 12 semitones (2 at first). Bend starts off.
@@ -362,25 +363,27 @@ Arrange.
 
 ### Patterns (Jam)
 
-The **Patterns** row is your pattern library. Click a pattern to edit it in
+The patterns are in the top bar (**A**, **B**...). Click one to edit it in
 the grid below; each holds every track's steps.
 
 - **+** adds a pattern (up to 64). Right-click one to **rename**,
   **duplicate** or **delete** it.
-- **Copy** / **Paste** / **Clear** work on the pattern you're editing.
+- **Edit → Copy pattern / Paste pattern / Clear pattern** work on the
+  pattern you're editing.
 - **Pattern** mode (top bar) loops the pattern you're editing.
 
 **Longer patterns.** A pattern can be 1, 2, 4 or 8 bars, and each track
 picks its own length in it, so a 2-bar clave can play over a 1-bar cowbell
 without copying anything.
 
-- The button next to a track's **S** is its length in this pattern: click
-  for longer, right-click for shorter. New bars start as a copy of the ones
-  before. Shorter parts repeat to fill the pattern.
-- **Bars 1 2 4 8** (next to the patterns) sets every track at once. The pattern lasts
-  as long as its longest track.
-- **Bar 1**, **Bar 2**... pick which bar the grid and piano roll show. A
-  track that's shorter shows the bar it repeats there, dimmed.
+- Right-click a track's name for its **Length** in this pattern: 1, 2, 4
+  or 8 bars. New bars start as a copy of the ones before. Shorter parts
+  repeat to fill the pattern.
+- **Bars 1 2 4 8** (top bar, next to the patterns) sets every track at
+  once. The pattern lasts as long as its longest track.
+- Two bars show side by side. A longer pattern gets **1-2**, **3-4**...
+  over the tracks to pick which two. A track that's shorter shows the bar
+  it repeats there, dimmed. The piano roll shows the bar you last touched.
 - Steps are small squares; hover one to see its note, chord or groove
   marks.
 
@@ -479,13 +482,15 @@ Select a synth track to see its knobs in the **instrument drawer** along
 the bottom (I or F8 shows or hides it). Drag a knob up or down; double-click to reset
 it. Hover for what each one does. To make room:
 
-- **Click a section's heading** (Scope, Oscillators, Voice, Filter,
-  Envelope, LFO, Arpeggiator, Mix, Theremin) to fold it; click again to
-  unfold it.
-- **×** on a heading closes the section completely. **+ Section** (in the
-  drawer's left column) or **View → Instrument panel sections** brings it
-  back. Closed sections are remembered next time you open the app.
-- **⬈** on a heading pops the section out into its own window. Drag it
+- Each section is a box: its name, a drawing of what it does, then its
+  knobs. **Click a section's name** to fold it to just the name; click
+  again to unfold it. LFOs, the mod envelope and Voice have their drag
+  chip next to the name.
+- **Right-click a section's name** to close it completely or pop it out.
+  **More → + Section** (end of the drawer's top line) or **View →
+  Instrument panel sections** brings a closed one back. Closed sections are
+  remembered next time you open the app.
+- A popped-out section is its own window. Drag it
   anywhere, even over the timeline, to lay out the knobs you're playing
   with; the Scope and Theremin windows can be made as big as you like. They
   show the selected track, like the drawer. The window's **×** puts it back.
@@ -617,8 +622,8 @@ Try:
 **Scope:** the green screen, the drawer's first section, is an oscilloscope of
 the selected track, so you can watch a knob change the wave. A saw is a
 ramp, a square is a square, and the filter rounds off the sharp corners.
-Click it to show more or less time. **⬈** pops it out into its own window
-you can drag anywhere and make as big as you like; close that window to put
+Click it to show more or less time. Right-click its name to pop it out into
+its own window you can drag anywhere and make as big as you like; close that window to put
 it back. **Spectrum** (under the scope) switches it to how loud each
 pitch is, low on the left and high on the right. The drawings above the
 knobs show what they do: the note's volume over time (Envelope), the
@@ -629,7 +634,7 @@ off in **View**.
 ### MIDI
 
 Plug gear in over USB (or a USB-MIDI cable), or pair a Bluetooth MIDI
-keyboard with your computer. The **Keys & MIDI** menu has everything
+keyboard with your computer. The **MIDI** menu has everything
 below; **⟳** rescans.
 
 - **MIDI out:** sends clock and Start/Stop so gear follows the tempo. Each

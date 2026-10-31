@@ -76,7 +76,7 @@ pub fn apply(ctx: &egui::Context, theme: Theme) {
     let (dark, light) = match theme {
         Theme::Led => (led(), Visuals::light()),
         Theme::Hardware => (hardware(), Visuals::light()),
-        _ => (Visuals::dark(), Visuals::light()),
+        _ => (flat_dark(), Visuals::light()),
     };
     ctx.set_visuals_of(egui::Theme::Dark, dark);
     ctx.set_visuals_of(egui::Theme::Light, light);
@@ -119,6 +119,27 @@ fn shades(
     v
 }
 
+/// The everyday dark look: flat grays, no outlines on buttons.
+fn flat_dark() -> Visuals {
+    let mut v = shades(
+        Color32::from_rgb(21, 22, 24),
+        Color32::from_rgb(42, 43, 46),
+        Color32::from_rgb(55, 56, 61),
+        Color32::from_rgb(69, 71, 77),
+        Color32::from_rgb(214, 215, 218),
+    );
+    v.window_fill = Color32::from_rgb(47, 48, 52);
+    v.faint_bg_color = Color32::from_rgb(38, 39, 41);
+    v.selection.bg_fill = Color32::from_rgb(69, 71, 77);
+    v.selection.stroke = Stroke::new(1.0_f32, Color32::WHITE);
+    let w = &mut v.widgets;
+    for state in [&mut w.inactive, &mut w.noninteractive] {
+        state.bg_stroke = Stroke::NONE;
+    }
+    w.noninteractive.bg_stroke = Stroke::new(1.0_f32, Color32::from_rgb(27, 28, 31));
+    v
+}
+
 fn led() -> Visuals {
     let white = Color32::from_gray(235);
     let mut v = shades(
@@ -152,6 +173,26 @@ fn hardware() -> Visuals {
     v
 }
 
+/// Each track's color, by its place in the list: what its steps, notes
+/// and name light up in.
+pub fn track_color(i: usize) -> Color32 {
+    const COLORS: [Color32; 8] = [
+        Color32::from_rgb(217, 119, 74),
+        Color32::from_rgb(217, 164, 65),
+        Color32::from_rgb(184, 191, 92),
+        Color32::from_rgb(95, 179, 161),
+        Color32::from_rgb(224, 122, 143),
+        Color32::from_rgb(127, 163, 230),
+        Color32::from_rgb(166, 138, 216),
+        Color32::from_rgb(111, 192, 216),
+    ];
+    match current() {
+        Theme::Led => Color32::from_gray(235),
+        Theme::Hardware => Color32::from_rgb(255, 106, 61),
+        _ => COLORS[i % COLORS.len()],
+    }
+}
+
 /// A lit drum step.
 pub fn drum_on() -> Color32 {
     match current() {
@@ -167,14 +208,6 @@ pub fn note_on() -> Color32 {
         Theme::Led => Color32::from_gray(235),
         Theme::Hardware => Color32::from_gray(235),
         _ => Color32::from_rgb(80, 180, 255),
-    }
-}
-
-/// A note held on from an earlier step.
-pub fn note_held() -> Color32 {
-    match current() {
-        Theme::Led | Theme::Hardware => Color32::from_gray(130),
-        _ => Color32::from_rgb(45, 110, 160),
     }
 }
 

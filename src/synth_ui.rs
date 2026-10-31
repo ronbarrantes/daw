@@ -12,8 +12,8 @@ use crate::audio::{self, Event, SCOPE_LEN};
 use crate::project::{Kind, NORMAL};
 use crate::synth::{self, Param, Source, Unit, PARAMS};
 use crate::widgets::{
-    envelope, filter_curve, knob, lfo_shape, mod_knob, pop_out_button, scope, source_chip,
-    source_color, spectrum, waveform, SCOPE_SPANS,
+    envelope, filter_curve, knob, lfo_shape, mod_knob, scope, source_chip, source_color, spectrum,
+    waveform, SCOPE_SPANS,
 };
 use crate::{file, notes, App, DELAY_SEND, PAN, REVERB_SEND, TRACK_VOLUME};
 
@@ -236,39 +236,68 @@ impl Sections {
         !self.closed.iter().any(|c| c == title)
     }
 
-    /// Shows a section unless it's closed. `open` is whether it starts
-    /// unfolded.
-    fn show(
-        &mut self,
-        ui: &mut egui::Ui,
-        title: &str,
-        open: bool,
-        body: impl FnOnce(&mut egui::Ui),
-    ) {
+    /// Shows a section as a box, unless it's closed: its name (with the
+    /// modulation source it offers, to drag onto knobs), then `body`.
+    /// Click the name to fold it to just the name (some start folded);
+    /// right-click it to pop it out or close it.
+    fn show(&mut self, ui: &mut egui::Ui, title: &str, body: impl FnOnce(&mut egui::Ui)) {
         if !self.is_open(title) {
             return;
         }
-        let id = ui.make_persistent_id(("panel section", title));
-        egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, open)
-            .show_header(ui, |ui| {
-                ui.label(RichText::new(title).small().strong());
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let close = ui
-                        .small_button("×")
-                        .on_hover_text("Close this section (+ Section brings it back)");
-                    if close.clicked() {
-                        self.close = Some(title.to_string());
-                    }
-                    let pop = pop_out_button(ui, close.rect.size()).on_hover_text(
-                        "Pop out into its own window, to move anywhere.\n\
-                         Its × puts it back here.",
+        let line = ui.visuals().widgets.noninteractive.bg_stroke.color;
+        egui::Frame::none()
+            .stroke(egui::Stroke::new(1.0_f32, line))
+            .inner_margin(egui::Margin::same(6.0))
+            .rounding(2.0)
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.spacing_mut().item_spacing.y = 3.0;
+                let head = ui
+                    .horizontal(|ui| {
+                        if let Some(source) = offered_source(title) {
+                            source_chip(ui, source);
+                        }
+                        ui.label(RichText::new(title).size(11.0).strong());
+                    })
+                    .response
+                    .interact(Sense::click())
+                    .on_hover_text(
+                        "Click to fold or unfold · right-click to pop it out or close it",
                     );
-                    if pop.clicked() {
+                let id = ui.make_persistent_id(("section unfolded", title));
+                let unfolded = ui.data_mut(|d| *d.get_persisted_mut_or(id, starts_open(title)));
+                if head.clicked() {
+                    ui.data_mut(|d| d.insert_persisted(id, !unfolded));
+                }
+                head.context_menu(|ui| {
+                    if ui.button("Pop out into its own window").clicked() {
                         self.pop = Some(title.to_string());
+                        ui.close_menu();
+                    }
+                    if ui
+                        .button("Close (More > + Section brings it back)")
+                        .clicked()
+                    {
+                        self.close = Some(title.to_string());
+                        ui.close_menu();
                     }
                 });
-            })
-            .body(body);
+                if unfolded {
+                    body(ui);
+                }
+            });
+    }
+}
+
+/// The modulation source a section offers, to drag onto knobs. Each sits
+/// with what shapes it; Velocity has none, so it sits with how notes play.
+fn offered_source(title: &str) -> Option<Source> {
+    match title {
+        "LFO" => Some(Source::Lfo1),
+        "LFO 2" => Some(Source::Lfo2),
+        "Mod envelope" => Some(Source::ModEnv),
+        "Voice" => Some(Source::Velocity),
+        _ => None,
     }
 }
 
@@ -656,36 +685,19 @@ impl App {
                         _ => {}
                     }
                 }
-                // The source this module offers, to drag onto knobs. Each
-                // sits with the knobs that shape it; Velocity has none, so
-                // it sits with how notes are played.
-                let chip = match title {
-                    "LFO" => Some((Source::Lfo1, "drag onto a knob")),
-                    "LFO 2" => Some((Source::Lfo2, "drag onto a knob")),
-                    "Mod envelope" => Some((Source::ModEnv, "drag onto a knob")),
-                    "Voice" => Some((Source::Velocity, "how hard you play: drag onto a knob")),
-                    _ => None,
-                };
-                if let Some((source, hint)) = chip {
-                    ui.horizontal(|ui| {
-                        source_chip(ui, source);
-                        ui.label(RichText::new(hint).size(10.0).weak());
-                    });
-                }
-                for (r, row) in m.rows.iter().enumerate() {
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 2.0;
-                        for &k in *row {
-                            let k = at + k;
-                            changed |= synth_knob(ui, k, &mut values[k], &mut track.mods, &shared);
-                        }
-                        // Humanize is the track's, not the synth's, but
-                        // it's about how notes play.
-                        if title == "Voice" && r + 1 == m.rows.len() {
-                            changed |= knob(ui, &HUMANIZE, &mut track.humanize);
-                        }
-                    });
-                }
+                // All the knobs in one row, wrapping only if they must.
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing.x = 0.0;
+                    for &k in m.rows.iter().flat_map(|r| r.iter()) {
+                        let k = at + k;
+                        changed |= synth_knob(ui, k, &mut values[k], &mut track.mods, &shared);
+                    }
+                    // Humanize is the track's, not the synth's, but it's
+                    // about how notes play.
+                    if title == "Voice" {
+                        changed |= knob(ui, &HUMANIZE, &mut track.humanize);
+                    }
+                });
             }
             (
                 "Sample",
@@ -798,8 +810,7 @@ impl App {
                 let size = Vec2::new(width, 0.0);
                 ui.allocate_ui_with_layout(size, egui::Layout::top_down(egui::Align::Min), |ui| {
                     ui.set_width(width);
-                    let open = title == "Scope" || starts_open(title);
-                    sections.show(ui, title, open, |ui| self.section(ui, title, false));
+                    sections.show(ui, title, |ui| self.section(ui, title, false));
                 });
             }
         });
@@ -834,36 +845,6 @@ impl App {
         }
         let track = &mut self.project.tracks[self.selected];
 
-        ui.horizontal(|ui| {
-            // Shown 1-16 like on hardware, stored 0-15; 0 means off.
-            let mut ch = track.midi_channel.map_or(0, |c| c + 1);
-            ui.label("MIDI ch");
-            let drag = egui::DragValue::new(&mut ch)
-                .range(0..=16)
-                .custom_formatter(|v, _| {
-                    if v == 0.0 {
-                        "Off".into()
-                    } else {
-                        format!("{v}")
-                    }
-                });
-            if ui
-                .add(drag)
-                .on_hover_text("Send this track's notes to MIDI gear")
-                .changed()
-            {
-                track.midi_channel = (ch > 0).then(|| ch - 1);
-                changed = true;
-            }
-            if !track.is_melodic() {
-                ui.label("note");
-                let drag = egui::DragValue::new(&mut track.midi_note).range(0..=127);
-                changed |= ui
-                    .add(drag)
-                    .on_hover_text("MIDI note this track sends")
-                    .changed();
-            }
-        });
         ui.add_space(8.0);
 
         if let Kind::Synth(values) = &mut track.kind {
@@ -988,32 +969,71 @@ impl App {
             self.dirty = true;
         }
         ui.add_space(8.0);
-        ui.horizontal(|ui| {
-            // Closed sections that belong on this kind of track.
-            let reopen: Vec<&str> = section_titles()
-                .filter(|t| section_fits(t, synth) && !sections.is_open(t))
-                .collect();
-            if !reopen.is_empty() {
-                ui.menu_button("+ Section", |ui| {
-                    for t in reopen {
-                        if ui.button(t).clicked() {
-                            sections.closed.retain(|c| c != t);
-                            self.sections_changed = true;
-                            ui.close_menu();
+        // The rest, out of the way: MIDI channel, closed sections, delete.
+        ui.menu_button("More", |ui| {
+            let track = &mut self.project.tracks[self.selected];
+            let mut changed = false;
+            ui.horizontal(|ui| {
+                // Shown 1-16 like on hardware, stored 0-15; 0 means off.
+                let mut ch = track.midi_channel.map_or(0, |c| c + 1);
+                ui.label("MIDI ch");
+                let drag = egui::DragValue::new(&mut ch)
+                    .range(0..=16)
+                    .custom_formatter(|v, _| {
+                        if v == 0.0 {
+                            "Off".into()
+                        } else {
+                            format!("{v}")
                         }
-                    }
-                })
-                .response
-                .on_hover_text("Bring back a section you closed");
+                    });
+                if ui
+                    .add(drag)
+                    .on_hover_text("Send this track's notes to MIDI gear")
+                    .changed()
+                {
+                    track.midi_channel = (ch > 0).then(|| ch - 1);
+                    changed = true;
+                }
+                if !track.is_melodic() {
+                    ui.label("note");
+                    let drag = egui::DragValue::new(&mut track.midi_note).range(0..=127);
+                    changed |= ui
+                        .add(drag)
+                        .on_hover_text("MIDI note this track sends")
+                        .changed();
+                }
+            });
+            if changed {
+                self.dirty = true;
+            }
+            ui.separator();
+            ui.horizontal(|ui| {
+                // Closed sections that belong on this kind of track.
+                let reopen: Vec<&str> = section_titles()
+                    .filter(|t| section_fits(t, synth) && !sections.is_open(t))
+                    .collect();
+                if !reopen.is_empty() {
+                    ui.menu_button("+ Section", |ui| {
+                        for t in reopen {
+                            if ui.button(t).clicked() {
+                                sections.closed.retain(|c| c != t);
+                                self.sections_changed = true;
+                                ui.close_menu();
+                            }
+                        }
+                    })
+                    .response
+                    .on_hover_text("Bring back a section you closed");
+                }
+            });
+            ui.add_space(8.0);
+            if ui
+                .button(RichText::new("Delete track").color(Color32::LIGHT_RED))
+                .clicked()
+            {
+                self.delete_selected();
             }
         });
-        ui.add_space(8.0);
-        if ui
-            .button(RichText::new("Delete track").color(Color32::LIGHT_RED))
-            .clicked()
-        {
-            self.delete_selected();
-        }
     }
 }
 

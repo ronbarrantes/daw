@@ -149,63 +149,35 @@ fn snap_near(step: f32, to: usize) -> usize {
 impl App {
     /// The pattern library: pick a pattern to edit; right-click to rename,
     /// duplicate or delete.
-    pub fn library_row(&mut self, ui: &mut egui::Ui) {
+    /// The patterns as small buttons for the top bar: click one to edit
+    /// it, right-click to rename, duplicate or delete; + makes a new one.
+    pub fn pattern_picker(&mut self, ui: &mut egui::Ui) {
         let edit = self.edit_pattern();
-        ui.horizontal_wrapped(|ui| {
-            ui.add_sized(
-                [60.0, 20.0],
-                egui::Label::new(egui::RichText::new("Patterns").strong()),
-            )
-            .on_hover_text(
-                "Click a pattern to edit it below; click a Chain square to put it\n\
-                 in that bar. Right-click to rename, duplicate or delete.",
-            );
-            for p in 0..self.project.patterns.len() {
-                let name = &self.project.patterns[p].name;
-                let fill = pattern_color(p).gamma_multiply(if p == edit { 1.0 } else { 0.45 });
-                let button = egui::Button::new(egui::RichText::new(name).color(Color32::WHITE))
-                    .fill(fill)
-                    .stroke(if p == edit {
-                        Stroke::new(1.5_f32, Color32::WHITE)
-                    } else {
-                        Stroke::NONE
-                    })
-                    .min_size(Vec2::new(28.0, 22.0));
-                let hint = match self.project.pattern_uses(p) {
-                    0 => "Not in a block yet".to_string(),
-                    1 => "Used in 1 block".to_string(),
-                    n => format!("Used in {n} blocks"),
-                };
-                let resp = ui.add(button).on_hover_text(hint);
-                if resp.clicked() {
-                    self.shared.edit_pattern.store(p as u8, Relaxed);
-                }
-                resp.context_menu(|ui| self.pattern_menu(ui, p));
+        for p in 0..self.project.patterns.len() {
+            let name = self.project.patterns[p].name.clone();
+            let hint = match self.project.pattern_uses(p) {
+                0 => "Not in a block yet".to_string(),
+                1 => "Used in 1 block".to_string(),
+                n => format!("Used in {n} blocks"),
+            };
+            let resp = ui.selectable_label(p == edit, name).on_hover_text(format!(
+                "{hint}\nRight-click to rename, duplicate or delete"
+            ));
+            if resp.clicked() {
+                self.shared.edit_pattern.store(p as u8, Relaxed);
             }
-            let full = self.project.patterns.len() >= MAX_PATTERNS;
-            let new = ui
-                .add_enabled(!full, egui::Button::new("+"))
-                .on_hover_text("New empty pattern");
-            if new.clicked() {
-                if let Some(p) = self.project.new_pattern() {
-                    self.shared.edit_pattern.store(p as u8, Relaxed);
-                    self.dirty = true;
-                }
+            resp.context_menu(|ui| self.pattern_menu(ui, p));
+        }
+        let full = self.project.patterns.len() >= MAX_PATTERNS;
+        let new = ui
+            .add_enabled(!full, egui::Button::new("+"))
+            .on_hover_text("New empty pattern");
+        if new.clicked() {
+            if let Some(p) = self.project.new_pattern() {
+                self.shared.edit_pattern.store(p as u8, Relaxed);
+                self.dirty = true;
             }
-            ui.separator();
-            self.length_picker(ui, edit);
-            ui.separator();
-            if ui.button("Copy").clicked() {
-                self.copy_pattern();
-            }
-            let paste = ui.add_enabled(self.clipboard.is_some(), egui::Button::new("Paste"));
-            if paste.clicked() {
-                self.paste_pattern();
-            }
-            if ui.button("Clear").clicked() {
-                self.clear_pattern();
-            }
-        });
+        }
     }
 
     fn pattern_menu(&mut self, ui: &mut egui::Ui, p: usize) {

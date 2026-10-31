@@ -322,8 +322,9 @@ struct App {
     show_mix: bool,
     /// Each track's level for its meter, falling slowly between peaks.
     track_levels: [f32; MAX_TRACKS],
-    /// Where the first step sits on screen, for the piano roll to line up.
-    steps_x: f32,
+    /// Where each shown bar's first step sits on screen, for the piano
+    /// roll to line up with.
+    bar_x: [f32; 2],
     /// Redraw less often while playing, to save battery.
     low_power: bool,
     /// View > Theme, and whether it's been put on yet.
@@ -477,7 +478,7 @@ impl App {
             show_scope: true,
             show_mix: false,
             track_levels: [0.0; MAX_TRACKS],
-            steps_x: 0.0,
+            bar_x: [0.0; 2],
             low_power: file::low_power(),
             theme: file::theme(),
             theme_on: false,
@@ -691,13 +692,10 @@ impl App {
                     }
                     return;
                 }
-                if self.view.song {
-                    // The chain only matters while playing chains.
-                    if self.shared.chain_mode.load(Relaxed) {
-                        self.chain_row(ui, playing);
-                        ui.add_space(6.0);
-                    }
-                    self.library_row(ui);
+                // The chain only matters while playing chains; the
+                // patterns are in the top bar.
+                if self.view.song && self.shared.chain_mode.load(Relaxed) {
+                    self.chain_row(ui, playing);
                     ui.add_space(6.0);
                 }
                 let edit = self.shared.edit_pattern.load(Relaxed) as usize;
@@ -708,12 +706,8 @@ impl App {
                         bar: self.shared.current_bar.load(Relaxed),
                         step: self.shared.current_step.load(Relaxed),
                     });
-                // Only when there's something to pick: the bar of a longer
-                // pattern, or the length when the patterns are hidden.
-                let bars = self.project.pattern_bars(edit);
-                if (self.view.tracks || self.view.piano) && (bars > 1 || !self.view.song) {
-                    self.bar_row(ui, edit, current);
-                    ui.add_space(4.0);
+                if self.view.tracks {
+                    self.tracks_header(ui, edit, current);
                 }
                 if self.view.tracks {
                     self.track_list(ui, edit, current);
@@ -1490,6 +1484,12 @@ impl App {
                     ui.close_menu();
                 }
                 ui.separator();
+                if ui
+                    .checkbox(&mut self.show_fx, "Effects (reverb and delay)")
+                    .changed()
+                {
+                    ui.close_menu();
+                }
                 let low = ui
                     .checkbox(&mut self.low_power, "Low power")
                     .on_hover_text("Redraw less often while playing, to save battery");
@@ -1523,7 +1523,7 @@ impl App {
                     ui.close_menu();
                 }
             });
-            ui.menu_button("Keys & MIDI", |ui| self.midi_menu(ui));
+            ui.menu_button("MIDI", |ui| self.midi_menu(ui));
             ui.separator();
             self.transport_row(ui, playing);
         });
@@ -1605,6 +1605,42 @@ impl App {
                     Kind::Sampler { sample, .. } => format!("Sample · {}", sample.name),
                 };
                 ui.label(RichText::new(what).small().weak());
+                // The sound at a glance: small drawings of its envelope,
+                // filter and LFO, and where the cutoff is.
+                if let Kind::Synth(v) = &t.kind {
+                    let size = Vec2::new(48.0, 16.0);
+                    widgets::envelope_sized(
+                        ui,
+                        size,
+                        v[synth::ATTACK],
+                        v[synth::DECAY],
+                        v[synth::SUSTAIN],
+                        v[synth::RELEASE],
+                    );
+                    widgets::filter_curve_sized(
+                        ui,
+                        size,
+                        v[synth::CUTOFF],
+                        v[synth::RESONANCE],
+                        None,
+                    );
+                    widgets::lfo_shape_sized(
+                        ui,
+                        size,
+                        synth::choice(v[synth::LFO_SHAPE], synth::LFO_SHAPES.len()),
+                        None,
+                        widgets::source_color(synth::Source::Lfo1),
+                    );
+                    let cutoff = &synth::PARAMS[synth::CUTOFF];
+                    ui.label(
+                        RichText::new(format!(
+                            "Cutoff {}",
+                            widgets::format_value(cutoff, v[synth::CUTOFF])
+                        ))
+                        .small()
+                        .weak(),
+                    );
+                }
                 if ui
                     .small_button("Tap")
                     .on_hover_text("Play one short note")
@@ -1841,133 +1877,161 @@ impl App {
         }
     }
 
+    /// The transport, in the menu row: Jam and Arrange, play and record,
+    /// a display with the position, tempo and swing, the patterns and
+    /// their length, what plays, and on the right the click, effects,
+    /// master volume and meter.
     fn transport_row(&mut self, ui: &mut egui::Ui, playing: bool) {
         let s = self.shared.clone();
-        ui.horizontal(|ui| {
-            for (tab, name, hint) in [
-                (Tab::Jam, "Jam", "Make patterns and chain them into blocks"),
-                (
-                    Tab::Arrange,
-                    "Arrange",
-                    "Put blocks on the timeline to make a song",
-                ),
-            ] {
-                let text = RichText::new(name).size(15.0).strong();
-                if ui
-                    .selectable_label(self.tab == tab, text)
-                    .on_hover_text(hint)
-                    .clicked()
-                    && self.tab != tab
-                {
-                    self.tab = tab;
-                    if tab == Tab::Arrange && playing {
-                        // Pick up the song from the cursor.
-                        s.seek.store(self.timeline.cursor, Relaxed);
-                    }
-                }
-            }
-            ui.separator();
-            let label = if playing { "■ Stop" } else { "▶ Play" };
-            if ui.button(label).clicked() {
-                self.set_playing(!playing);
-            }
-            let mut bpm = s.bpm();
-            ui.label("BPM");
-            let drag = egui::DragValue::new(&mut bpm)
-                .range(40.0..=240.0)
-                .speed(0.5);
-            if ui.add(drag).changed() {
-                s.set_bpm(bpm);
-            }
-            let mut swing = self.project.swing * 100.0;
-            ui.label("Swing");
-            let drag = egui::DragValue::new(&mut swing)
-                .range(0.0..=100.0)
-                .speed(0.5)
-                .suffix("%");
-            let hint = "Delays every other 16th note for a shuffled feel.\n66% is a triplet swing.";
-            if ui.add(drag).on_hover_text(hint).changed() {
-                self.project.swing = swing / 100.0;
-                self.dirty = true;
-            }
-            ui.separator();
-            if self.tab == Tab::Jam {
-                let chain = s.chain_mode.load(Relaxed);
-                if ui
-                    .selectable_label(!chain, "Pattern")
-                    .on_hover_text("Loop the pattern you're editing")
-                    .clicked()
-                {
-                    s.chain_mode.store(false, Relaxed);
-                }
-                if ui
-                    .selectable_label(chain, "Chain")
-                    .on_hover_text("Play the block's chain, bar by bar")
-                    .clicked()
-                {
-                    s.chain_mode.store(true, Relaxed);
-                }
-            } else {
-                ui.weak("Plays the timeline");
-            }
-            ui.separator();
-            let rec_color = if self.recording {
-                RECORDING
-            } else {
-                Color32::GRAY
-            };
-            let rec_label = if s.counting_in.load(Relaxed) {
-                "⏺ Count-in"
-            } else {
-                "⏺ Rec"
-            };
-            let rec = egui::Button::new(RichText::new(rec_label).color(rec_color))
-                .selected(self.recording);
-            let rec_hint = "While playing, notes you play on the keyboard\n\
-                            are written into the selected track.\n\
-                            Play counts in one bar first.";
-            if ui.add(rec).on_hover_text(rec_hint).clicked() {
-                self.recording = !self.recording;
-            }
-            let metronome = s.metronome.load(Relaxed);
+        for (tab, name, hint) in [
+            (Tab::Jam, "Jam", "Make patterns and chain them into blocks"),
+            (
+                Tab::Arrange,
+                "Arrange",
+                "Put blocks on the timeline to make a song",
+            ),
+        ] {
             if ui
-                .selectable_label(metronome, "Click")
-                .on_hover_text("Metronome: a click on every beat")
+                .selectable_label(self.tab == tab, name)
+                .on_hover_text(hint)
+                .clicked()
+                && self.tab != tab
+            {
+                self.tab = tab;
+                if tab == Tab::Arrange && playing {
+                    // Pick up the song from the cursor.
+                    s.seek.store(self.timeline.cursor, Relaxed);
+                }
+            }
+        }
+        ui.separator();
+        let play = if playing { "■" } else { "▶" };
+        if ui
+            .selectable_label(playing, play)
+            .on_hover_text("Play or stop (Space)")
+            .clicked()
+        {
+            self.set_playing(!playing);
+        }
+        let rec_color = if self.recording {
+            RECORDING
+        } else {
+            Color32::GRAY
+        };
+        let rec = if s.counting_in.load(Relaxed) {
+            "⏺ 1 bar"
+        } else {
+            "⏺"
+        };
+        let rec_hint = "Record: while playing, notes you play on the keyboard\n\
+                        are written into the selected track.\n\
+                        Play counts in one bar first.";
+        if ui
+            .selectable_label(self.recording, RichText::new(rec).color(rec_color))
+            .on_hover_text(rec_hint)
+            .clicked()
+        {
+            self.recording = !self.recording;
+        }
+        // The display: where it is, the tempo and the swing.
+        let display = ui.visuals().extreme_bg_color;
+        egui::Frame::none()
+            .fill(display)
+            .inner_margin(egui::Margin::symmetric(8.0, 1.0))
+            .rounding(2.0)
+            .show(ui, |ui| {
+                ui.spacing_mut().item_spacing.x = 6.0;
+                let mono = |t: String| RichText::new(t).monospace();
+                let (bar, step) = if playing {
+                    (s.current_bar.load(Relaxed), s.current_step.load(Relaxed))
+                } else {
+                    (0, 0)
+                };
+                ui.label(mono(format!(
+                    "{}.{}.{}",
+                    bar + 1,
+                    step / 4 + 1,
+                    step % 4 + 1
+                )))
+                .on_hover_text("Bar, beat and step playing");
+                ui.weak("/");
+                let mut bpm = s.bpm();
+                let drag = egui::DragValue::new(&mut bpm)
+                    .range(40.0..=240.0)
+                    .speed(0.5)
+                    .suffix(" BPM");
+                if ui.add(drag).on_hover_text("Tempo: drag or type").changed() {
+                    s.set_bpm(bpm);
+                }
+                ui.weak("/");
+                let mut swing = self.project.swing * 100.0;
+                let drag = egui::DragValue::new(&mut swing)
+                    .range(0.0..=100.0)
+                    .speed(0.5)
+                    .prefix("swing ")
+                    .suffix("%");
+                let hint =
+                    "Delays every other 16th note for a shuffled feel.\n66% is a triplet swing.";
+                if ui.add(drag).on_hover_text(hint).changed() {
+                    self.project.swing = swing / 100.0;
+                    self.dirty = true;
+                }
+            });
+        ui.separator();
+        if self.tab == Tab::Jam {
+            self.pattern_picker(ui);
+            let edit = self.shared.edit_pattern.load(Relaxed) as usize;
+            ui.add_space(4.0);
+            self.length_picker(ui, edit);
+            ui.separator();
+            let chain = s.chain_mode.load(Relaxed);
+            if ui
+                .selectable_label(!chain, "Pattern")
+                .on_hover_text("Loop the pattern you're editing")
                 .clicked()
             {
-                s.metronome.store(!metronome, Relaxed);
+                s.chain_mode.store(false, Relaxed);
             }
             if ui
-                .selectable_label(self.show_fx, "FX")
-                .on_hover_text("Reverb and delay settings")
+                .selectable_label(chain, "Chain")
+                .on_hover_text("Play the block's chain, bar by bar")
                 .clicked()
             {
-                self.show_fx = !self.show_fx;
+                s.chain_mode.store(true, Relaxed);
             }
-            ui.separator();
-            // Master volume and the output meter.
-            ui.label("Master");
-            let mut master = self.project.master * 100.0;
-            let drag = egui::DragValue::new(&mut master)
-                .range(0.0..=100.0)
-                .speed(0.5)
-                .suffix("%");
-            let hint = "Volume of the whole song. A limiter after it keeps the mix from clipping.";
-            if ui.add(drag).on_hover_text(hint).changed() {
-                self.project.master = master / 100.0;
-                self.dirty = true;
-            }
-            let (peak, limiting) = s.take_meter();
-            for (shown, new) in self.meter_levels.iter_mut().zip(peak) {
-                *shown = new.max(*shown * 0.85);
-            }
-            self.meter_limiting = limiting.max(self.meter_limiting * 0.9);
-            meter(ui, self.meter_levels, self.meter_limiting);
-            if self.meter_levels.iter().any(|l| *l > 0.001) {
-                // Keep the meter falling after the sound stops.
-                ui.ctx().request_repaint_after(self.frame());
-            }
-        });
+        } else {
+            ui.weak("Plays the timeline");
+        }
+        ui.separator();
+        let metronome = s.metronome.load(Relaxed);
+        if ui
+            .selectable_label(metronome, "Click")
+            .on_hover_text("Metronome: a click on every beat")
+            .clicked()
+        {
+            s.metronome.store(!metronome, Relaxed);
+        }
+        let mut master = self.project.master * 100.0;
+        let drag = egui::DragValue::new(&mut master)
+            .range(0.0..=100.0)
+            .speed(0.5)
+            .suffix("%");
+        let hint = "Master: the volume of the whole song. A limiter after it\n\
+                    keeps the mix from clipping.";
+        if ui.add(drag).on_hover_text(hint).changed() {
+            self.project.master = master / 100.0;
+            self.dirty = true;
+        }
+        let (peak, limiting) = s.take_meter();
+        for (shown, new) in self.meter_levels.iter_mut().zip(peak) {
+            *shown = new.max(*shown * 0.85);
+        }
+        self.meter_limiting = limiting.max(self.meter_limiting * 0.9);
+        meter(ui, self.meter_levels, self.meter_limiting);
+        if self.meter_levels.iter().any(|l| *l > 0.001) {
+            // Keep the meter falling after the sound stops.
+            ui.ctx().request_repaint_after(self.frame());
+        }
     }
 
     /// Plays the selected track from the computer keyboard, like a MIDI
