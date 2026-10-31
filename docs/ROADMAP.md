@@ -121,6 +121,8 @@ menus).
 
 Newest first, by release.
 
+- v0.60.2: the guides read through for the new layout: a "The screen" map
+  at the top of F1 and the README, and the View menu's names match
 - v0.60.1: a drawer section's whole title line folds and unfolds it, with
   a triangle showing which (clicks on the name were being eaten)
 - v0.60: the layout from the design canvas: patterns and Bars in the top
