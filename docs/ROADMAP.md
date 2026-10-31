@@ -89,6 +89,13 @@ menus).
   free online).
 - **More drums:** more built-in synth drums (rimshot, ride, crash, 808
   kick and others) for the drum browser, made in code like the rest.
+- **Your own themes:** a small plain-text file, like Ghostty's config
+  (`~/.config/daw/theme` on Mac and Linux, the matching folder on
+  Windows), with one `name = color` per line: background, panels, text,
+  accent, the step and track colors. Anything left out keeps the built-in
+  color, so a theme can be three lines. It shows up in View > Theme, and
+  the app picks up changes to the file while it runs. On the web, load a
+  theme file instead (no folders there).
 
 ## Later
 
