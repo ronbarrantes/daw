@@ -301,9 +301,10 @@ pub fn mod_knob(
     live: Option<f32>,
 ) -> (bool, egui::Response) {
     let mut changed = false;
-    let size = Vec2::new(60.0, 74.0);
+    let size = Vec2::new(50.0, 56.0);
     let inner = ui.allocate_ui_with_layout(size, Layout::top_down(Align::Center), |ui| {
-        let (rect, resp) = ui.allocate_exact_size(Vec2::splat(40.0), Sense::click_and_drag());
+        ui.spacing_mut().item_spacing.y = 0.0;
+        let (rect, resp) = ui.allocate_exact_size(Vec2::splat(30.0), Sense::click_and_drag());
         let resp = if rings.is_empty() {
             resp.on_hover_text(hint(p))
         } else {
@@ -327,7 +328,7 @@ pub fn mod_knob(
         // The arc sweeps 270°, from bottom-left clockwise to bottom-right.
         let painter = ui.painter();
         let center = rect.center();
-        let radius = rect.width() / 2.0 - 3.0;
+        let radius = rect.width() / 2.0 - 4.0;
         let start = 0.75 * PI;
         let point = |a: f32, r: f32| Pos2::new(center.x + r * a.cos(), center.y + r * a.sin());
         let arc = |from: f32, to: f32, r: f32| -> Vec<Pos2> {
@@ -339,7 +340,7 @@ pub fn mod_knob(
         painter.circle_filled(center, radius, body);
         painter.add(egui::Shape::line(
             arc(0.0, t, radius + 1.5),
-            Stroke::new(3.0_f32, drum_on()),
+            Stroke::new(2.5_f32, drum_on()),
         ));
         // Each source's reach, one ring further out per source.
         for (n, (color, amount, both)) in rings.iter().enumerate() {
@@ -349,14 +350,14 @@ pub fn mod_knob(
                 t
             };
             let to = (t + amount).clamp(0.0, 1.0);
-            let r = radius + 5.0 + 2.5 * n as f32;
+            let r = radius + 4.0 + 2.0 * n as f32;
             painter.add(egui::Shape::line(
                 arc(from, to, r),
                 Stroke::new(2.0_f32, *color),
             ));
         }
         if let Some(live) = live.filter(|_| !rings.is_empty()) {
-            let r = radius + 5.0;
+            let r = radius + 4.0;
             painter.circle_filled(
                 point(start + 1.5 * PI * live.clamp(0.0, 1.0), r),
                 3.0,
@@ -367,8 +368,8 @@ pub fn mod_knob(
         let tip = point(angle, radius - 2.0);
         painter.line_segment([center, tip], Stroke::new(2.0_f32, Color32::WHITE));
 
-        ui.label(RichText::new(p.name).small());
-        ui.label(RichText::new(format_value(p, *value)).small().weak());
+        ui.label(RichText::new(p.name).size(10.0));
+        ui.label(RichText::new(format_value(p, *value)).size(9.0).weak());
         resp
     });
     (changed, inner.inner)
@@ -445,7 +446,7 @@ fn level_color(level: f32) -> Color32 {
 
 /// One track's level, as a thin bar `width` wide (peak, 0-1).
 pub fn level_bar(ui: &mut egui::Ui, level: f32, width: f32) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(Vec2::new(width, 26.0), Sense::hover());
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(width, 20.0), Sense::hover());
     let bar = egui::Rect::from_center_size(rect.center(), Vec2::new(width, 6.0));
     let painter = ui.painter_at(rect);
     painter.rect_filled(bar, 1.0, Color32::from_gray(40));
@@ -458,7 +459,7 @@ pub fn level_bar(ui: &mut egui::Ui, level: f32, width: f32) -> egui::Response {
 /// A small slider for a track's row: a thin line with a handle, `width`
 /// wide. Drag it, or double-click to reset; hover shows the value.
 pub fn mini_slider(ui: &mut egui::Ui, p: &Param, value: &mut f32, width: f32) -> bool {
-    let (rect, resp) = ui.allocate_exact_size(Vec2::new(width, 26.0), Sense::click_and_drag());
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(width, 20.0), Sense::click_and_drag());
     let before = *value;
     let inner = rect.shrink2(Vec2::new(3.0, 0.0));
     if resp.double_clicked() {
