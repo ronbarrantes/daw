@@ -24,6 +24,12 @@ is a drawer that opens when you need it and folds to one line.
    Keys & MIDI menu), small square steps, 20 px rows, a 10 px piano roll,
    smaller knobs, no helper text in the drawer, and the drawer's controls
    on one line so six sections fit across.
+5. [x] **Like the mockups** (v0.60). Built to match the chosen flow on the
+   design canvas: patterns, Bars and a display (position, tempo, swing) in
+   the top bar; rows with a color dot, name, volume, M S, two bars of steps
+   side by side in the track's color, and a meter; the drawer's sections as
+   boxes with a drawing and one row of knobs; the shut drawer shows small
+   drawings of the sound; a flat dark look.
 3. [x] **Themes** (v0.58). View > Theme: follow the computer, dark, light,
    a black-and-white LED look, and a black-and-orange hardware look.
 
@@ -115,6 +121,9 @@ menus).
 
 Newest first, by release.
 
+- v0.60: the layout from the design canvas: patterns and Bars in the top
+  bar, colored track rows with two bars side by side, the drawer's
+  sections as boxes, a shut drawer that sketches the sound, a flat look
 - v0.59: slimmer: menus and transport in one row, small square steps,
   compact rows and piano roll, smaller knobs, a one-line drawer header;
   Jam fits the Air without scrolling

@@ -9,9 +9,9 @@ use crate::project::{
     self, move_note, note_head, note_len, set_note_length, Row, Step, ACCENT, BAR_CHOICES, GHOST,
     LANES, MAX_OCTAVES, MAX_RATCHET, MAX_TRACKS, NORMAL, STEPS,
 };
+use crate::theme::track_color;
 use crate::widgets::{
-    disclosure_arrow, drum_on, empty_fill, level_bar, lit_fill, mini_slider, note_held, note_on,
-    playhead, NOTE_NAMES,
+    disclosure_arrow, empty_fill, level_bar, lit_fill, mini_slider, note_on, playhead, NOTE_NAMES,
 };
 use crate::{chords, drums, notes, App, DELAY_SEND, GROUP_VOLUME, PAN, REVERB_SEND, TRACK_VOLUME};
 
@@ -95,13 +95,61 @@ pub struct Playhead {
 const KEY_WIDTH: f32 = 60.0;
 const LANE_HEIGHT: f32 = 10.0;
 
-/// The width of a track's length button (1, 2, 4 or 8 bars).
-const LENGTH_WIDTH: f32 = 22.0;
-
 /// A step's size, the gap between steps, and a track row's height.
 const CELL: f32 = 18.0;
 const GAP: f32 = 2.0;
 const ROW: f32 = 20.0;
+
+/// How wide the part of a row before its steps is, and the name in it.
+const HEAD_WIDTH: f32 = 200.0;
+const NAME_WIDTH: f32 = 56.0;
+
+/// The space between one bar's steps and the next.
+const BAR_GAP: f32 = 8.0;
+
+/// A name as plain text that can be clicked, `width` wide, left-aligned
+/// and cut short if it doesn't fit; named for screen readers and tests.
+fn name_label(ui: &mut egui::Ui, name: &str, color: Color32, width: f32) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(width, ROW), Sense::click());
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name));
+    let font = egui::FontId::proportional(13.0);
+    let galley = ui.painter().layout(name.to_string(), font, color, width);
+    let pos = egui::pos2(rect.left(), rect.center().y - galley.size().y / 2.0);
+    ui.painter().with_clip_rect(rect).galley(pos, galley, color);
+    resp
+}
+
+/// A small square M or S switch; lit (in `on_color` if given) when on.
+fn small_toggle(
+    ui: &mut egui::Ui,
+    text: &str,
+    on: bool,
+    on_color: Option<Color32>,
+) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(16.0, 15.0), Sense::click());
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, text));
+    let v = ui.visuals();
+    let (fill, ink) = if on {
+        (
+            on_color.unwrap_or(Color32::from_gray(150)),
+            Color32::from_gray(25),
+        )
+    } else if resp.hovered() {
+        (v.widgets.hovered.weak_bg_fill, v.text_color())
+    } else {
+        (v.widgets.inactive.weak_bg_fill, v.weak_text_color())
+    };
+    let painter = ui.painter();
+    painter.rect_filled(rect, 2.0, fill);
+    painter.text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        text,
+        egui::FontId::proportional(9.0),
+        ink,
+    );
+    resp
+}
 
 /// A plain square for a step or a piano-roll cell, `size` big.
 fn cell(ui: &mut egui::Ui, size: Vec2, fill: Color32, stroke: egui::Stroke) -> egui::Response {
@@ -274,6 +322,14 @@ fn step_marks(s: &Step) -> String {
 
 impl App {
     /// The pattern's length, and which of its bars the editor shows.
+    /// The bars shown side by side: two at a time, the pair holding the
+    /// bar being edited.
+    pub fn shown_bars(&self, pattern: usize) -> Vec<usize> {
+        let bars = self.project.pattern_bars(pattern);
+        let first = (self.edit_bar.min(bars - 1) / 2) * 2;
+        (first..(first + 2).min(bars)).collect()
+    }
+
     /// The pattern's length: 1, 2, 4 or 8 bars. It sits next to the
     /// patterns when they're showing, and above the tracks when not.
     pub fn length_picker(&mut self, ui: &mut egui::Ui, pattern: usize) {
@@ -296,24 +352,66 @@ impl App {
         }
     }
 
-    /// Which bar of a longer pattern is shown.
-    pub fn bar_row(&mut self, ui: &mut egui::Ui, pattern: usize, current: Option<Playhead>) {
+    /// The line over the tracks: bar numbers over their steps, Level over
+    /// the meters, the Mix switch, and which bars show of a longer pattern.
+    pub fn tracks_header(&mut self, ui: &mut egui::Ui, pattern: usize, current: Option<Playhead>) {
         let bars = self.project.pattern_bars(pattern);
+        let shown = self.shown_bars(pattern);
+        let weak = ui.visuals().weak_text_color();
         ui.horizontal(|ui| {
-            ui.add_space(4.0);
-            if !self.view.song {
-                self.length_picker(ui, pattern);
+            let small = |t: String| RichText::new(t).size(10.0).color(weak);
+            ui.add_sized(
+                [HEAD_WIDTH, 14.0],
+                egui::Label::new(small("  Tracks".into())),
+            );
+            ui.spacing_mut().item_spacing.x = 0.0;
+            for (n, &bar) in shown.iter().enumerate() {
+                if n > 0 {
+                    ui.add_space(BAR_GAP);
+                }
+                let width = STEPS as f32 * (CELL + GAP) - GAP;
+                let playing = current.is_some_and(|c| c.bar % bars == bar);
+                let text = small(format!("{}", bar + 1));
+                let text = if playing {
+                    text.color(ui.visuals().text_color())
+                } else {
+                    text
+                };
+                ui.allocate_ui_with_layout(
+                    Vec2::new(width, 14.0),
+                    egui::Layout::left_to_right(egui::Align::Center),
+                    |ui| {
+                        ui.set_width(width);
+                        ui.label(text);
+                    },
+                );
             }
-            if bars > 1 {
+            ui.add_space(6.0);
+            ui.add_sized([40.0, 14.0], egui::Label::new(small("Level".into())));
+            ui.spacing_mut().item_spacing.x = 6.0;
+            if self.show_mix {
+                ui.add_space(14.0);
+                for name in ["Pan", "Reverb", "Delay"] {
+                    ui.add_sized([48.0, 14.0], egui::Label::new(small(name.into())));
+                }
+            }
+            ui.toggle_value(&mut self.show_mix, RichText::new("Mix").size(11.0))
+                .on_hover_text(
+                    "Show each track's pan and its reverb and delay sends\n\
+                     as more columns on its row",
+                );
+            // A longer pattern shows two bars at a time; pick which two.
+            if bars > 2 {
                 ui.separator();
-                ui.label("Editing");
-                let playing = current.map(|c| c.bar % bars);
-                for b in 0..bars {
-                    let label = egui::Button::new(format!("Bar {}", b + 1))
-                        .selected(b == self.edit_bar)
-                        .stroke(playhead(playing == Some(b)));
-                    if ui.add(label).on_hover_text("Show this bar").clicked() {
-                        self.edit_bar = b;
+                for first in (0..bars).step_by(2) {
+                    let on = shown.first() == Some(&first);
+                    let label = RichText::new(format!("{}-{}", first + 1, first + 2)).size(11.0);
+                    if ui
+                        .selectable_label(on, label)
+                        .on_hover_text("Show these two bars")
+                        .clicked()
+                    {
+                        self.edit_bar = first;
                     }
                 }
             }
@@ -351,8 +449,8 @@ impl App {
         }
     }
 
-    /// A group header: expand arrow, name, mute, solo, and every hit in the
-    /// group combined.
+    /// A group header: expand arrow, name, volume, mute, solo, and every
+    /// hit in the group combined, lined up with the tracks' steps.
     fn group_row(
         &mut self,
         ui: &mut egui::Ui,
@@ -361,75 +459,96 @@ impl App {
         current: Option<Playhead>,
     ) {
         let id = self.project.groups[g].id;
-        // Shown against the bar playing, or else the one being edited.
-        let bar = current.map_or(self.edit_bar, |c| c.bar);
-        let mut lit = [false; STEPS];
-        for t in self.project.tracks.iter().filter(|t| t.group == Some(id)) {
-            for (step, on) in lit.iter_mut().enumerate() {
-                *on |= t.hit_at(pattern, bar, step);
-            }
-        }
+        let shown = self.shown_bars(pattern);
+        let lit: Vec<[bool; STEPS]> = shown
+            .iter()
+            .map(|&bar| {
+                let mut lit = [false; STEPS];
+                for t in self.project.tracks.iter().filter(|t| t.group == Some(id)) {
+                    for (step, on) in lit.iter_mut().enumerate() {
+                        *on |= t.hit_at(pattern, bar, step);
+                    }
+                }
+                lit
+            })
+            .collect();
+        let _ = current;
         let mut ungroup = false;
         ui.horizontal(|ui| {
+            let selected = self.selected_group == Some(id);
             let group = &mut self.project.groups[g];
-            let hint = if group.collapsed {
-                "Expand"
-            } else {
-                "Collapse"
-            };
-            let resp = disclosure_arrow(ui, group.collapsed).on_hover_text(hint);
-            if resp.clicked() {
-                group.collapsed = !group.collapsed;
-                self.dirty = true;
-            }
-            let name = egui::Button::new(RichText::new(&group.name).small().strong())
-                .selected(self.selected_group == Some(id));
-            let resp = ui
-                .add_sized([54.0, ROW], name)
-                .on_hover_text("Click for group settings · right-click to ungroup");
-            if resp.clicked() {
-                self.selected_group = Some(id);
-            }
-            resp.context_menu(|ui| {
-                if ui.button("Ungroup (keep the tracks)").clicked() {
-                    ungroup = true;
-                    ui.close_menu();
-                }
-            });
-            if mini_slider(ui, &GROUP_VOLUME, &mut group.volume, 56.0) {
-                self.dirty = true;
-            }
-            let mute = egui::Button::new(RichText::new("M").small())
-                .selected(group.muted)
-                .min_size(Vec2::new(18.0, ROW));
-            if ui.add(mute).on_hover_text("Mute the whole group").clicked() {
-                group.muted = !group.muted;
-                self.dirty = true;
-            }
-            let solo_color = if group.solo { SOLO } else { Color32::GRAY };
-            let solo = egui::Button::new(RichText::new("S").small().color(solo_color))
-                .selected(group.solo)
-                .min_size(Vec2::new(18.0, ROW));
-            if ui.add(solo).on_hover_text("Solo the whole group").clicked() {
-                group.solo = !group.solo;
-                self.dirty = true;
-            }
-            // Where a track's length button is, so the steps line up.
-            ui.add_space(LENGTH_WIDTH + ui.spacing().item_spacing.x);
+            let head = Vec2::new(HEAD_WIDTH, ROW);
+            ui.allocate_ui_with_layout(
+                head,
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    ui.set_width(HEAD_WIDTH);
+                    let hint = if group.collapsed {
+                        "Expand"
+                    } else {
+                        "Collapse"
+                    };
+                    let resp = disclosure_arrow(ui, group.collapsed).on_hover_text(hint);
+                    if resp.clicked() {
+                        group.collapsed = !group.collapsed;
+                        self.dirty = true;
+                    }
+                    let color = if selected {
+                        Color32::WHITE
+                    } else {
+                        ui.visuals().text_color()
+                    };
+                    let resp = name_label(ui, &group.name, color, NAME_WIDTH - 12.0)
+                        .on_hover_text("Click for group settings · right-click to ungroup");
+                    if resp.clicked() {
+                        self.selected_group = Some(id);
+                    }
+                    resp.context_menu(|ui| {
+                        if ui.button("Ungroup (keep the tracks)").clicked() {
+                            ungroup = true;
+                            ui.close_menu();
+                        }
+                    });
+                    if mini_slider(ui, &GROUP_VOLUME, &mut group.volume, 56.0) {
+                        self.dirty = true;
+                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if small_toggle(ui, "S", group.solo, Some(SOLO))
+                            .on_hover_text("Solo the whole group")
+                            .clicked()
+                        {
+                            group.solo = !group.solo;
+                            self.dirty = true;
+                        }
+                        if small_toggle(ui, "M", group.muted, None)
+                            .on_hover_text("Mute the whole group")
+                            .clicked()
+                        {
+                            group.muted = !group.muted;
+                            self.dirty = true;
+                        }
+                    });
+                },
+            );
             ui.spacing_mut().item_spacing.x = GAP;
             // A read-only summary of the group's hits; click to expand.
-            for (step, on) in lit.iter().enumerate() {
-                let (rect, resp) = ui.allocate_exact_size(Vec2::new(CELL, ROW), Sense::click());
-                let fill = if *on {
-                    drum_on().gamma_multiply(0.55)
-                } else {
-                    empty_fill(step, true)
-                };
-                ui.painter()
-                    .rect_filled(rect.shrink2(Vec2::new(0.0, 5.0)), 2.0, fill);
-                if resp.clicked() && group.collapsed {
-                    group.collapsed = false;
-                    self.dirty = true;
+            for (n, lit) in lit.iter().enumerate() {
+                if n > 0 {
+                    ui.add_space(BAR_GAP);
+                }
+                for (step, on) in lit.iter().enumerate() {
+                    let (rect, resp) = ui.allocate_exact_size(Vec2::new(CELL, ROW), Sense::click());
+                    let fill = if *on {
+                        Color32::from_gray(150)
+                    } else {
+                        empty_fill(step, true)
+                    };
+                    ui.painter()
+                        .rect_filled(rect.shrink2(Vec2::new(0.0, 6.0)), 1.0, fill);
+                    if resp.clicked() && group.collapsed {
+                        group.collapsed = false;
+                        self.dirty = true;
+                    }
                 }
             }
         });
@@ -449,137 +568,155 @@ impl App {
         current: Option<Playhead>,
     ) {
         let mut action = None;
-        ui.horizontal(|ui| {
+        let shown = self.shown_bars(pattern);
+        let pattern_bars = self.project.pattern_bars(pattern);
+        let highlighted =
+            (self.selected == i && self.selected_group.is_none()) || self.picked.contains(&i);
+        let fill = if self.selected == i && self.selected_group.is_none() {
+            ui.visuals().widgets.inactive.weak_bg_fill
+        } else {
+            Color32::TRANSPARENT
+        };
+        egui::Frame::none().fill(fill).show(ui, |ui| ui.horizontal(|ui| {
             let groups: Vec<(u32, String)> = self
                 .project
                 .groups
                 .iter()
                 .map(|g| (g.id, g.name.clone()))
                 .collect();
+            let color = track_color(i);
             let track = &mut self.project.tracks[i];
-            // Tracks in a group are indented under its header.
-            let width = if track.group.is_some() {
-                ui.add_space(12.0);
-                68.0
-            } else {
-                80.0
-            };
-            let highlighted =
-                (self.selected == i && self.selected_group.is_none()) || self.picked.contains(&i);
-            let name = egui::Button::new(RichText::new(&track.name).small()).selected(highlighted);
-            let hint = "Click to select · Ctrl/Cmd-click to pick several · right-click for more";
-            let resp = ui.add_sized([width, ROW], name).on_hover_text(hint);
-            if resp.clicked() {
-                if ui.input(|i| i.modifiers.command) {
-                    if let Some(at) = self.picked.iter().position(|&p| p == i) {
-                        self.picked.remove(at);
-                    } else {
-                        self.picked.push(i);
-                    }
+            let head = Vec2::new(HEAD_WIDTH, ROW);
+            ui.allocate_ui_with_layout(head, egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                ui.set_width(HEAD_WIDTH);
+                // Tracks in a group are indented under its header.
+                let indent = if track.group.is_some() { 12.0 } else { 0.0 };
+                ui.add_space(indent);
+                let (dot, _) = ui.allocate_exact_size(Vec2::new(8.0, ROW), Sense::hover());
+                ui.painter().rect_filled(
+                    egui::Rect::from_center_size(dot.center(), Vec2::splat(8.0)),
+                    1.0,
+                    color,
+                );
+                let text_color = if highlighted {
+                    color
                 } else {
-                    // Silent: switching tracks while jamming shouldn't make
-                    // a sound. Tap in the panel plays one.
-                    self.selected = i;
-                    self.selected_group = None;
-                    self.picked.clear();
+                    ui.visuals().text_color()
+                };
+                let hint = "Click to select · Ctrl/Cmd-click to pick several · right-click for more";
+                let resp = name_label(ui, &track.name, text_color, NAME_WIDTH - indent)
+                    .on_hover_text(hint);
+                if resp.clicked() {
+                    if ui.input(|i| i.modifiers.command) {
+                        if let Some(at) = self.picked.iter().position(|&p| p == i) {
+                            self.picked.remove(at);
+                        } else {
+                            self.picked.push(i);
+                        }
+                    } else {
+                        // Silent: switching tracks while jamming shouldn't make
+                        // a sound. Tap in the drawer plays one.
+                        self.selected = i;
+                        self.selected_group = None;
+                        self.picked.clear();
+                    }
                 }
-            }
-            resp.context_menu(|ui| {
-                if ui.button("Group with picked tracks  (Ctrl+G)").clicked() {
-                    action = Some(TrackAction::Group);
-                    ui.close_menu();
-                }
-                if !groups.is_empty() {
-                    ui.menu_button("Move to group", |ui| {
-                        for (id, name) in &groups {
-                            if ui.button(name).clicked() {
-                                action = Some(TrackAction::MoveTo(*id));
-                                ui.close_menu();
+                resp.context_menu(|ui| {
+                    // How many bars this track plays before it repeats.
+                    ui.horizontal(|ui| {
+                        ui.label("Length");
+                        let bars = track.bars(pattern);
+                        for b in BAR_CHOICES {
+                            if ui.selectable_label(bars == b, b.to_string()).clicked() {
+                                track.set_bars(pattern, b);
+                                self.dirty = true;
                             }
                         }
                     });
+                    ui.separator();
+                    if ui.button("Group with picked tracks  (Ctrl+G)").clicked() {
+                        action = Some(TrackAction::Group);
+                        ui.close_menu();
+                    }
+                    if !groups.is_empty() {
+                        ui.menu_button("Move to group", |ui| {
+                            for (id, name) in &groups {
+                                if ui.button(name).clicked() {
+                                    action = Some(TrackAction::MoveTo(*id));
+                                    ui.close_menu();
+                                }
+                            }
+                        });
+                    }
+                    if track.group.is_some() && ui.button("Remove from group").clicked() {
+                        action = Some(TrackAction::Ungroup);
+                        ui.close_menu();
+                    }
+                    ui.separator();
+                    if ui.button("Duplicate track").clicked() {
+                        action = Some(TrackAction::Duplicate);
+                        ui.close_menu();
+                    }
+                    if ui.button("Move up").clicked() {
+                        action = Some(TrackAction::Move(-1));
+                        ui.close_menu();
+                    }
+                    if ui.button("Move down").clicked() {
+                        action = Some(TrackAction::Move(1));
+                        ui.close_menu();
+                    }
+                    ui.separator();
+                    if ui.button("Delete track").clicked() {
+                        action = Some(TrackAction::Delete);
+                        ui.close_menu();
+                    }
+                });
+                // Volume sits by the name, so balancing is right there.
+                if mini_slider(ui, &TRACK_VOLUME, &mut track.volume, 56.0) {
+                    self.dirty = true;
                 }
-                if track.group.is_some() && ui.button("Remove from group").clicked() {
-                    action = Some(TrackAction::Ungroup);
-                    ui.close_menu();
-                }
-                ui.separator();
-                if ui.button("Duplicate track").clicked() {
-                    action = Some(TrackAction::Duplicate);
-                    ui.close_menu();
-                }
-                if ui.button("Move up").clicked() {
-                    action = Some(TrackAction::Move(-1));
-                    ui.close_menu();
-                }
-                if ui.button("Move down").clicked() {
-                    action = Some(TrackAction::Move(1));
-                    ui.close_menu();
-                }
-                ui.separator();
-                if ui.button("Delete track").clicked() {
-                    action = Some(TrackAction::Delete);
-                    ui.close_menu();
-                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if small_toggle(ui, "S", track.solo, Some(SOLO))
+                        .on_hover_text("Solo: hear only soloed tracks")
+                        .clicked()
+                    {
+                        track.solo = !track.solo;
+                        self.dirty = true;
+                    }
+                    if small_toggle(ui, "M", track.muted, None)
+                        .on_hover_text("Mute")
+                        .clicked()
+                    {
+                        track.muted = !track.muted;
+                        self.dirty = true;
+                    }
+                });
             });
-            // Volume sits by the name, so balancing is right there.
-            if mini_slider(ui, &TRACK_VOLUME, &mut track.volume, 56.0) {
-                self.dirty = true;
+            let spacing = ui.spacing().item_spacing.x;
+            ui.spacing_mut().item_spacing.x = GAP;
+            for (n, &bar) in shown.iter().enumerate() {
+            if n > 0 {
+                ui.add_space(BAR_GAP);
             }
-            let mute = egui::Button::new(RichText::new("M").small())
-                .selected(track.muted)
-                .min_size(Vec2::new(18.0, ROW));
-            if ui.add(mute).on_hover_text("Mute").clicked() {
-                track.muted = !track.muted;
-                self.dirty = true;
-            }
-            let solo_color = if track.solo { SOLO } else { Color32::GRAY };
-            let solo = egui::Button::new(RichText::new("S").small().color(solo_color))
-                .selected(track.solo)
-                .min_size(Vec2::new(18.0, ROW));
-            let solo_hint = "Solo: hear only soloed tracks";
-            if ui.add(solo).on_hover_text(solo_hint).clicked() {
-                track.solo = !track.solo;
-                self.dirty = true;
-            }
+            // The piano roll lines its columns up with these.
+            self.bar_x[n] = ui.cursor().min.x;
+            let track = &mut self.project.tracks[i];
             let bars = track.bars(pattern);
-            let length = egui::Button::new(RichText::new(bars.to_string()).small())
-                .min_size(Vec2::new(LENGTH_WIDTH, ROW));
-            let resp = ui.add(length).on_hover_text(
-                "How many bars this track plays in this pattern before it repeats.\n\
-                 Click for longer, right-click for shorter.",
-            );
-            let pick = if resp.clicked() {
-                BAR_CHOICES.iter().copied().find(|&b| b > bars)
-            } else if resp.secondary_clicked() {
-                BAR_CHOICES.iter().rev().copied().find(|&b| b < bars)
-            } else {
-                None
-            };
-            if let Some(b) = pick {
-                track.set_bars(pattern, b);
-                self.dirty = true;
-            }
-            let bars = track.bars(pattern);
-            // A shorter part repeats: it shows the bar it plays under the
-            // pattern's bar being edited, and its playhead.
+            // A shorter part repeats: it shows the bar it plays there,
+            // dimmed, and the playhead where the pattern is.
             let current = current
-                .filter(|c| c.bar % bars == self.edit_bar % bars)
+                .filter(|c| c.bar % pattern_bars == bar)
                 .map(|c| c.step);
-            let repeat = self.edit_bar >= bars;
+            let repeat = bar >= bars;
             let melodic = track.is_melodic();
             let lanes = track.lanes();
-            let on_color = if melodic { note_on() } else { drum_on() };
+            let on_color = color;
             let base = track.base_note();
-            let Some(grid) = track.grid_mut(pattern, self.edit_bar) else {
-                return;
+            let Some(grid) = track.grid_mut(pattern, bar) else {
+                continue;
             };
             let shift = ui.input(|i| i.modifiers.shift);
             let pointer = held_pointer(ui);
-            let spacing = ui.spacing().item_spacing.x;
-            ui.spacing_mut().item_spacing.x = GAP;
-            // The piano roll lines its columns up with these.
-            self.steps_x = ui.cursor().min.x;
             // A step is a column across every lane, so walk it by index.
             #[allow(clippy::needless_range_loop)]
             for step in 0..STEPS {
@@ -615,7 +752,7 @@ impl App {
                 };
                 let fill = match first.and_then(|l| grid[l][step]) {
                     Some(s) => lit_fill(on_color, s.velocity),
-                    None if !notes.is_empty() => note_held(),
+                    None if !notes.is_empty() => color.gamma_multiply(0.45),
                     None => empty_fill(step, false),
                 };
                 let fill = if repeat {
@@ -636,6 +773,10 @@ impl App {
                 // (A quick tap can press and release within one frame, so
                 // a click starts a paint too.)
                 let pressed = resp.is_pointer_button_down_on() || resp.clicked();
+                if pressed {
+                    // The piano roll follows the bar you touch.
+                    self.edit_bar = bar;
+                }
                 let start = !shift && pressed && self.paint.is_none();
                 if start {
                     self.paint = Some(Paint {
@@ -686,6 +827,7 @@ impl App {
                     });
                 }
             }
+            }
             ui.spacing_mut().item_spacing.x = spacing;
             ui.add_space(4.0);
             level_bar(ui, self.track_levels[i], 40.0);
@@ -703,7 +845,7 @@ impl App {
                     }
                 }
             }
-        });
+        }));
         match action {
             Some(TrackAction::Group) => {
                 if !self.picked.contains(&i) {
@@ -756,11 +898,6 @@ impl App {
         ui.horizontal(|ui| {
             // Select only means something in MIDI blocks; here it draws.
             Tool::bar(ui, &mut self.tool, false);
-            ui.separator();
-            ui.toggle_value(&mut self.show_mix, "Mix").on_hover_text(
-                "Show each track's pan and its reverb and delay sends\n\
-                 as more columns on its row",
-            );
             ui.separator();
             let full = self.project.tracks.len() >= MAX_TRACKS;
             if ui
@@ -909,9 +1046,9 @@ impl App {
             let note = base + lane as u8;
             ui.horizontal(|ui| {
                 let key_fill = if sharp {
-                    Color32::from_gray(25)
+                    Color32::from_gray(30)
                 } else {
-                    Color32::from_gray(90)
+                    Color32::from_gray(62)
                 };
                 let key = cell(
                     ui,
@@ -934,13 +1071,14 @@ impl App {
                     let _ = self.events.try_send(Event::Preview { track: i, note });
                 }
                 // Line the columns up with the steps above.
-                ui.add_space((self.steps_x - ui.cursor().min.x).max(0.0));
+                let at = self.bar_x[self.edit_bar % 2];
+                ui.add_space((at - ui.cursor().min.x).max(0.0));
                 ui.spacing_mut().item_spacing.x = GAP;
                 for step in 0..STEPS {
                     let value = grid[lane][step];
                     let fill = match value {
-                        Some(s) if s.tie => note_held(),
-                        Some(s) => lit_fill(note_on(), s.velocity),
+                        Some(s) if s.tie => track_color(i).gamma_multiply(0.45),
+                        Some(s) => lit_fill(track_color(i), s.velocity),
                         None if others[lane][step] => OTHER_NOTE,
                         None => empty_fill(step, sharp),
                     };
