@@ -138,6 +138,9 @@ menus).
 
 Newest first, by release.
 
+- v0.63: Help > Diagnostics: a stress test that times the engine with
+  more and more voices, with and without each costly part, and says
+  about how many voices fit
 - v0.62.3: steps about 1.5 wide to 1 tall (up to 30 by 20); Light and
   Dark recolored: lighter beats 2 and 4, light steps, screens and keys on
   Light, and lit steps at least 3:1 from empty ones

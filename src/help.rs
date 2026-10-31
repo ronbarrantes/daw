@@ -341,6 +341,9 @@ const SECTIONS: &[(&str, &str)] = &[
          • Audio load: how much of its time the engine needs. Near 100% the \
          sound crackles; try Low power, fewer tracks or the desktop app.\n\
          • Dropouts: how many times it ran late.\n\
+         • Stress test: click Run to see how much of the computer each \
+         part of a synth needs, and about how many notes at once it can \
+         play. Past 100% it would crackle.\n\
          • Copy all puts it all on the clipboard, for a bug report.",
     ),
     (

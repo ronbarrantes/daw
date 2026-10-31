@@ -160,7 +160,10 @@ Press **F1** (or **Help → How to use**) for the built-in guide.
 **Help → Diagnostics** shows how the sound engine is doing (audio load,
 dropouts, buffer size, device) and a log of recent errors. **Copy all**
 puts it on the clipboard for a bug report. The desktop app also keeps the
-log in a small file (the window shows where).
+log in a small file (the window shows where). Its **Stress test** plays
+more and more notes on test synths (with and without the second
+oscillator, LFOs, reverb and delay) and shows how much of one processor
+core each needs, and about how many voices fit on this computer.
 
 - **Space** or **▶** starts and stops. Drag the **BPM** in the display to
   change the tempo.

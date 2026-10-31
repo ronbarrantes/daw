@@ -15,6 +15,7 @@ mod midi;
 mod notes;
 mod project;
 mod sample;
+mod stress;
 mod synth;
 mod synth_ui;
 mod theme;
@@ -287,6 +288,8 @@ struct App {
     show_about: bool,
     /// Help > Diagnostics.
     show_diagnostics: bool,
+    /// Diagnostics' stress test, running or done.
+    stress: stress::Test,
     /// The busiest the audio has been lately, 0-1 of its time, for
     /// Diagnostics.
     audio_load: f32,
@@ -463,6 +466,7 @@ impl App {
             show_help: false,
             show_about: false,
             show_diagnostics: false,
+            stress: stress::Test::default(),
             audio_load: 0.0,
             // The audio error is already logged above.
             logged: [audio_error.clone(), None, None],
@@ -1742,7 +1746,9 @@ impl App {
             ),
         ];
         let lines = log::lines();
+        let stress_report = self.stress.report();
         let mut open = true;
+        let stress = &mut self.stress;
         egui::Window::new("Diagnostics")
             .open(&mut open)
             .default_width(420.0)
@@ -1762,11 +1768,17 @@ impl App {
                      ran late.",
                 );
                 ui.separator();
+                stress_section(ui, stress);
+                ui.separator();
                 ui.horizontal(|ui| {
                     ui.strong("Recent log");
                     if ui.button("Copy all").clicked() {
                         let mut report: Vec<String> =
                             facts.iter().map(|(n, v)| format!("{n}: {v}")).collect();
+                        if !stress_report.is_empty() {
+                            report.push(String::new());
+                            report.extend(stress_report.iter().cloned());
+                        }
                         report.push(String::new());
                         report.extend(lines.iter().cloned());
                         ui.ctx().copy_text(report.join("\n"));
@@ -1786,6 +1798,14 @@ impl App {
                     });
             });
         self.show_diagnostics = open;
+        if !open {
+            self.stress.stop();
+        }
+        if self.stress.running() {
+            // One case a frame, so the window shows how far it's got.
+            self.stress.step();
+            ctx.request_repaint();
+        }
         ctx.request_repaint_after(Duration::from_millis(250));
     }
 
@@ -2311,5 +2331,55 @@ impl App {
         if changed {
             self.dirty = true;
         }
+    }
+}
+
+/// Diagnostics' stress test: the button, how far it's got, and the results.
+fn stress_section(ui: &mut egui::Ui, stress: &mut stress::Test) {
+    ui.horizontal(|ui| {
+        ui.strong("Stress test");
+        if stress.running() {
+            let (done, all) = stress.progress();
+            ui.spinner();
+            ui.label(format!("{done} of {all}"));
+            if ui.button("Stop").clicked() {
+                stress.stop();
+            }
+        } else {
+            let label = if stress.results.is_empty() {
+                "Run"
+            } else {
+                "Run again"
+            };
+            if ui.button(label).clicked() {
+                stress.start();
+            }
+        }
+    });
+    ui.weak(
+        "Holds more and more notes on test synths and times the sound engine \
+         playing them. Load is the share of one processor core; past 100% it \
+         would crackle. The screen may stutter while it runs.",
+    );
+    if stress.results.is_empty() {
+        return;
+    }
+    let (compare, sweep) = stress.parts();
+    egui::Grid::new("stress").num_columns(3).show(ui, |ui| {
+        let rows = compare
+            .iter()
+            .map(|r| (r.case.patch.name(), r))
+            .chain(sweep.iter().map(|r| (stress::FULL, r)));
+        for (name, r) in rows {
+            ui.label(name);
+            ui.label(format!("{} voices", r.case.voices));
+            ui.label(format!("{:.0}%", r.load * 100.0));
+            ui.end_row();
+        }
+    });
+    if let (Some(fit), false) = (stress.fit(), stress.running()) {
+        ui.strong(format!(
+            "About {fit} voices with everything on fit, with room to spare."
+        ));
     }
 }
