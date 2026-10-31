@@ -131,6 +131,8 @@ menus).
 
 Newest first, by release.
 
+- v0.62.1: the Tool (Draw, Erase) sits over the track names, and + Synth,
+  + Drum and + Sample under the last track, so they read as the tracks'
 - v0.62: patterns, Length and Plays on the tracks' top line; steps stretch
   to fill the window; meters and Mix at the right edge
 - v0.61: things stay put: ▾/▸ switches on Tracks, Piano roll, Chain and

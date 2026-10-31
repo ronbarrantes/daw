@@ -200,7 +200,7 @@ Each row is a track: a color dot and its name, its volume, **M** (mute),
 Tracks work like layers: mute turns one off, and solo plays only the
 soloed tracks so you can hear a part on its own.
 
-- The **Tool** bar (next to + Synth) picks what clicks and drags do:
+- The **Tool** (over the track names) picks what clicks and drags do:
   **Draw** adds notes and turns steps on or off, **Erase** removes them.
   In MIDI blocks there's also **Select**. On a touch screen the tools do
   what Ctrl, Alt and right-click do with a mouse.

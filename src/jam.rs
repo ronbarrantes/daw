@@ -424,7 +424,17 @@ impl App {
         let weak = ui.visuals().weak_text_color();
         ui.horizontal(|ui| {
             let small = |t: String| RichText::new(t).size(10.0).color(weak);
-            ui.add_space(HEAD_WIDTH);
+            // The tool, over the track names, so it reads as the tracks'.
+            ui.allocate_ui_with_layout(
+                Vec2::new(HEAD_WIDTH, 18.0),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    ui.set_width(HEAD_WIDTH);
+                    ui.add_space(4.0);
+                    // Select only means something in MIDI blocks; here it draws.
+                    Tool::bar(ui, &mut self.tool, false);
+                },
+            );
             ui.spacing_mut().item_spacing.x = 0.0;
             for (n, &bar) in shown.iter().enumerate() {
                 if n > 0 {
@@ -963,9 +973,7 @@ impl App {
 
     pub fn add_row(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui.horizontal(|ui| {
-            // Select only means something in MIDI blocks; here it draws.
-            Tool::bar(ui, &mut self.tool, false);
-            ui.separator();
+            ui.add_space(4.0);
             let full = self.project.tracks.len() >= MAX_TRACKS;
             if ui
                 .add_enabled(!full, egui::Button::new("+ Synth"))

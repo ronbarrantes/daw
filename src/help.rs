@@ -100,7 +100,7 @@ const SECTIONS: &[(&str, &str)] = &[
     ),
     (
         "Steps and groove",
-        "• The Tool bar (next to + Synth) picks what clicks and drags do: \
+        "• The Tool (over the track names) picks what clicks and drags do: \
          Draw adds notes and turns steps on, Erase removes them (MIDI blocks \
          also have Select). Handy on a touch screen.\n\
          • Click a step to turn it on or off. Drag along a row to paint \
