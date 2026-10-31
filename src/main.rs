@@ -826,16 +826,14 @@ impl App {
             return;
         }
         self.tracks_header(ui, edit, current);
-        // The tools stay along the bottom of the tracks.
-        egui::TopBottomPanel::bottom("tools")
-            .frame(egui::Frame::none())
-            .show_inside(ui, |ui| {
+        egui::ScrollArea::vertical()
+            .auto_shrink(false)
+            .show(ui, |ui| {
+                self.track_list(ui, edit, current);
+                // Adding a track sits right under the last one.
                 ui.add_space(4.0);
                 self.add_row(ui, ctx);
             });
-        egui::ScrollArea::vertical()
-            .auto_shrink(false)
-            .show(ui, |ui| self.track_list(ui, edit, current));
     }
 
     /// How long to wait between redraws while something moves.
