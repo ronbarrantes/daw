@@ -4,7 +4,24 @@ What's being built now, what's planned, and what's done. Every PR updates
 this file: tick off what it finishes, and drop or reword anything that's no
 longer the plan.
 
-## Now: synth modules
+## Now: the new layout
+
+Worked out with mockups on a design canvas. Always in view: the top bar,
+the tracks (name, volume, M, S, steps) and a status line. Everything else
+is a drawer that opens when you need it and folds to one line.
+
+1. [x] **Instrument drawer** (v0.56). The instrument panel moves from the
+   right edge to a drawer along the bottom, its sections side by side; I or
+   F8 opens and shuts it. A status line along the bottom shows errors and
+   the audio load.
+2. [ ] **Track rows.** Volume in each row next to M and S, a level meter
+   after the steps, and a Mix toggle that adds pan, reverb and delay
+   columns. The piano roll opens under its own track. Bars sits next to
+   the pattern picker.
+3. [ ] **Themes.** View > Theme: the current colors, a black-and-white LED
+   look, and a black-and-orange hardware look.
+
+## Then: synth modules
 
 Holding a drone and turning knobs is the heart of the app, so this comes
 first. The plan came out of reading what people find easy and painful in
@@ -92,6 +109,8 @@ menus).
 
 Newest first, by release.
 
+- v0.56: the instrument is a drawer along the bottom (I or F8), its
+  sections side by side; a status line shows errors and the audio load
 - v0.55.2: the LFOs sit by the sound engine and Mod envelope by the
   envelope in the panel; the drawer's arrows are triangles like the rest
 - v0.55.1: the Mac app builds on GitHub's current macOS runners (the old

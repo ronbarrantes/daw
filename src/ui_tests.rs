@@ -225,10 +225,10 @@ fn keys_1_and_2_bend_the_held_chord_like_a_wheel() {
 fn the_instrument_panel_slides_shut_and_open() {
     let mut ui = Harness::new();
     assert!(ui.app.view.panel);
-    ui.click("Hide the instrument panel");
+    ui.click("Hide the instrument");
     ui.frames(30); // let it slide
     assert!(!ui.app.view.panel);
-    ui.click("Show the instrument panel");
+    ui.click("Show the instrument");
     ui.frames(30);
     assert!(ui.app.view.panel);
     assert!(ui.find("Tap").is_some(), "its controls are back");

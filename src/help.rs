@@ -11,7 +11,7 @@ const SECTIONS: &[(&str, &str)] = &[
          Ctrl+Z (Cmd+Z on Mac) \
          undoes and Ctrl+Shift+Z redoes, also in the Edit menu.\n\n\
          Each row is a track. Click its steps to make a beat, click a track's \
-         name to select it, and use the panel on the right to shape its sound. \
+         name to select it, and use the instrument drawer along the bottom to shape its sound. \
          Synth tracks also get a piano roll below the rows.",
     ),
     (
@@ -37,12 +37,12 @@ const SECTIONS: &[(&str, &str)] = &[
          or delete it.\n\
          • M mutes a track. S solos it: when any track is soloed, only soloed \
          tracks play. Use solo to hear one part on its own.\n\
-         • Mix (right panel): Volume, Pan (left or right; double-click for \
+         • Mix (instrument drawer): Volume, Pan (left or right; double-click for \
          centre), and Reverb and Delay: how much of the track goes to the \
          shared effects.\n\
          • FX (top bar) sets up the effects: reverb Size and Tone, delay \
          Time (in 16th notes; 3/16 is a classic) and Feedback (more echoes).\n\
-         • Rename a track at the top of the right panel; Delete track is at the \
+         • Rename a track at the top left of the instrument drawer; Delete track is at the \
          bottom.",
     ),
     (
@@ -60,11 +60,14 @@ const SECTIONS: &[(&str, &str)] = &[
         "Showing and hiding",
         "Hiding a part never deletes it or stops it playing.\n\n\
          • View menu, or F5 chain and patterns, F6 tracks, F7 piano roll, \
-         F8 instrument panel.\n\
+         F8 (or I) instrument drawer.\n\
          • View > Focus: Tracks only, or Piano roll and sound.\n\
          • F9 shows everything again.\n\
-         • The instrument panel is a drawer: the arrow at its top slides it \
-         shut to a strip on the right; click the strip or press F8 to open it.\n\
+         • The instrument is a drawer along the bottom: its arrow (or I, or F8) \
+         shuts it to one line saying what's selected, and opens it again. Drag its \
+         top edge to make it taller or shorter.\n\
+         • The line along the very bottom shows errors and how hard the audio \
+         is working; click the % for Help > Diagnostics.\n\
          • View > Low power redraws less often while playing, to save \
          battery.",
     ),
@@ -84,7 +87,7 @@ const SECTIONS: &[(&str, &str)] = &[
            – Nudge: shift it a little early or late.\n\
          • Swing (top bar) delays every other 16th note for a shuffled feel; \
          66% is a triplet swing.\n\
-         • Humanize (right panel) adds small random changes to a track's \
+         • Humanize (instrument drawer) adds small random changes to a track's \
          timing and loudness so it sounds less robotic.",
     ),
     (
@@ -204,7 +207,7 @@ const SECTIONS: &[(&str, &str)] = &[
         "Synth",
         "Drag a knob up or down; double-click to reset it; hover to see what \
          it does. Click a section's heading to fold it (and again to open \
-         it); × closes it, and + Section at the bottom of the panel (or View \
+         it); × closes it, and + Section in the drawer's left column (or View \
          > Instrument panel sections) brings it back. The arrow next to × pops it out \
          into its own window to put anywhere (the Scope and Theremin can be \
          made big); its × puts it back.\n\n\
@@ -231,13 +234,13 @@ const SECTIONS: &[(&str, &str)] = &[
          1-4 octaves. Hold a chord on the keys, or draw long notes. Arp notes \
          turns one held note into a chord or scale (Major, Minor, 7th, \
          Pentatonic...); Latch keeps it going after you let go.\n\
-         • Drone and Tap are at the top of the panel. Drone plays a note \
+         • Drone and Tap are in the drawer's left column. Drone plays a note \
          nonstop so you can turn knobs and listen; Tap plays one short \
          note to hear the attack and release. The slider sets the pitch: \
          Notes goes note by note (C0 to C8), Free anywhere from 0.1 to \
          20,000 Hz; - and + step a semitone. With Wave 1 on Click and Free, \
          slow ticks turn into a tone.\n\
-         • Theremin (bottom of the panel): hold the mouse down on the pad \
+         • Theremin (the drawer's last section): hold the mouse down on the pad \
          and move. Left to right slides the pitch smoothly, bottom to top \
          opens the filter.\n\
          • Filter: Cutoff and Reso set the tone; Env amt and F decay make \
@@ -255,7 +258,7 @@ const SECTIONS: &[(&str, &str)] = &[
          that knob; a ring shows how far. Velocity is how hard you play. Right-click the knob to change how far or remove it.\n\n\
          Try: Cutoff down, Reso up, Env amt up, short F decay = acid bass. \
          Noise with a short decay and high cutoff = a shaker.\n\n\
-         The green scope at the top of the panel shows the selected track's \
+         The green scope, the drawer's first section, shows the selected track's \
          wave as you play; click it to show more or less time, or switch it \
          to Spectrum (loudness per pitch). Drawings above the knobs show \
          the envelope, the filter's shape and each LFO's wave. View menu \
@@ -285,7 +288,7 @@ const SECTIONS: &[(&str, &str)] = &[
          • A keyboard's sustain pedal holds notes while it's down, like a \
          piano.\n\
          • MIDI out sends clock and Start/Stop, so gear follows the tempo.\n\
-         • Each track's MIDI ch (right panel) sends its notes, with velocity, \
+         • Each track's MIDI ch (instrument drawer) sends its notes, with velocity, \
          on that channel. The built-in drums use channel 10.\n\
          • Follow MIDI clock lets another device set the tempo and \
          start/stop.",
@@ -318,7 +321,7 @@ const SECTIONS: &[(&str, &str)] = &[
          Ctrl+O / Ctrl+N — open / new song\n\
          Ctrl+Z / Ctrl+Shift+Z — undo / redo (Ctrl+Y redoes too)\n\
          Ctrl+G — group the picked tracks\n\
-         F5 / F6 / F7 / F8 — show or hide chain, tracks, piano roll, panel\n\
+         F5 / F6 / F7 / F8 — show or hide chain, tracks, piano roll, instrument\n\
          C / Ctrl+D / Delete — split, duplicate, delete the selected block \
          (Arrange)\n\
          Ctrl+A / Ctrl+D / Delete / arrows — select all, duplicate, delete, \
