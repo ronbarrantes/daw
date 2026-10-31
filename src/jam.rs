@@ -102,11 +102,10 @@ const ROW: f32 = 20.0;
 const HEAD_WIDTH: f32 = 200.0;
 const NAME_WIDTH: f32 = 56.0;
 
-/// The meter's and each Mix slider's width, and the room kept at the
-/// right edge (for the scroll bar).
+/// The meter's and each Mix slider's width, and the space between them.
 pub const METER_WIDTH: f32 = 40.0;
 pub const MIX_WIDTH: f32 = 48.0;
-const RIGHT_MARGIN: f32 = 14.0;
+const MIX_SPACING: f32 = 6.0;
 
 /// The space between one bar's steps and the next.
 const BAR_GAP: f32 = 8.0;
@@ -332,15 +331,18 @@ impl App {
     pub fn fit_steps(&mut self, width: f32, pattern: usize) {
         let bars = self.shown_bars(pattern).len() as f32;
         let mix = if self.show_mix {
-            3.0 * (MIX_WIDTH + 6.0)
+            3.0 * (MIX_WIDTH + MIX_SPACING)
         } else {
             0.0
         };
         let fixed = HEAD_WIDTH + BAR_GAP * (bars - 1.0) + METER_WIDTH + mix + 40.0;
+        // A modest size: a little wider than tall at most, never
+        // stretched to fill a big screen (the spare room stays on the
+        // right).
         let step = ((width - fixed) / (bars * STEPS as f32) - GAP)
-            .clamp(16.0, 56.0)
+            .clamp(16.0, 22.0)
             .floor();
-        let height = step.clamp(16.0, 22.0).floor();
+        let height = step.clamp(16.0, 20.0).floor();
         self.cell = Vec2::new(step, height);
         self.lane_h = (height * 0.6).clamp(10.0, 13.0).floor();
     }
@@ -457,21 +459,26 @@ impl App {
                     },
                 );
             }
-            ui.spacing_mut().item_spacing.x = 6.0;
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add_space(RIGHT_MARGIN);
-                if self.show_mix {
-                    for name in ["Delay", "Reverb", "Pan"] {
-                        ui.add_sized([MIX_WIDTH, 14.0], egui::Label::new(small(name.into())));
-                    }
+            // Over the meters: the Mix switch; with Mix on, the names of
+            // its columns.
+            ui.spacing_mut().item_spacing.x = MIX_SPACING;
+            ui.add_space(BAR_GAP);
+            let mix = egui::SelectableLabel::new(self.show_mix, RichText::new("Mix").size(11.0));
+            if ui
+                .add_sized([METER_WIDTH, 16.0], mix)
+                .on_hover_text(
+                    "Show each track's pan and its reverb and delay sends\n\
+                     as more columns on its row",
+                )
+                .clicked()
+            {
+                self.show_mix = !self.show_mix;
+            }
+            if self.show_mix {
+                for name in ["Pan", "Reverb", "Delay"] {
+                    ui.add_sized([MIX_WIDTH, 14.0], egui::Label::new(small(name.into())));
                 }
-                ui.add_sized([METER_WIDTH, 14.0], egui::Label::new(small("Level".into())));
-                ui.toggle_value(&mut self.show_mix, RichText::new("Mix").size(11.0))
-                    .on_hover_text(
-                        "Show each track's pan and its reverb and delay sends\n\
-                         as more columns on its row",
-                    );
-            });
+            }
             // A longer pattern shows two bars at a time; pick which two.
             if bars > 2 {
                 ui.separator();
@@ -904,24 +911,23 @@ impl App {
             }
             }
             ui.spacing_mut().item_spacing.x = spacing;
-            // The meter and, with Mix on, pan and the effect sends, along
-            // the right edge (laid out from the right).
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add_space(RIGHT_MARGIN);
-                if self.show_mix {
-                    let track = &mut self.project.tracks[i];
-                    for (p, value) in [
-                        (&DELAY_SEND, &mut track.delay),
-                        (&REVERB_SEND, &mut track.reverb),
-                        (&PAN, &mut track.pan),
-                    ] {
-                        if mini_slider(ui, p, value, MIX_WIDTH) {
-                            self.dirty = true;
-                        }
+            // Right after the steps: the meter and, with Mix on, pan and
+            // the effect sends.
+            ui.spacing_mut().item_spacing.x = MIX_SPACING;
+            ui.add_space(BAR_GAP);
+            level_bar(ui, self.track_levels[i], METER_WIDTH);
+            if self.show_mix {
+                let track = &mut self.project.tracks[i];
+                for (p, value) in [
+                    (&PAN, &mut track.pan),
+                    (&REVERB_SEND, &mut track.reverb),
+                    (&DELAY_SEND, &mut track.delay),
+                ] {
+                    if mini_slider(ui, p, value, MIX_WIDTH) {
+                        self.dirty = true;
                     }
                 }
-                level_bar(ui, self.track_levels[i], METER_WIDTH);
-            });
+            }
         }));
         match action {
             Some(TrackAction::Group) => {
