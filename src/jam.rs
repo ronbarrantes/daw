@@ -19,8 +19,6 @@ use crate::widgets::{
 use crate::{chords, drums, notes, App, DELAY_SEND, GROUP_VOLUME, PAN, REVERB_SEND, TRACK_VOLUME};
 
 const SOLO: Color32 = Color32::from_rgb(230, 200, 60);
-/// Notes from other tracks, shown faintly in the piano roll.
-const OTHER_NOTE: Color32 = Color32::from_rgb(55, 75, 105);
 
 /// Something to do to a track, chosen from its right-click menu.
 enum TrackAction {
@@ -336,13 +334,13 @@ impl App {
             0.0
         };
         let fixed = HEAD_WIDTH + BAR_GAP * (bars - 1.0) + METER_WIDTH + mix + 40.0;
-        // A modest size: a little wider than tall at most, never
-        // stretched to fill a big screen (the spare room stays on the
-        // right).
+        // About 1.5 wide to 1 tall, up to 30 by 20, never stretched to
+        // fill a big screen (the spare room stays on the right); smaller
+        // when the window is narrow.
         let step = ((width - fixed) / (bars * STEPS as f32) - GAP)
-            .clamp(16.0, 22.0)
+            .clamp(16.0, 30.0)
             .floor();
-        let height = step.clamp(16.0, 20.0).floor();
+        let height = (step / 1.5).clamp(14.0, 20.0).floor();
         self.cell = Vec2::new(step, height);
         self.lane_h = (height * 0.6).clamp(10.0, 13.0).floor();
     }
@@ -1159,11 +1157,7 @@ impl App {
             };
             let note = base + lane as u8;
             ui.horizontal(|ui| {
-                let key_fill = if sharp {
-                    Color32::from_gray(30)
-                } else {
-                    Color32::from_gray(62)
-                };
+                let (key_fill, key_ink) = crate::theme::piano_key(sharp);
                 // The keys reach right up to the grid.
                 let at = self.bar_x[self.edit_bar % 2];
                 let spacing = ui.spacing().item_spacing.x;
@@ -1179,11 +1173,7 @@ impl App {
                     egui::Align2::RIGHT_CENTER,
                     &name,
                     egui::FontId::proportional(10.0),
-                    if sharp {
-                        Color32::from_gray(150)
-                    } else {
-                        Color32::from_gray(230)
-                    },
+                    key_ink,
                 );
                 if key.on_hover_text("Click to hear this note").clicked() {
                     let _ = self.events.try_send(Event::Preview { track: i, note });
@@ -1196,7 +1186,7 @@ impl App {
                     let fill = match value {
                         Some(s) if s.tie => track_color(i).gamma_multiply(0.45),
                         Some(s) => lit_fill(track_color(i), s.velocity),
-                        None if others[lane][step] => OTHER_NOTE,
+                        None if others[lane][step] => crate::theme::other_note(),
                         None => empty_fill(step, sharp),
                     };
                     let size = Vec2::new(self.cell.x, self.lane_h);

@@ -650,6 +650,7 @@ impl App {
             theme::apply(ctx, self.theme);
             self.theme_on = true;
         }
+        theme::set_light(!ctx.style().visuals.dark_mode);
         // One row along the top: the menus, then the transport.
         egui::TopBottomPanel::top("menu").show(ctx, |ui| {
             ui.add_space(2.0);

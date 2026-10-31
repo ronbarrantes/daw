@@ -408,7 +408,7 @@ without copying anything.
 - Two bars show side by side. A longer pattern gets **1-2**, **3-4**...
   over the tracks to pick which two. A track that's shorter shows the bar
   it repeats there, dimmed. The piano roll shows the bar you last touched.
-- Steps are small squares; hover one to see its note, chord or groove
+- Steps are small, a little wider than tall; hover one to see its note, chord or groove
   marks.
 
 ### Chains and blocks (Jam)

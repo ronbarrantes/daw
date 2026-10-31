@@ -24,19 +24,13 @@ pub fn playhead(on: bool) -> Stroke {
 /// Background of an empty step. Every other group of four is lighter so
 /// beats are easy to see; `dark` rows (black piano keys) are darker.
 pub fn empty_fill(step: usize, dark: bool) -> Color32 {
-    let light_group = (step / 4).is_multiple_of(2);
-    match (light_group, dark) {
-        (true, false) => Color32::from_gray(60),
-        (false, false) => Color32::from_gray(45),
-        (true, true) => Color32::from_gray(50),
-        (false, true) => Color32::from_gray(37),
-    }
+    crate::theme::step_empty(step, dark)
 }
 
 /// A lit step, dimmer for quieter velocities so ghost notes stand out.
 pub fn lit_fill(color: Color32, velocity: u8) -> Color32 {
     let t = 0.3 + 0.7 * velocity as f32 / 127.0;
-    Color32::from_gray(40).lerp_to_gamma(color, t)
+    crate::theme::step_base().lerp_to_gamma(color, t)
 }
 
 /// A ▶/▼ expand button, drawn rather than typed since not every font has
@@ -492,14 +486,15 @@ pub fn mini_slider(ui: &mut egui::Ui, p: &Param, value: &mut f32, width: f32) ->
     let t = to_unit(p, *value).clamp(0.0, 1.0);
     let painter = ui.painter_at(rect);
     let y = rect.center().y;
+    let v = ui.visuals();
     let line = if resp.hovered() || resp.dragged() {
-        Color32::from_gray(150)
+        v.text_color()
     } else {
-        Color32::from_gray(100)
+        v.weak_text_color()
     };
     painter.line_segment(
         [Pos2::new(inner.left(), y), Pos2::new(inner.right(), y)],
-        Stroke::new(2.0_f32, Color32::from_gray(55)),
+        Stroke::new(2.0_f32, v.widgets.inactive.weak_bg_fill),
     );
     // Pan fills from the middle; the rest from the left.
     let from: f32 = if p.min < 0.0 { 0.5 } else { 0.0 };
@@ -513,7 +508,7 @@ pub fn mini_slider(ui: &mut egui::Ui, p: &Param, value: &mut f32, width: f32) ->
     );
     let x = inner.left() + t * inner.width();
     let handle = egui::Rect::from_center_size(Pos2::new(x, y), Vec2::new(5.0, 11.0));
-    painter.rect_filled(handle, 1.0, Color32::from_gray(210));
+    painter.rect_filled(handle, 1.0, v.strong_text_color());
     let label = format!("{}: {}", p.name, format_value(p, *value));
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Slider, true, p.name));
     resp.on_hover_text(format!("{label}\nDrag to change, double-click to reset"));
@@ -678,7 +673,7 @@ pub fn envelope_sized(
 ) {
     let (rect, resp) = ui.allocate_exact_size(size, Sense::hover());
     let painter = ui.painter_at(rect);
-    painter.rect_filled(rect, 4.0, Color32::from_gray(28));
+    painter.rect_filled(rect, 4.0, crate::theme::screen_fill());
     // Times are drawn on a square-root scale so short and long both fit;
     // the held part gets a fixed width.
     let held = 0.6;
@@ -733,7 +728,7 @@ pub fn filter_curve_sized(
 ) {
     let (rect, resp) = ui.allocate_exact_size(size, Sense::hover());
     let painter = ui.painter_at(rect);
-    painter.rect_filled(rect, 4.0, Color32::from_gray(28));
+    painter.rect_filled(rect, 4.0, crate::theme::screen_fill());
     let inner = rect.shrink(3.0);
     // 30 Hz to 16 kHz across, -30 to +18 dB up.
     let (lo, hi) = (30.0_f32.ln(), 16_000.0_f32.ln());
@@ -793,7 +788,7 @@ pub fn lfo_shape_sized(
 ) {
     let (rect, resp) = ui.allocate_exact_size(size, Sense::hover());
     let painter = ui.painter_at(rect);
-    painter.rect_filled(rect, 4.0, Color32::from_gray(28));
+    painter.rect_filled(rect, 4.0, crate::theme::screen_fill());
     let inner = rect.shrink(4.0);
     let value = |t: f32| -> f32 {
         match shape {
