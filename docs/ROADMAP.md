@@ -18,8 +18,8 @@ is a drawer that opens when you need it and folds to one line.
    meter after the steps, and a Mix toggle that adds pan, reverb and delay
    columns. The piano roll opens under its own track. Bars sits next to
    the pattern picker.
-3. [ ] **Themes.** View > Theme: the current colors, a black-and-white LED
-   look, and a black-and-orange hardware look.
+3. [x] **Themes** (v0.58). View > Theme: follow the computer, dark, light,
+   a black-and-white LED look, and a black-and-orange hardware look.
 
 ## Then: synth modules
 
@@ -109,6 +109,8 @@ menus).
 
 Newest first, by release.
 
+- v0.58: View > Theme: the computer's light or dark, LED (white on black)
+  or Hardware (black and orange)
 - v0.57: each track row has its volume and a level meter, and Mix adds
   pan, reverb and delay; the piano roll opens under its track; Bars sits
   next to the patterns

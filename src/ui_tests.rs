@@ -247,3 +247,19 @@ fn mix_adds_pan_and_sends_to_the_rows() {
     assert!(ui.find("Pan").is_some(), "each row has a pan slider");
     assert!(ui.find("Volume").is_some(), "and its volume");
 }
+
+#[test]
+fn themes_switch_from_the_view_menu() {
+    let mut ui = Harness::new();
+    ui.click("View");
+    ui.click("Theme");
+    ui.click("Hardware");
+    ui.frames(2);
+    assert_eq!(ui.app.theme, crate::theme::Theme::Hardware);
+    assert_eq!(crate::theme::current(), crate::theme::Theme::Hardware);
+    ui.click("View");
+    ui.click("Theme");
+    ui.click("Follow the computer");
+    ui.frames(2);
+    assert_eq!(crate::theme::current(), crate::theme::Theme::System);
+}

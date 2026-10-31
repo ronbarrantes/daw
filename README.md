@@ -253,6 +253,9 @@ Hiding a part never deletes it or stops it playing.
   each sits by what it moves.
 - The line along the very bottom shows errors and how hard the audio is
   working; click the **%** for **Help → Diagnostics**.
+- **View → Theme** changes the colors: follow the computer's light or
+  dark, **LED** (white on black, like a small screen) or **Hardware**
+  (black with orange lights). It's remembered.
 - **View → Low power** redraws less often while playing, to save battery on
   an old laptop. It's remembered.
 

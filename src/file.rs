@@ -1047,6 +1047,19 @@ pub fn low_power() -> bool {
     remembered("low-power").first().is_some_and(|l| l == "on")
 }
 
+/// The theme last picked in View > Theme: following the computer if never.
+pub fn theme() -> crate::theme::Theme {
+    remembered("theme")
+        .first()
+        .and_then(|l| crate::theme::Theme::from_key(l))
+        .unwrap_or(crate::theme::Theme::System)
+}
+
+/// Remembers the theme.
+pub fn remember_theme(theme: crate::theme::Theme) {
+    remember_lines("theme", &[theme.key().to_string()]);
+}
+
 /// Remembers low power mode.
 pub fn remember_low_power(on: bool) {
     remember_lines("low-power", &[if on { "on" } else { "off" }.to_string()]);

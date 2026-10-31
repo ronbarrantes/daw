@@ -71,6 +71,8 @@ const SECTIONS: &[(&str, &str)] = &[
          top edge to make it taller or shorter.\n\
          • The line along the very bottom shows errors and how hard the audio \
          is working; click the % for Help > Diagnostics.\n\
+         • View > Theme changes the colors: the computer's light or dark, \
+         LED (white on black) or Hardware (black and orange).\n\
          • View > Low power redraws less often while playing, to save \
          battery.",
     ),

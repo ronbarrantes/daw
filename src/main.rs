@@ -17,6 +17,7 @@ mod project;
 mod sample;
 mod synth;
 mod synth_ui;
+mod theme;
 mod timeline;
 #[cfg(test)]
 mod ui_tests;
@@ -323,6 +324,9 @@ struct App {
     track_levels: [f32; MAX_TRACKS],
     /// Redraw less often while playing, to save battery.
     low_power: bool,
+    /// View > Theme, and whether it's been put on yet.
+    theme: theme::Theme,
+    theme_on: bool,
     /// Instrument panel sections popped out into their own windows, by
     /// title, with where each window was (x, y, width, height).
     popped: Vec<(String, Option<[f32; 4]>)>,
@@ -472,6 +476,8 @@ impl App {
             show_mix: false,
             track_levels: [0.0; MAX_TRACKS],
             low_power: file::low_power(),
+            theme: file::theme(),
+            theme_on: false,
             popped: file::popped_sections(),
             popped_changed: false,
             meter_levels: [0.0; 2],
@@ -631,6 +637,10 @@ impl App {
             }
         }
 
+        if !self.theme_on {
+            theme::apply(ctx, self.theme);
+            self.theme_on = true;
+        }
         egui::TopBottomPanel::top("menu").show(ctx, |ui| self.menu_bar(ui, ctx));
 
         egui::TopBottomPanel::top("transport").show(ctx, |ui| {
@@ -1482,6 +1492,18 @@ impl App {
                 if low.changed() {
                     file::remember_low_power(self.low_power);
                 }
+                ui.menu_button("Theme", |ui| {
+                    for t in theme::Theme::ALL {
+                        let picked = ui
+                            .radio_value(&mut self.theme, t, t.name())
+                            .on_hover_text(t.hint());
+                        if picked.clicked() {
+                            self.theme_on = false;
+                            file::remember_theme(t);
+                            ui.close_menu();
+                        }
+                    }
+                });
             });
             ui.menu_button("Help", |ui| {
                 if ui.button("How to use (F1)").clicked() {

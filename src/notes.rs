@@ -11,7 +11,7 @@ use eframe::egui::{self, Align2, Color32, CursorIcon, FontId, Pos2, Rect, Sense,
 
 use crate::audio::Event;
 use crate::project::{Note, MAX_NOTES, MAX_SONG_STEPS, NORMAL, PPS, STEPS};
-use crate::widgets::{lit_fill, NOTE_NAMES, NOTE_ON};
+use crate::widgets::{lit_fill, note_on, NOTE_NAMES};
 use crate::{App, Tool};
 
 /// Width of the keyboard on the left, height of the ruler on top.
@@ -966,7 +966,7 @@ impl App {
                     continue;
                 }
                 let selected = self.notes.selected.contains(&i);
-                let fill = lit_fill(if selected { SELECTED } else { NOTE_ON }, n.velocity);
+                let fill = lit_fill(if selected { SELECTED } else { note_on() }, n.velocity);
                 notes_painter.rect_filled(r, 2.0, fill);
                 notes_painter.rect_stroke(
                     r,
