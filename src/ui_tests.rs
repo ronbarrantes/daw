@@ -263,3 +263,15 @@ fn themes_switch_from_the_view_menu() {
     ui.frames(2);
     assert_eq!(crate::theme::current(), crate::theme::Theme::System);
 }
+
+#[test]
+fn a_sections_title_line_folds_and_unfolds_it() {
+    let mut ui = Harness::new();
+    assert!(ui.find("Cutoff").is_some());
+    ui.click("Filter");
+    ui.frames(2);
+    assert!(ui.find("Cutoff").is_none(), "folded by clicking its title");
+    ui.click("Filter");
+    ui.frames(2);
+    assert!(ui.find("Cutoff").is_some(), "and unfolded again");
+}

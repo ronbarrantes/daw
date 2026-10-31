@@ -252,20 +252,51 @@ impl Sections {
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.spacing_mut().item_spacing.y = 3.0;
-                let head = ui
-                    .horizontal(|ui| {
-                        if let Some(source) = offered_source(title) {
-                            source_chip(ui, source);
-                        }
-                        ui.label(RichText::new(title).size(11.0).strong());
-                    })
-                    .response
-                    .interact(Sense::click())
+                // The whole title line folds and unfolds the section.
+                let id = ui.make_persistent_id(("section unfolded", title));
+                let unfolded = ui.data_mut(|d| *d.get_persisted_mut_or(id, starts_open(title)));
+                let width = ui.available_width();
+                let (rect, head) = ui.allocate_exact_size(Vec2::new(width, 20.0), Sense::click());
+                let head = head
+                    .on_hover_cursor(egui::CursorIcon::PointingHand)
                     .on_hover_text(
                         "Click to fold or unfold · right-click to pop it out or close it",
                     );
-                let id = ui.make_persistent_id(("section unfolded", title));
-                let unfolded = ui.data_mut(|d| *d.get_persisted_mut_or(id, starts_open(title)));
+                // A triangle: down when open, right when folded.
+                let c = egui::pos2(rect.left() + 5.0, rect.center().y);
+                let points = if unfolded {
+                    vec![
+                        c + Vec2::new(-4.0, -2.5),
+                        c + Vec2::new(4.0, -2.5),
+                        c + Vec2::new(0.0, 3.5),
+                    ]
+                } else {
+                    vec![
+                        c + Vec2::new(-2.5, -4.0),
+                        c + Vec2::new(3.5, 0.0),
+                        c + Vec2::new(-2.5, 4.0),
+                    ]
+                };
+                let ink = if head.hovered() {
+                    ui.visuals().strong_text_color()
+                } else {
+                    ui.visuals().text_color()
+                };
+                ui.painter()
+                    .add(egui::Shape::convex_polygon(points, ink, egui::Stroke::NONE));
+                let inside = rect.with_min_x(rect.left() + 14.0);
+                let mut line = ui.new_child(
+                    egui::UiBuilder::new()
+                        .max_rect(inside)
+                        .layout(egui::Layout::left_to_right(egui::Align::Center)),
+                );
+                if let Some(source) = offered_source(title) {
+                    source_chip(&mut line, source);
+                }
+                // Not selectable, so a click on the name reaches the line.
+                line.add(
+                    egui::Label::new(RichText::new(title).size(11.0).strong()).selectable(false),
+                );
                 if head.clicked() {
                     ui.data_mut(|d| d.insert_persisted(id, !unfolded));
                 }

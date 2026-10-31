@@ -121,6 +121,8 @@ menus).
 
 Newest first, by release.
 
+- v0.60.1: a drawer section's whole title line folds and unfolds it, with
+  a triangle showing which (clicks on the name were being eaten)
 - v0.60: the layout from the design canvas: patterns and Bars in the top
   bar, colored track rows with two bars side by side, the drawer's
   sections as boxes, a shut drawer that sketches the sound, a flat look
