@@ -193,6 +193,8 @@ impl App {
                 }
             }
             ui.separator();
+            self.length_picker(ui, edit);
+            ui.separator();
             if ui.button("Copy").clicked() {
                 self.copy_pattern();
             }

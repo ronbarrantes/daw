@@ -14,8 +14,8 @@ is a drawer that opens when you need it and folds to one line.
    right edge to a drawer along the bottom, its sections side by side; I or
    F8 opens and shuts it. A status line along the bottom shows errors and
    the audio load.
-2. [ ] **Track rows.** Volume in each row next to M and S, a level meter
-   after the steps, and a Mix toggle that adds pan, reverb and delay
+2. [x] **Track rows** (v0.57). Volume in each row by the name, a level
+   meter after the steps, and a Mix toggle that adds pan, reverb and delay
    columns. The piano roll opens under its own track. Bars sits next to
    the pattern picker.
 3. [ ] **Themes.** View > Theme: the current colors, a black-and-white LED
@@ -109,6 +109,9 @@ menus).
 
 Newest first, by release.
 
+- v0.57: each track row has its volume and a level meter, and Mix adds
+  pan, reverb and delay; the piano roll opens under its track; Bars sits
+  next to the patterns
 - v0.56: the instrument is a drawer along the bottom (I or F8), its
   sections side by side; a status line shows errors and the audio load
 - v0.55.2: the LFOs sit by the sound engine and Mod envelope by the

@@ -191,7 +191,11 @@ soloed tracks so you can hear a part on its own.
   like a pencil and an eraser: a full row of hi-hats is one swipe.
 - Click a track's name to select it (silently, so switching while you jam
   makes no sound; **Tap** in the instrument drawer plays one). The instrument drawer along
-  the bottom shows its settings; melodic tracks also get a **piano roll** below the rows.
+  the bottom shows its settings; a melodic track's **piano roll** opens right
+  under its row.
+- Each row has the track's **volume** (a small slider by its name; drag it,
+  double-click to reset) and, after its steps, a **meter** showing how loud
+  it is right now.
 - **+ Synth** adds a synth track. **+ Drum** adds a built-in drum: kick,
   snare, hat, clap, clave, bongos, congas, toms, shaker, cowbell, timbales,
   cascara or guiro (it goes
@@ -201,6 +205,9 @@ soloed tracks so you can hear a part on its own.
   trying a variation), **move** it up or down, or delete it.
 - Rename a track by editing its name at the top left of the instrument
   drawer.
+- **Mix** (the button next to the tools) adds **Pan**, **Reverb** and
+  **Delay** as small sliders at the end of each row, for balancing tracks
+  side by side.
 - **Mix** (instrument drawer): **Volume**, **Pan** (left or right in the stereo
   mix; double-click to centre), and **Reverb** and **Delay**: how much of
   the track goes to the shared effects.
@@ -367,7 +374,7 @@ without copying anything.
 - The button next to a track's **S** is its length in this pattern: click
   for longer, right-click for shorter. New bars start as a copy of the ones
   before. Shorter parts repeat to fill the pattern.
-- **Length** (above the tracks) sets every track at once. The pattern lasts
+- **Bars 1 2 4 8** (next to the patterns) sets every track at once. The pattern lasts
   as long as its longest track.
 - **Bar 1**, **Bar 2**... pick which bar the grid and piano roll show. A
   track that's shorter shows the bar it repeats there, dimmed.

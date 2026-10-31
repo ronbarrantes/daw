@@ -12,7 +12,7 @@ const SECTIONS: &[(&str, &str)] = &[
          undoes and Ctrl+Shift+Z redoes, also in the Edit menu.\n\n\
          Each row is a track. Click its steps to make a beat, click a track's \
          name to select it, and use the instrument drawer along the bottom to shape its sound. \
-         Synth tracks also get a piano roll below the rows.",
+         A synth track's piano roll opens right under its row.",
     ),
     (
         "Saving songs",
@@ -37,6 +37,9 @@ const SECTIONS: &[(&str, &str)] = &[
          or delete it.\n\
          • M mutes a track. S solos it: when any track is soloed, only soloed \
          tracks play. Use solo to hear one part on its own.\n\
+         • Each row has the track's volume (the small slider by its name; \
+         double-click to reset) and a meter after its steps. Mix (next to \
+         the tools) adds Pan, Reverb and Delay sliders to every row.\n\
          • Mix (instrument drawer): Volume, Pan (left or right; double-click for \
          centre), and Reverb and Delay: how much of the track goes to the \
          shared effects.\n\
@@ -143,7 +146,7 @@ const SECTIONS: &[(&str, &str)] = &[
          • Copy, Paste and Clear work on the pattern you're editing.\n\
          • Longer patterns: the button next to a track's S is its length in \
          this pattern (1, 2, 4 or 8 bars; click for longer, right-click for \
-         shorter). Shorter parts repeat. Length sets every track at once; \
+         shorter). Shorter parts repeat. Bars (next to the patterns) sets every track at once; \
          Bar 1, Bar 2... pick the bar you see.\n\
          • The Chain row is the block you're editing, one square per bar. \
          Click a square to put the selected pattern there (a longer one \

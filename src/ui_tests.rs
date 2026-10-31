@@ -159,11 +159,11 @@ fn duplicating_and_moving_tracks_from_their_menu() {
 #[test]
 fn longer_patterns_and_their_bars() {
     let mut ui = Harness::new();
-    ui.click("2 bars");
+    ui.click("2");
     assert_eq!(ui.app.project.pattern_bars(0), 2);
     ui.click("Bar 2");
     assert_eq!(ui.app.edit_bar, 1);
-    ui.click("1 bar");
+    ui.click("1");
     ui.frames(2);
     assert_eq!(ui.app.edit_bar, 0, "back in range when the bar is gone");
 }
@@ -232,4 +232,18 @@ fn the_instrument_panel_slides_shut_and_open() {
     ui.frames(30);
     assert!(ui.app.view.panel);
     assert!(ui.find("Tap").is_some(), "its controls are back");
+}
+
+#[test]
+fn mix_adds_pan_and_sends_to_the_rows() {
+    let mut ui = Harness::new();
+    // The drawer has a Mix section too; shut it so "Mix" is the toggle.
+    ui.click("Hide the instrument");
+    ui.frames(2);
+    assert!(ui.find("Pan").is_none());
+    ui.click("Mix");
+    ui.frames(2);
+    assert!(ui.app.show_mix);
+    assert!(ui.find("Pan").is_some(), "each row has a pan slider");
+    assert!(ui.find("Volume").is_some(), "and its volume");
 }

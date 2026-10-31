@@ -10,9 +10,10 @@ use crate::project::{
     LANES, MAX_OCTAVES, MAX_RATCHET, MAX_TRACKS, NORMAL, STEPS,
 };
 use crate::widgets::{
-    disclosure_arrow, empty_fill, lit_fill, playhead, DRUM_ON, NOTE_HELD, NOTE_NAMES, NOTE_ON,
+    disclosure_arrow, empty_fill, level_bar, lit_fill, mini_slider, playhead, DRUM_ON, NOTE_HELD,
+    NOTE_NAMES, NOTE_ON,
 };
-use crate::{chords, drums, notes, App};
+use crate::{chords, drums, notes, App, DELAY_SEND, GROUP_VOLUME, PAN, REVERB_SEND, TRACK_VOLUME};
 
 const SOLO: Color32 = Color32::from_rgb(230, 200, 60);
 /// Notes from other tracks, shown faintly in the piano roll.
@@ -250,26 +251,35 @@ fn step_marks(s: &Step) -> String {
 
 impl App {
     /// The pattern's length, and which of its bars the editor shows.
+    /// The pattern's length: 1, 2, 4 or 8 bars. It sits next to the
+    /// patterns when they're showing, and above the tracks when not.
+    pub fn length_picker(&mut self, ui: &mut egui::Ui, pattern: usize) {
+        ui.label("Bars").on_hover_text(
+            "How many bars the pattern lasts. Each track can be shorter\n\
+             (its button next to S); short parts repeat to fill it.",
+        );
+        for b in BAR_CHOICES {
+            let same =
+                (0..self.project.tracks.len()).all(|i| self.project.tracks[i].bars(pattern) == b);
+            let hint = format!("Make every track in this pattern {}", bars_label(b));
+            if ui
+                .selectable_label(same, b.to_string())
+                .on_hover_text(hint)
+                .clicked()
+            {
+                self.project.set_pattern_bars(pattern, b);
+                self.dirty = true;
+            }
+        }
+    }
+
+    /// Which bar of a longer pattern is shown.
     pub fn bar_row(&mut self, ui: &mut egui::Ui, pattern: usize, current: Option<Playhead>) {
         let bars = self.project.pattern_bars(pattern);
         ui.horizontal(|ui| {
-            ui.add_sized([80.0, 20.0], egui::Label::new("Length"))
-                .on_hover_text(
-                    "How many bars the pattern lasts. Each track can be shorter\n\
-                     (its button next to S); short parts repeat to fill it.",
-                );
-            for b in BAR_CHOICES {
-                let same = (0..self.project.tracks.len())
-                    .all(|i| self.project.tracks[i].bars(pattern) == b);
-                let hint = format!("Make every track in this pattern {}", bars_label(b));
-                if ui
-                    .selectable_label(same, bars_label(b))
-                    .on_hover_text(hint)
-                    .clicked()
-                {
-                    self.project.set_pattern_bars(pattern, b);
-                    self.dirty = true;
-                }
+            ui.add_space(4.0);
+            if !self.view.song {
+                self.length_picker(ui, pattern);
             }
             if bars > 1 {
                 ui.separator();
@@ -303,6 +313,14 @@ impl App {
                     let group = track.group.and_then(|id| self.project.group(id));
                     if !group.is_some_and(|g| g.collapsed) {
                         self.track_row(ui, i, pattern, current);
+                        // The selected melodic track's notes open right
+                        // under its row.
+                        let melodic = self.project.tracks.get(i).is_some_and(|t| t.is_melodic());
+                        if i == self.selected && self.view.piano && melodic {
+                            ui.add_space(4.0);
+                            self.piano_roll(ui, pattern, current);
+                            ui.add_space(6.0);
+                        }
                     }
                 }
             }
@@ -354,6 +372,9 @@ impl App {
                     ui.close_menu();
                 }
             });
+            if mini_slider(ui, &GROUP_VOLUME, &mut group.volume, 56.0) {
+                self.dirty = true;
+            }
             let mute = egui::Button::new(RichText::new("M").small())
                 .selected(group.muted)
                 .min_size(Vec2::new(22.0, 26.0));
@@ -369,6 +390,8 @@ impl App {
                 group.solo = !group.solo;
                 self.dirty = true;
             }
+            // Where a track's length button is, so the steps line up.
+            ui.add_space(40.0 + ui.spacing().item_spacing.x);
             // A read-only summary of the group's hits; click to expand.
             for (step, on) in lit.iter().enumerate() {
                 let (rect, resp) = ui.allocate_exact_size(Vec2::new(28.0, 26.0), Sense::click());
@@ -474,6 +497,10 @@ impl App {
                     ui.close_menu();
                 }
             });
+            // Volume sits by the name, so balancing is right there.
+            if mini_slider(ui, &TRACK_VOLUME, &mut track.volume, 56.0) {
+                self.dirty = true;
+            }
             let mute = egui::Button::new(RichText::new("M").small())
                 .selected(track.muted)
                 .min_size(Vec2::new(22.0, 26.0));
@@ -630,6 +657,22 @@ impl App {
                     });
                 }
             }
+            ui.add_space(6.0);
+            level_bar(ui, self.track_levels[i], 40.0);
+            // Mix: pan and the effect sends, as more columns on the row.
+            if self.show_mix {
+                let track = &mut self.project.tracks[i];
+                ui.separator();
+                for (p, value) in [
+                    (&PAN, &mut track.pan),
+                    (&REVERB_SEND, &mut track.reverb),
+                    (&DELAY_SEND, &mut track.delay),
+                ] {
+                    if mini_slider(ui, p, value, 48.0) {
+                        self.dirty = true;
+                    }
+                }
+            }
         });
         match action {
             Some(TrackAction::Group) => {
@@ -684,6 +727,11 @@ impl App {
             ui.add_space(84.0);
             // Select only means something in MIDI blocks; here it draws.
             Tool::bar(ui, &mut self.tool, false);
+            ui.separator();
+            ui.toggle_value(&mut self.show_mix, "Mix").on_hover_text(
+                "Show each track's pan and its reverb and delay sends\n\
+                 as more columns on its row",
+            );
             ui.separator();
             let full = self.project.tracks.len() >= MAX_TRACKS;
             if ui

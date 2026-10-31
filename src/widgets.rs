@@ -420,13 +420,7 @@ pub fn meter(ui: &mut egui::Ui, levels: [f32; 2], limiting: f32) -> egui::Respon
     for (i, level) in levels.iter().enumerate() {
         let top = rect.top() + 1.0 + i as f32 * (bar_h + 1.0);
         let width = level.clamp(0.0, 1.0) * rect.width();
-        let color = if *level >= 0.94 {
-            Color32::from_rgb(230, 70, 60)
-        } else if *level >= 0.7 {
-            Color32::from_rgb(230, 200, 60)
-        } else {
-            Color32::from_rgb(80, 200, 110)
-        };
+        let color = level_color(*level);
         let bar = egui::Rect::from_min_size(Pos2::new(rect.left(), top), Vec2::new(width, bar_h));
         painter.rect_filled(bar, 1.0, color);
     }
@@ -438,6 +432,72 @@ pub fn meter(ui: &mut egui::Ui, levels: [f32; 2], limiting: f32) -> egui::Respon
     )
     .on_hover_text("Lights up when the mix is too loud and the limiter is turning it down.\nTurn Master or some tracks down a little.");
     resp.on_hover_text("Output level, left and right")
+}
+
+/// The color of a level, 0-1: green, then yellow near the top, red at it.
+fn level_color(level: f32) -> Color32 {
+    if level >= 0.94 {
+        Color32::from_rgb(230, 70, 60)
+    } else if level >= 0.7 {
+        Color32::from_rgb(230, 200, 60)
+    } else {
+        Color32::from_rgb(80, 200, 110)
+    }
+}
+
+/// One track's level, as a thin bar `width` wide (peak, 0-1).
+pub fn level_bar(ui: &mut egui::Ui, level: f32, width: f32) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(width, 26.0), Sense::hover());
+    let bar = egui::Rect::from_center_size(rect.center(), Vec2::new(width, 6.0));
+    let painter = ui.painter_at(rect);
+    painter.rect_filled(bar, 1.0, Color32::from_gray(40));
+    let level = level.clamp(0.0, 1.0);
+    let lit = egui::Rect::from_min_size(bar.min, Vec2::new(level * width, bar.height()));
+    painter.rect_filled(lit, 1.0, level_color(level));
+    resp.on_hover_text("How loud this track is right now")
+}
+
+/// A small slider for a track's row: a thin line with a handle, `width`
+/// wide. Drag it, or double-click to reset; hover shows the value.
+pub fn mini_slider(ui: &mut egui::Ui, p: &Param, value: &mut f32, width: f32) -> bool {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(width, 26.0), Sense::click_and_drag());
+    let before = *value;
+    let inner = rect.shrink2(Vec2::new(3.0, 0.0));
+    if resp.double_clicked() {
+        *value = p.default;
+    } else if let Some(pos) = resp.interact_pointer_pos().filter(|_| resp.dragged()) {
+        let t = ((pos.x - inner.left()) / inner.width()).clamp(0.0, 1.0);
+        *value = from_unit(p, t);
+    }
+    let t = to_unit(p, *value).clamp(0.0, 1.0);
+    let painter = ui.painter_at(rect);
+    let y = rect.center().y;
+    let line = if resp.hovered() || resp.dragged() {
+        Color32::from_gray(150)
+    } else {
+        Color32::from_gray(100)
+    };
+    painter.line_segment(
+        [Pos2::new(inner.left(), y), Pos2::new(inner.right(), y)],
+        Stroke::new(2.0_f32, Color32::from_gray(55)),
+    );
+    // Pan fills from the middle; the rest from the left.
+    let from: f32 = if p.min < 0.0 { 0.5 } else { 0.0 };
+    let (a, b) = (from.min(t), from.max(t));
+    painter.line_segment(
+        [
+            Pos2::new(inner.left() + a * inner.width(), y),
+            Pos2::new(inner.left() + b * inner.width(), y),
+        ],
+        Stroke::new(2.0_f32, line),
+    );
+    let x = inner.left() + t * inner.width();
+    let handle = egui::Rect::from_center_size(Pos2::new(x, y), Vec2::new(5.0, 11.0));
+    painter.rect_filled(handle, 1.0, Color32::from_gray(210));
+    let label = format!("{}: {}", p.name, format_value(p, *value));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Slider, true, p.name));
+    resp.on_hover_text(format!("{label}\nDrag to change, double-click to reset"));
+    *value != before
 }
 
 /// A sample's waveform, with the parts outside `start`..`end` (0-1)
