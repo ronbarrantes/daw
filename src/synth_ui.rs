@@ -788,6 +788,7 @@ impl App {
     /// more rows when the window is narrow.
     pub(super) fn instrument_panel(&mut self, ui: &mut egui::Ui) {
         if self.project.tracks.get(self.selected).is_none() {
+            self.drawer_toggle(ui);
             ui.weak("Add a track to get started.");
             return;
         }
@@ -797,9 +798,15 @@ impl App {
             close: None,
             pop: None,
         };
-        ui.horizontal_wrapped(|ui| self.instrument_head(ui, &mut sections, synth));
+        // The header: always in view, the switch first.
+        ui.horizontal_wrapped(|ui| {
+            self.drawer_toggle(ui);
+            self.instrument_head(ui, &mut sections, synth);
+        });
         ui.separator();
-        self.instrument_sections(ui, &mut sections, synth);
+        egui::ScrollArea::vertical()
+            .auto_shrink(false)
+            .show(ui, |ui| self.instrument_sections(ui, &mut sections, synth));
         if let Some(t) = sections.close.take() {
             sections.closed.push(t);
             self.sections_changed = true;

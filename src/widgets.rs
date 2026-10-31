@@ -67,26 +67,46 @@ pub fn disclosure_arrow(ui: &mut egui::Ui, collapsed: bool) -> egui::Response {
     resp
 }
 
-/// A triangle pointing up (`up`) or down, like `disclosure_arrow`'s, for a
-/// drawer along the bottom; `label` names it for screen readers (and tests).
-pub fn drawer_arrow(ui: &mut egui::Ui, up: bool, label: &str) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(Vec2::new(18.0, 18.0), Sense::click());
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
-    let color = if resp.hovered() {
-        Color32::WHITE
+/// The switch that shows or hides a part: a triangle (down when `open`,
+/// right when folded) and `text`, clickable as one. `name` is what screen
+/// readers (and tests) call it, e.g. "Hide the piano roll".
+pub fn fold_toggle(ui: &mut egui::Ui, open: bool, text: &str, name: &str) -> egui::Response {
+    let font = egui::FontId::proportional(12.0);
+    let color = ui.visuals().text_color();
+    let galley = ui.painter().layout_no_wrap(text.to_string(), font, color);
+    let size = Vec2::new(14.0 + galley.size().x + 4.0, 18.0);
+    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name));
+    let ink = if resp.hovered() {
+        ui.visuals().strong_text_color()
     } else {
-        Color32::from_gray(180)
+        color
     };
-    let c = rect.center();
-    let y = if up { -1.0 } else { 1.0 };
-    let points = vec![
-        c + Vec2::new(-5.0, -3.0 * y),
-        c + Vec2::new(5.0, -3.0 * y),
-        c + Vec2::new(0.0, 4.0 * y),
-    ];
-    ui.painter()
-        .add(egui::Shape::convex_polygon(points, color, Stroke::NONE));
-    resp
+    let c = Pos2::new(rect.left() + 5.0, rect.center().y);
+    let points = if open {
+        vec![
+            c + Vec2::new(-4.0, -2.5),
+            c + Vec2::new(4.0, -2.5),
+            c + Vec2::new(0.0, 3.5),
+        ]
+    } else {
+        vec![
+            c + Vec2::new(-2.5, -4.0),
+            c + Vec2::new(3.5, 0.0),
+            c + Vec2::new(-2.5, 4.0),
+        ]
+    };
+    let painter = ui.painter();
+    painter.add(egui::Shape::convex_polygon(points, ink, Stroke::NONE));
+    let pos = Pos2::new(rect.left() + 14.0, rect.center().y - galley.size().y / 2.0);
+    painter.galley(pos, galley, ink);
+    let hint = if open {
+        "Click to hide"
+    } else {
+        "Click to show"
+    };
+    resp.on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text(hint)
 }
 
 /// A dropdown of MIDI ports. Returns `Some(choice)` when the user picks one,

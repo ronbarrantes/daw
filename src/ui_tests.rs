@@ -275,3 +275,25 @@ fn a_sections_title_line_folds_and_unfolds_it() {
     ui.frames(2);
     assert!(ui.find("Cutoff").is_some(), "and unfolded again");
 }
+
+#[test]
+fn hidden_parts_fold_to_a_line_that_brings_them_back() {
+    let mut ui = Harness::new();
+    ui.click("Hide the piano roll");
+    assert!(!ui.app.view.piano);
+    ui.click("Show the piano roll");
+    assert!(ui.app.view.piano, "back from its line, no keys needed");
+    ui.click("Hide the tracks");
+    assert!(!ui.app.view.tracks);
+    ui.click("Show the tracks");
+    assert!(ui.app.view.tracks);
+}
+
+#[test]
+fn clicking_a_synth_opens_its_piano_roll() {
+    let mut ui = Harness::new();
+    ui.click("Hide the piano roll");
+    assert!(!ui.app.view.piano);
+    ui.click("Pad");
+    assert!(ui.app.view.piano, "a synth's piano roll always opens");
+}

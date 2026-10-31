@@ -30,6 +30,11 @@ is a drawer that opens when you need it and folds to one line.
    side by side in the track's color, and a meter; the drawer's sections as
    boxes with a drawing and one row of knobs; the shut drawer shows small
    drawings of the sound; a flat dark look.
+6. [x] **Things stay put** (v0.61). Hidden parts fold to a line with a
+   ▾/▸ switch instead of vanishing; clicking a synth always opens its
+   piano roll; the drawer's header, the tracks' header and the tools stay
+   in view while only what's under them scrolls; scroll areas fill the
+   window; patterns scroll sideways when there are many.
 3. [x] **Themes** (v0.58). View > Theme: follow the computer, dark, light,
    a black-and-white LED look, and a black-and-orange hardware look.
 
@@ -121,6 +126,9 @@ menus).
 
 Newest first, by release.
 
+- v0.61: things stay put: ▾/▸ switches on Tracks, Piano roll, Chain and
+  Instrument (nothing needs a key to come back); clicking a synth opens its
+  piano roll; pinned headers and tools; full-width scrolling
 - v0.60.2: the guides read through for the new layout: a "The screen" map
   at the top of F1 and the README, and the View menu's names match
 - v0.60.1: a drawer section's whole title line folds and unfolds it, with

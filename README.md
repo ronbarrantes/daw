@@ -258,8 +258,13 @@ the four drums in a **Drums** group.
 
 Hiding a part never deletes it or stops it playing.
 
-- **View** menu, or **F5** the chain (in Chain mode), **F6** tracks, **F7** piano roll,
-  **F8** (or **I**) instrument drawer.
+- Every part has a switch at the start of its title line: **▾** means it's
+  open (click to hide it), **▸** means it's folded to that one line (click
+  to show it again). **Tracks**, **Piano roll**, **Chain** and
+  **Instrument** all work this way, and so do the drawer's sections.
+- Clicking a synth track's name always opens its piano roll.
+- Shortcuts do the same: **F5** chain, **F6** tracks, **F7** piano roll,
+  **F8** (or **I**) instrument. The **View** menu has them too.
 - **View → Focus** shows just the tracks, or just the piano roll and sound.
 - **F9** shows everything again.
 - The **instrument** is a drawer along the bottom: its arrow (or **I**, or
