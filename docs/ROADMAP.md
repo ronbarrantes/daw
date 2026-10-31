@@ -18,6 +18,12 @@ is a drawer that opens when you need it and folds to one line.
    meter after the steps, and a Mix toggle that adds pan, reverb and delay
    columns. The piano roll opens under its own track. Bars sits next to
    the pattern picker.
+4. [x] **Slimmer** (v0.59). The first pass moved panels without shrinking
+   anything, so it got busier. This one makes it fit the Air with no
+   scrolling: one row along the top (menus and transport; MIDI moves to a
+   Keys & MIDI menu), small square steps, 20 px rows, a 10 px piano roll,
+   smaller knobs, no helper text in the drawer, and the drawer's controls
+   on one line so six sections fit across.
 3. [x] **Themes** (v0.58). View > Theme: follow the computer, dark, light,
    a black-and-white LED look, and a black-and-orange hardware look.
 
@@ -109,6 +115,9 @@ menus).
 
 Newest first, by release.
 
+- v0.59: slimmer: menus and transport in one row, small square steps,
+  compact rows and piano roll, smaller knobs, a one-line drawer header;
+  Jam fits the Air without scrolling
 - v0.58: View > Theme: the computer's light or dark, LED (white on black)
   or Hardware (black and orange)
 - v0.57: each track row has its volume and a level meter, and Mix adds

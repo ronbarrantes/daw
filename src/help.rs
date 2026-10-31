@@ -122,9 +122,9 @@ const SECTIONS: &[(&str, &str)] = &[
           W E   T Y U   O P    <- black keys\n\
          A S D F G H J K L     <- white keys (A = C)\n\n\
          Hold several keys for a chord or the arpeggiator. Z and X change \
-         octave. With Bend on (next to MIDI in), 1 and 2 are a pitch wheel: \
+         octave. With Keys & MIDI > Bend with keys 1 and 2 on, 1 and 2 are a pitch wheel: \
          hold 1 to bend the held notes down, 2 up, and let go to slide \
-         back; the box next to Bend sets how far. Turn on ⏺ Rec and press Play to write what \
+         back; the box under it sets how far. Turn on ⏺ Rec and press Play to write what \
          you play into the pattern. With Rec on, Play clicks one bar first \
          (the count-in) so you can come in on time.\n\n\
          Click (top bar) turns the metronome on: a click on every beat, \
@@ -150,7 +150,7 @@ const SECTIONS: &[(&str, &str)] = &[
          this pattern (1, 2, 4 or 8 bars; click for longer, right-click for \
          shorter). Shorter parts repeat. Bars (next to the patterns) sets every track at once; \
          Bar 1, Bar 2... pick the bar you see.\n\
-         • The Chain row is the block you're editing, one square per bar. \
+         • The Chain row (it shows in Chain mode) is the block you're editing, one square per bar. \
          Click a square to put the selected pattern there (a longer one \
          fills a square per bar); click again or right-click to empty it.\n\
          • Pattern mode (top bar) loops the pattern; Chain mode plays the \
@@ -283,7 +283,8 @@ const SECTIONS: &[(&str, &str)] = &[
     ),
     (
         "MIDI gear",
-        "Plug gear in over USB, then press ⟳ to rescan.\n\n\
+        "Plug gear in over USB. Everything here is in the Keys & MIDI menu; \
+         ⟳ rescans.\n\n\
          • MIDI in: click it to connect controllers. Each one plays either \
          the selected track (follows your clicks) or a fixed track or group. \
          A drum kit routed to the Drums group plays the matching drum for \

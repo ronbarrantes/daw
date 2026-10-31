@@ -310,9 +310,9 @@ A S D F G H J K L         ← white keys (A = C)
 - Hold several keys for a chord, or to feed the **Arpeggiator** (most
   laptop keyboards manage three or four keys at once).
 - **Z** / **X** move down or up an octave.
-- **1** / **2** can be a pitch wheel: turn on **Bend** (next to MIDI in),
-  then hold 1 to bend the notes you're holding down, 2 to bend them up
-  (chords too); let go and they slide back. The box next to it sets how
+- **1** / **2** can be a pitch wheel: turn on **Keys & MIDI → Bend with keys 1
+  and 2**, then hold 1 to bend the notes you're holding down, 2 to bend them up
+  (chords too); let go and they slide back. The box under it sets how
   far, 1 to 12 semitones (2 at first). Bend starts off.
 - Turn on **⏺ Rec** and press Play: notes you play are written into the
   pattern at the step that's playing. Play first clicks one bar (the
@@ -381,6 +381,8 @@ without copying anything.
   as long as its longest track.
 - **Bar 1**, **Bar 2**... pick which bar the grid and piano roll show. A
   track that's shorter shows the bar it repeats there, dimmed.
+- Steps are small squares; hover one to see its note, chord or groove
+  marks.
 
 ### Chains and blocks (Jam)
 
@@ -390,6 +392,7 @@ The **Chain** row shows the block you're editing, one square per bar.
   right-click) to empty it. A longer pattern fills a square per bar: its
   name, then **2**, **3**... Side by side, a pattern plays its bars in turn.
 - **Chain** mode (top bar) plays the chain bar by bar, round and round.
+  The Chain row only shows in Chain mode.
 - Pick another block from the drop-down, **+** starts an empty one, and
   **Save as new block** copies this chain into a new block to keep working
   on. Right-click the drop-down to rename, duplicate or delete the block.
@@ -626,7 +629,8 @@ off in **View**.
 ### MIDI
 
 Plug gear in over USB (or a USB-MIDI cable), or pair a Bluetooth MIDI
-keyboard with your computer, then press **⟳** to rescan.
+keyboard with your computer. The **Keys & MIDI** menu has everything
+below; **⟳** rescans.
 
 - **MIDI out:** sends clock and Start/Stop so gear follows the tempo. Each
   track's **MIDI ch** (instrument drawer) sends its notes on that channel; the

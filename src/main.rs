@@ -322,6 +322,8 @@ struct App {
     show_mix: bool,
     /// Each track's level for its meter, falling slowly between peaks.
     track_levels: [f32; MAX_TRACKS],
+    /// Where the first step sits on screen, for the piano roll to line up.
+    steps_x: f32,
     /// Redraw less often while playing, to save battery.
     low_power: bool,
     /// View > Theme, and whether it's been put on yet.
@@ -475,6 +477,7 @@ impl App {
             show_scope: true,
             show_mix: false,
             track_levels: [0.0; MAX_TRACKS],
+            steps_x: 0.0,
             low_power: file::low_power(),
             theme: file::theme(),
             theme_on: false,
@@ -641,13 +644,11 @@ impl App {
             theme::apply(ctx, self.theme);
             self.theme_on = true;
         }
-        egui::TopBottomPanel::top("menu").show(ctx, |ui| self.menu_bar(ui, ctx));
-
-        egui::TopBottomPanel::top("transport").show(ctx, |ui| {
-            ui.add_space(4.0);
-            self.transport_row(ui, playing);
-            self.midi_row(ui);
-            ui.add_space(4.0);
+        // One row along the top: the menus, then the transport.
+        egui::TopBottomPanel::top("menu").show(ctx, |ui| {
+            ui.add_space(2.0);
+            self.menu_bar(ui, ctx, playing);
+            ui.add_space(2.0);
         });
 
         // Errors, notices and how hard the audio is working, always in view.
@@ -661,7 +662,7 @@ impl App {
         if self.view.panel {
             egui::TopBottomPanel::bottom("instrument")
                 .resizable(true)
-                .default_height(330.0)
+                .default_height(290.0)
                 .height_range(120.0..=(ctx.screen_rect().height() * 0.75).max(130.0))
                 .show(ctx, |ui| {
                     self.drawer_bar(ui, true);
@@ -691,8 +692,11 @@ impl App {
                     return;
                 }
                 if self.view.song {
-                    self.chain_row(ui, playing);
-                    ui.add_space(6.0);
+                    // The chain only matters while playing chains.
+                    if self.shared.chain_mode.load(Relaxed) {
+                        self.chain_row(ui, playing);
+                        ui.add_space(6.0);
+                    }
                     self.library_row(ui);
                     ui.add_space(6.0);
                 }
@@ -1341,7 +1345,7 @@ impl App {
         self.dirty = true;
     }
 
-    fn menu_bar(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+    fn menu_bar(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, playing: bool) {
         egui::menu::bar(ui, |ui| {
             ui.menu_button("File", |ui| {
                 let item = |ui: &mut egui::Ui, label: &str, keys: &str| {
@@ -1519,8 +1523,9 @@ impl App {
                     ui.close_menu();
                 }
             });
+            ui.menu_button("Keys & MIDI", |ui| self.midi_menu(ui));
             ui.separator();
-            ui.weak("Space = play · A–K = notes · Z/X = octave · F1 = help");
+            self.transport_row(ui, playing);
         });
     }
 
@@ -1543,6 +1548,12 @@ impl App {
                 ui.label(RichText::new("Exporting…").small());
             } else if let Some(notice) = &self.notice {
                 ui.colored_label(Color32::LIGHT_GREEN, RichText::new(notice).small());
+            } else {
+                ui.label(
+                    RichText::new("Space plays · A to K play notes · Z / X octave · F1 help")
+                        .small()
+                        .weak(),
+                );
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let dropouts = self.shared.dropouts.load(Relaxed);
@@ -2087,9 +2098,10 @@ impl App {
         ctx.request_repaint();
     }
 
-    fn midi_row(&mut self, ui: &mut egui::Ui) {
+    /// Keys & MIDI: MIDI gear in and out, and bending with the keyboard.
+    fn midi_menu(&mut self, ui: &mut egui::Ui) {
         let s = self.shared.clone();
-        ui.horizontal(|ui| {
+        ui.vertical(|ui| {
             let m = &mut self.midi;
             if let Some(pick) = port_picker(ui, "MIDI out", &m.out_ports, &m.out_name) {
                 m.select_out(pick);
@@ -2114,7 +2126,7 @@ impl App {
             let hint = "Turn on to bend with the keyboard: while you play, hold 1\n\
                         to bend the notes down, 2 to bend them up";
             if ui
-                .toggle_value(&mut self.bend_keys, "Bend")
+                .checkbox(&mut self.bend_keys, "Bend with keys 1 and 2")
                 .on_hover_text(hint)
                 .changed()
             {

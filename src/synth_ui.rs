@@ -101,12 +101,12 @@ pub(super) struct Snapshot {
     t: f32,
 }
 
-/// Every section the instrument panel can show, in order: the scope, a
-/// section per synth module, then the rest.
+/// Every section the instrument panel can show, in order: a section per
+/// synth module (the sound first), then the rest.
 pub(super) fn section_titles() -> impl Iterator<Item = &'static str> {
-    std::iter::once("Scope")
-        .chain(SYNTH_ORDER)
-        .chain(["Sample", "Mix", "Theremin"])
+    SYNTH_ORDER
+        .into_iter()
+        .chain(["Sample", "Scope", "Mix", "Theremin"])
 }
 
 /// The synth's sections in the panel, which isn't their order in
@@ -127,11 +127,8 @@ const SYNTH_ORDER: [&str; 12] = [
     "Arpeggiator",
 ];
 
-/// How wide the drawer's left column is.
-const HEAD_WIDTH: f32 = 250.0;
-
-/// How wide each section's column is in the drawer.
-const SECTION_WIDTH: f32 = 270.0;
+/// The narrowest a section's column gets in the drawer.
+const SECTION_WIDTH: f32 = 210.0;
 
 /// Whether a section starts unfolded.
 fn starts_open(title: &str) -> bool {
@@ -505,7 +502,7 @@ impl App {
                 moved = true;
             }
             // As wide as the panel allows, leaving room for + and the readout.
-            ui.spacing_mut().slider_width = (ui.available_width() - 110.0).max(80.0);
+            ui.spacing_mut().slider_width = 140.0;
             if self.drone_free {
                 let pick = egui::Slider::new(&mut self.drone_hz, DRONE_LOW..=DRONE_HIGH)
                     .logarithmic(true)
@@ -606,7 +603,7 @@ impl App {
                             "How loud each pitch is: low on the left, high on the right",
                         );
                 });
-                if self.draw_scope(ui, fill(ui, 80.0)) {
+                if self.draw_scope(ui, fill(ui, 46.0)) {
                     self.scope_span = (self.scope_span + 1) % SCOPE_SPANS.len();
                 }
                 return;
@@ -672,11 +669,12 @@ impl App {
                 if let Some((source, hint)) = chip {
                     ui.horizontal(|ui| {
                         source_chip(ui, source);
-                        ui.weak(hint);
+                        ui.label(RichText::new(hint).size(10.0).weak());
                     });
                 }
                 for (r, row) in m.rows.iter().enumerate() {
                     ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 2.0;
                         for &k in *row {
                             let k = at + k;
                             changed |= synth_knob(ui, k, &mut values[k], &mut track.mods, &shared);
@@ -756,14 +754,9 @@ impl App {
             close: None,
             pop: None,
         };
-        ui.horizontal_top(|ui| {
-            ui.vertical(|ui| {
-                ui.set_width(HEAD_WIDTH);
-                self.instrument_head(ui, &mut sections, synth);
-            });
-            ui.separator();
-            ui.vertical(|ui| self.instrument_sections(ui, &mut sections, synth));
-        });
+        ui.horizontal_wrapped(|ui| self.instrument_head(ui, &mut sections, synth));
+        ui.separator();
+        self.instrument_sections(ui, &mut sections, synth);
         if let Some(t) = sections.close.take() {
             sections.closed.push(t);
             self.sections_changed = true;
@@ -787,18 +780,24 @@ impl App {
             && self.other_engine(title).is_none()
     }
 
-    /// The sections, each a column of the same width.
+    /// The sections, as many side by side as fit, all the same width.
     fn instrument_sections(&mut self, ui: &mut egui::Ui, sections: &mut Sections, synth: bool) {
         let layout = egui::Layout::left_to_right(egui::Align::Min).with_main_wrap(true);
+        let gap = 10.0;
+        let room = ui.available_width();
+        let across = ((room + gap) / (SECTION_WIDTH + gap)).floor().max(1.0);
+        let width = ((room - gap * (across - 1.0)) / across - 3.0).floor();
         ui.with_layout(layout, |ui| {
-            ui.spacing_mut().item_spacing = Vec2::new(14.0, 10.0);
+            ui.spacing_mut().item_spacing = Vec2::new(gap, 6.0);
+            // Bodies sit under their heading without the usual indent.
+            ui.spacing_mut().indent = 4.0;
             for title in section_titles() {
                 if !self.shows_here(title, synth) || !sections.is_open(title) {
                     continue;
                 }
-                let size = Vec2::new(SECTION_WIDTH, 0.0);
+                let size = Vec2::new(width, 0.0);
                 ui.allocate_ui_with_layout(size, egui::Layout::top_down(egui::Align::Min), |ui| {
-                    ui.set_width(SECTION_WIDTH);
+                    ui.set_width(width);
                     let open = title == "Scope" || starts_open(title);
                     sections.show(ui, title, open, |ui| self.section(ui, title, false));
                 });
@@ -806,14 +805,14 @@ impl App {
         });
     }
 
-    /// The left column: the track's name, Drone and Tap, MIDI channel,
-    /// preset, Mutate and A/B, and bringing back closed sections.
+    /// The drawer's top line: the track's name, Drone and Tap, MIDI
+    /// channel, preset, Mutate and A/B, and bringing back closed sections.
     fn instrument_head(&mut self, ui: &mut egui::Ui, sections: &mut Sections, synth: bool) {
         let track = &mut self.project.tracks[self.selected];
         let mut changed = false;
         let name = egui::TextEdit::singleline(&mut track.name)
-            .font(egui::TextStyle::Heading)
-            .desired_width(HEAD_WIDTH - 10.0);
+            .font(egui::TextStyle::Body)
+            .desired_width(110.0);
         changed |= ui.add(name).changed();
         ui.add_space(4.0);
         // Hear the track: a quick note, or a drone that keeps playing.
@@ -868,8 +867,6 @@ impl App {
         ui.add_space(8.0);
 
         if let Kind::Synth(values) = &mut track.kind {
-            ui.weak("Drag knobs up/down. Double-click to reset. Click a heading to fold it.");
-            ui.add_space(4.0);
             // A starting sound, adjusted from there with the knobs.
             ui.horizontal(|ui| {
                 ui.label("Preset");

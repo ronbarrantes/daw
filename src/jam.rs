@@ -91,6 +91,29 @@ pub struct Playhead {
 }
 
 /// "1 bar", "2 bars"...
+/// A piano-roll key's width and a lane's height.
+const KEY_WIDTH: f32 = 60.0;
+const LANE_HEIGHT: f32 = 10.0;
+
+/// The width of a track's length button (1, 2, 4 or 8 bars).
+const LENGTH_WIDTH: f32 = 22.0;
+
+/// A step's size, the gap between steps, and a track row's height.
+const CELL: f32 = 18.0;
+const GAP: f32 = 2.0;
+const ROW: f32 = 20.0;
+
+/// A plain square for a step or a piano-roll cell, `size` big.
+fn cell(ui: &mut egui::Ui, size: Vec2, fill: Color32, stroke: egui::Stroke) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(size, Sense::click_and_drag());
+    let painter = ui.painter();
+    painter.rect_filled(rect, 2.0, fill);
+    if stroke.width > 0.0 {
+        painter.rect_stroke(rect, 2.0, stroke);
+    }
+    resp
+}
+
 fn bars_label(bars: usize) -> String {
     format!("{bars} bar{}", if bars == 1 { "" } else { "s" })
 }
@@ -299,6 +322,7 @@ impl App {
 
     /// The track list: group headers, and tracks unless their group is collapsed.
     pub fn track_list(&mut self, ui: &mut egui::Ui, pattern: usize, current: Option<Playhead>) {
+        ui.spacing_mut().item_spacing.y = 2.0;
         let rows = self.project.rows();
         for &row in &rows {
             // A row's menu can delete, add or regroup tracks; the rows
@@ -361,7 +385,7 @@ impl App {
             let name = egui::Button::new(RichText::new(&group.name).small().strong())
                 .selected(self.selected_group == Some(id));
             let resp = ui
-                .add_sized([54.0, 26.0], name)
+                .add_sized([54.0, ROW], name)
                 .on_hover_text("Click for group settings · right-click to ungroup");
             if resp.clicked() {
                 self.selected_group = Some(id);
@@ -377,7 +401,7 @@ impl App {
             }
             let mute = egui::Button::new(RichText::new("M").small())
                 .selected(group.muted)
-                .min_size(Vec2::new(22.0, 26.0));
+                .min_size(Vec2::new(18.0, ROW));
             if ui.add(mute).on_hover_text("Mute the whole group").clicked() {
                 group.muted = !group.muted;
                 self.dirty = true;
@@ -385,23 +409,24 @@ impl App {
             let solo_color = if group.solo { SOLO } else { Color32::GRAY };
             let solo = egui::Button::new(RichText::new("S").small().color(solo_color))
                 .selected(group.solo)
-                .min_size(Vec2::new(22.0, 26.0));
+                .min_size(Vec2::new(18.0, ROW));
             if ui.add(solo).on_hover_text("Solo the whole group").clicked() {
                 group.solo = !group.solo;
                 self.dirty = true;
             }
             // Where a track's length button is, so the steps line up.
-            ui.add_space(40.0 + ui.spacing().item_spacing.x);
+            ui.add_space(LENGTH_WIDTH + ui.spacing().item_spacing.x);
+            ui.spacing_mut().item_spacing.x = GAP;
             // A read-only summary of the group's hits; click to expand.
             for (step, on) in lit.iter().enumerate() {
-                let (rect, resp) = ui.allocate_exact_size(Vec2::new(28.0, 26.0), Sense::click());
+                let (rect, resp) = ui.allocate_exact_size(Vec2::new(CELL, ROW), Sense::click());
                 let fill = if *on {
                     drum_on().gamma_multiply(0.55)
                 } else {
                     empty_fill(step, true)
                 };
                 ui.painter()
-                    .rect_filled(rect.shrink2(Vec2::new(0.0, 6.0)), 2.0, fill);
+                    .rect_filled(rect.shrink2(Vec2::new(0.0, 5.0)), 2.0, fill);
                 if resp.clicked() && group.collapsed {
                     group.collapsed = false;
                     self.dirty = true;
@@ -443,7 +468,7 @@ impl App {
                 (self.selected == i && self.selected_group.is_none()) || self.picked.contains(&i);
             let name = egui::Button::new(RichText::new(&track.name).small()).selected(highlighted);
             let hint = "Click to select · Ctrl/Cmd-click to pick several · right-click for more";
-            let resp = ui.add_sized([width, 26.0], name).on_hover_text(hint);
+            let resp = ui.add_sized([width, ROW], name).on_hover_text(hint);
             if resp.clicked() {
                 if ui.input(|i| i.modifiers.command) {
                     if let Some(at) = self.picked.iter().position(|&p| p == i) {
@@ -503,7 +528,7 @@ impl App {
             }
             let mute = egui::Button::new(RichText::new("M").small())
                 .selected(track.muted)
-                .min_size(Vec2::new(22.0, 26.0));
+                .min_size(Vec2::new(18.0, ROW));
             if ui.add(mute).on_hover_text("Mute").clicked() {
                 track.muted = !track.muted;
                 self.dirty = true;
@@ -511,15 +536,15 @@ impl App {
             let solo_color = if track.solo { SOLO } else { Color32::GRAY };
             let solo = egui::Button::new(RichText::new("S").small().color(solo_color))
                 .selected(track.solo)
-                .min_size(Vec2::new(22.0, 26.0));
+                .min_size(Vec2::new(18.0, ROW));
             let solo_hint = "Solo: hear only soloed tracks";
             if ui.add(solo).on_hover_text(solo_hint).clicked() {
                 track.solo = !track.solo;
                 self.dirty = true;
             }
             let bars = track.bars(pattern);
-            let length = egui::Button::new(RichText::new(bars_label(bars)).small())
-                .min_size(Vec2::new(40.0, 26.0));
+            let length = egui::Button::new(RichText::new(bars.to_string()).small())
+                .min_size(Vec2::new(LENGTH_WIDTH, ROW));
             let resp = ui.add(length).on_hover_text(
                 "How many bars this track plays in this pattern before it repeats.\n\
                  Click for longer, right-click for shorter.",
@@ -551,6 +576,10 @@ impl App {
             };
             let shift = ui.input(|i| i.modifiers.shift);
             let pointer = held_pointer(ui);
+            let spacing = ui.spacing().item_spacing.x;
+            ui.spacing_mut().item_spacing.x = GAP;
+            // The piano roll lines its columns up with these.
+            self.steps_x = ui.cursor().min.x;
             // A step is a column across every lane, so walk it by index.
             #[allow(clippy::needless_range_loop)]
             for step in 0..STEPS {
@@ -594,13 +623,13 @@ impl App {
                 } else {
                     fill
                 };
-                let pad = egui::Button::new(RichText::new(text).small().color(Color32::BLACK))
-                    .fill(fill)
-                    .stroke(playhead(current == Some(step)))
-                    .min_size(Vec2::new(28.0, 26.0));
-                let mut resp = ui.add(pad);
+                // Small squares: the note, chord and groove marks show on
+                // hover.
+                let mut resp = cell(ui, Vec2::splat(CELL), fill, playhead(current == Some(step)));
                 if let Some(c) = &chord {
-                    resp = resp.on_hover_text(&c.long);
+                    resp = resp.on_hover_text(format!("{}  {}", c.long, text));
+                } else if !text.is_empty() {
+                    resp = resp.on_hover_text(text);
                 }
                 // Pressing a step turns it on or off; dragging on along the
                 // row does the same to every step it passes.
@@ -657,7 +686,8 @@ impl App {
                     });
                 }
             }
-            ui.add_space(6.0);
+            ui.spacing_mut().item_spacing.x = spacing;
+            ui.add_space(4.0);
             level_bar(ui, self.track_levels[i], 40.0);
             // Mix: pan and the effect sends, as more columns on the row.
             if self.show_mix {
@@ -724,7 +754,6 @@ impl App {
 
     pub fn add_row(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui.horizontal(|ui| {
-            ui.add_space(84.0);
             // Select only means something in MIDI blocks; here it draws.
             Tool::bar(ui, &mut self.tool, false);
             ui.separator();
@@ -759,8 +788,6 @@ impl App {
             if self.loading > 0 {
                 ui.spinner();
                 ui.weak(format!("Loading {}…", self.loading));
-            } else {
-                ui.weak("or drop audio files onto the window · right-click a step for groove");
             }
         });
     }
@@ -805,7 +832,12 @@ impl App {
             chords::name(&pitches)
         });
         ui.horizontal(|ui| {
-            ui.strong(format!("Piano roll · {}", track.name));
+            ui.strong(format!("Piano roll · {}", track.name))
+                .on_hover_text(
+                    "Click: add or remove a note · drag a note: move it · drag its right\n\
+                 edge: longer or shorter · several in a column make a chord ·\n\
+                 right-click a note: groove",
+                );
             if let Some(c) = &chord {
                 ui.label(RichText::new(format!("Chord: {}", c.long)).color(note_on()));
             }
@@ -830,10 +862,11 @@ impl App {
                 track.octave = track.octave.min(track.top_octave());
                 self.dirty = true;
             }
-            ui.weak("Click: add/remove · drag a note: move it · drag its right edge: longer/shorter · several per column = chord · right-click a note: groove");
         });
         ui.add_space(4.0);
         ui.spacing_mut().item_spacing.y = 2.0;
+        // Rows as short as their cells.
+        ui.spacing_mut().interact_size.y = LANE_HEIGHT;
         let base = track.base_note();
         let (shift, command, primary) = ui.input(|i| {
             (
@@ -880,13 +913,29 @@ impl App {
                 } else {
                     Color32::from_gray(90)
                 };
-                let key = egui::Button::new(name)
-                    .fill(key_fill)
-                    .min_size(Vec2::new(80.0, 17.0));
-                if ui.add(key).clicked() {
+                let key = cell(
+                    ui,
+                    Vec2::new(KEY_WIDTH, LANE_HEIGHT),
+                    key_fill,
+                    egui::Stroke::NONE,
+                );
+                ui.painter().text(
+                    key.rect.right_center() - Vec2::new(4.0, 0.0),
+                    egui::Align2::RIGHT_CENTER,
+                    &name,
+                    egui::FontId::proportional(10.0),
+                    if sharp {
+                        Color32::from_gray(150)
+                    } else {
+                        Color32::from_gray(230)
+                    },
+                );
+                if key.on_hover_text("Click to hear this note").clicked() {
                     let _ = self.events.try_send(Event::Preview { track: i, note });
                 }
-                ui.add_space(52.0); // line up with the steps above
+                // Line the columns up with the steps above.
+                ui.add_space((self.steps_x - ui.cursor().min.x).max(0.0));
+                ui.spacing_mut().item_spacing.x = GAP;
                 for step in 0..STEPS {
                     let value = grid[lane][step];
                     let fill = match value {
@@ -895,16 +944,14 @@ impl App {
                         None if others[lane][step] => OTHER_NOTE,
                         None => empty_fill(step, sharp),
                     };
-                    let text = match value {
-                        Some(s) if !s.tie => step_marks(&s),
-                        _ => String::new(),
-                    };
-                    let cell = egui::Button::new(RichText::new(text).small().color(Color32::BLACK))
-                        .fill(fill)
-                        .stroke(playhead(current == Some(step)))
-                        .min_size(Vec2::new(28.0, 17.0))
-                        .sense(Sense::click_and_drag());
-                    let resp = ui.add(cell);
+                    let size = Vec2::new(CELL, LANE_HEIGHT);
+                    let mut resp = cell(ui, size, fill, playhead(current == Some(step)));
+                    if let Some(s) = value.filter(|s| !s.tie) {
+                        let marks = step_marks(&s);
+                        if !marks.is_empty() {
+                            resp = resp.on_hover_text(marks);
+                        }
+                    }
                     columns[step] = resp.rect.center().x;
                     rows[lane] = resp.rect.center().y;
                     if resp.hovered() {
