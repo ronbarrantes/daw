@@ -11,7 +11,8 @@ use crate::project::{
 };
 use crate::theme::track_color;
 use crate::widgets::{
-    disclosure_arrow, empty_fill, level_bar, lit_fill, mini_slider, note_on, playhead, NOTE_NAMES,
+    disclosure_arrow, empty_fill, fold_toggle, level_bar, lit_fill, mini_slider, note_on, playhead,
+    NOTE_NAMES,
 };
 use crate::{chords, drums, notes, App, DELAY_SEND, GROUP_VOLUME, PAN, REVERB_SEND, TRACK_VOLUME};
 
@@ -360,9 +361,18 @@ impl App {
         let weak = ui.visuals().weak_text_color();
         ui.horizontal(|ui| {
             let small = |t: String| RichText::new(t).size(10.0).color(weak);
-            ui.add_sized(
-                [HEAD_WIDTH, 14.0],
-                egui::Label::new(small("  Tracks".into())),
+            ui.allocate_ui_with_layout(
+                Vec2::new(HEAD_WIDTH, 18.0),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    ui.set_width(HEAD_WIDTH);
+                    if fold_toggle(ui, true, "Tracks", "Hide the tracks")
+                        .on_hover_text("Shortcut: F6")
+                        .clicked()
+                    {
+                        self.view.tracks = false;
+                    }
+                },
             );
             ui.spacing_mut().item_spacing.x = 0.0;
             for (n, &bar) in shown.iter().enumerate() {
@@ -438,10 +448,8 @@ impl App {
                         // The selected melodic track's notes open right
                         // under its row.
                         let melodic = self.project.tracks.get(i).is_some_and(|t| t.is_melodic());
-                        if i == self.selected && self.view.piano && melodic {
-                            ui.add_space(4.0);
-                            self.piano_roll(ui, pattern, current);
-                            ui.add_space(6.0);
+                        if i == self.selected && melodic {
+                            self.piano_roll_or_bar(ui, pattern, current);
                         }
                     }
                 }
@@ -605,7 +613,7 @@ impl App {
                 };
                 let hint = "Click to select · Ctrl/Cmd-click to pick several · right-click for more";
                 let resp = name_label(ui, &track.name, text_color, NAME_WIDTH - indent)
-                    .on_hover_text(hint);
+                    .on_hover_text(format!("{}\n{hint}", track.name));
                 if resp.clicked() {
                     if ui.input(|i| i.modifiers.command) {
                         if let Some(at) = self.picked.iter().position(|&p| p == i) {
@@ -615,7 +623,11 @@ impl App {
                         }
                     } else {
                         // Silent: switching tracks while jamming shouldn't make
-                        // a sound. Tap in the drawer plays one.
+                        // a sound. Tap in the drawer plays one. A synth's
+                        // piano roll always opens.
+                        if track.is_melodic() {
+                            self.view.piano = true;
+                        }
                         self.selected = i;
                         self.selected_group = None;
                         self.picked.clear();
@@ -929,6 +941,33 @@ impl App {
         });
     }
 
+    /// The selected synth's piano roll, or, hidden, a line to bring it back.
+    pub fn piano_roll_or_bar(
+        &mut self,
+        ui: &mut egui::Ui,
+        pattern: usize,
+        current: Option<Playhead>,
+    ) {
+        if self.view.piano {
+            ui.add_space(2.0);
+            self.piano_roll(ui, pattern, current);
+            ui.add_space(6.0);
+        } else {
+            let name = self.project.tracks[self.selected].name.clone();
+            if fold_toggle(
+                ui,
+                false,
+                &format!("Piano roll · {name}"),
+                "Show the piano roll",
+            )
+            .on_hover_text("Shortcut: F7")
+            .clicked()
+            {
+                self.view.piano = true;
+            }
+        }
+    }
+
     pub fn piano_roll(&mut self, ui: &mut egui::Ui, pattern: usize, current: Option<Playhead>) {
         let i = self.selected;
         let bar = self.edit_bar;
@@ -969,12 +1008,18 @@ impl App {
             chords::name(&pitches)
         });
         ui.horizontal(|ui| {
-            ui.strong(format!("Piano roll · {}", track.name))
+            let title = format!("Piano roll · {}", track.name);
+            if fold_toggle(ui, true, &title, "Hide the piano roll")
                 .on_hover_text(
-                    "Click: add or remove a note · drag a note: move it · drag its right\n\
-                 edge: longer or shorter · several in a column make a chord ·\n\
-                 right-click a note: groove",
-                );
+                    "Shortcut: F7\n\
+                     Click a cell: add or remove a note · drag a note: move it · drag its\n\
+                     right edge: longer or shorter · several in a column make a chord ·\n\
+                     right-click a note: groove",
+                )
+                .clicked()
+            {
+                self.view.piano = false;
+            }
             if let Some(c) = &chord {
                 ui.label(RichText::new(format!("Chord: {}", c.long)).color(note_on()));
             }

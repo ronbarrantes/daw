@@ -665,14 +665,15 @@ impl App {
                 .resizable(true)
                 .default_height(290.0)
                 .height_range(120.0..=(ctx.screen_rect().height() * 0.75).max(130.0))
-                .show(ctx, |ui| {
-                    self.drawer_bar(ui, true);
-                    egui::ScrollArea::vertical()
-                        .auto_shrink(false)
-                        .show(ui, |ui| match self.selected_group {
-                            Some(id) => self.group_panel(ui, id),
-                            None => self.instrument_panel(ui),
-                        });
+                .show(ctx, |ui| match self.selected_group {
+                    Some(id) => {
+                        self.drawer_bar(ui, true);
+                        egui::ScrollArea::vertical()
+                            .auto_shrink(false)
+                            .show(ui, |ui| self.group_panel(ui, id));
+                    }
+                    // Its header stays put; only the sections scroll.
+                    None => self.instrument_panel(ui),
                 });
         } else {
             egui::TopBottomPanel::bottom("instrument drawer")
@@ -681,58 +682,21 @@ impl App {
         }
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                if self.tab == Tab::Arrange {
-                    self.timeline(ui, playing);
-                    ui.add_space(8.0);
-                    self.block_drawer(ui);
-                    if let Some(b) = self.open_notes() {
+            if self.tab == Tab::Arrange {
+                egui::ScrollArea::vertical()
+                    .auto_shrink(false)
+                    .show(ui, |ui| {
+                        self.timeline(ui, playing);
                         ui.add_space(8.0);
-                        self.note_editor(ui, b, playing);
-                    }
-                    return;
-                }
-                // The chain only matters while playing chains; the
-                // patterns are in the top bar.
-                if self.view.song && self.shared.chain_mode.load(Relaxed) {
-                    self.chain_row(ui, playing);
-                    ui.add_space(6.0);
-                }
-                let edit = self.shared.edit_pattern.load(Relaxed) as usize;
-                self.edit_bar = self.edit_bar.min(self.project.pattern_bars(edit) - 1);
-                // Only show the playhead on the pattern that's actually playing.
-                let current = (playing && self.shared.play_pattern.load(Relaxed) as usize == edit)
-                    .then(|| Playhead {
-                        bar: self.shared.current_bar.load(Relaxed),
-                        step: self.shared.current_step.load(Relaxed),
+                        self.block_drawer(ui);
+                        if let Some(b) = self.open_notes() {
+                            ui.add_space(8.0);
+                            self.note_editor(ui, b, playing);
+                        }
                     });
-                if self.view.tracks {
-                    self.tracks_header(ui, edit, current);
-                }
-                if self.view.tracks {
-                    self.track_list(ui, edit, current);
-                    ui.add_space(4.0);
-                    self.add_row(ui, ctx);
-                }
-                let melodic = self
-                    .project
-                    .tracks
-                    .get(self.selected)
-                    .is_some_and(Track::is_melodic);
-                // Only with the tracks hidden: otherwise it's under its track.
-                if self.view.piano && melodic && !self.view.tracks {
-                    ui.add_space(8.0);
-                    self.piano_roll(ui, edit, current);
-                }
-                if !self.view.song && !self.view.tracks && !(self.view.piano && melodic) {
-                    ui.add_space(40.0);
-                    ui.vertical_centered(|ui| {
-                        ui.weak(
-                            "Nothing to show here. Use the View menu, or F9 to show everything.",
-                        );
-                    });
-                }
-            });
+            } else {
+                self.jam_view(ui, ctx, playing);
+            }
             if ctx.input(|i| !i.raw.hovered_files.is_empty()) {
                 let painter = ui.painter();
                 let rect = ui.max_rect();
@@ -805,6 +769,73 @@ impl App {
 }
 
 impl App {
+    /// Jam: the chain (in Chain mode), the tracks with their header and
+    /// tools pinned and the rows scrolling between them, and the selected
+    /// synth's piano roll under its row. Anything hidden folds to a line
+    /// with a ▸ to bring it back.
+    fn jam_view(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, playing: bool) {
+        let edit = self.shared.edit_pattern.load(Relaxed) as usize;
+        self.edit_bar = self.edit_bar.min(self.project.pattern_bars(edit) - 1);
+        // Only show the playhead on the pattern that's actually playing.
+        let current =
+            (playing && self.shared.play_pattern.load(Relaxed) as usize == edit).then(|| {
+                Playhead {
+                    bar: self.shared.current_bar.load(Relaxed),
+                    step: self.shared.current_step.load(Relaxed),
+                }
+            });
+        // The chain only matters while playing chains; the patterns are in
+        // the top bar.
+        if self.shared.chain_mode.load(Relaxed) {
+            let open = self.view.song;
+            let name = if open {
+                "Hide the chain"
+            } else {
+                "Show the chain"
+            };
+            if widgets::fold_toggle(ui, open, "Chain", name)
+                .on_hover_text("Shortcut: F5")
+                .clicked()
+            {
+                self.view.song = !open;
+            }
+            if open {
+                self.chain_row(ui, playing);
+            }
+            ui.add_space(4.0);
+        }
+        if !self.view.tracks {
+            if widgets::fold_toggle(ui, false, "Tracks", "Show the tracks")
+                .on_hover_text("Shortcut: F6")
+                .clicked()
+            {
+                self.view.tracks = true;
+            }
+            let melodic = self
+                .project
+                .tracks
+                .get(self.selected)
+                .is_some_and(Track::is_melodic);
+            if melodic {
+                egui::ScrollArea::vertical()
+                    .auto_shrink(false)
+                    .show(ui, |ui| self.piano_roll_or_bar(ui, edit, current));
+            }
+            return;
+        }
+        self.tracks_header(ui, edit, current);
+        // The tools stay along the bottom of the tracks.
+        egui::TopBottomPanel::bottom("tools")
+            .frame(egui::Frame::none())
+            .show_inside(ui, |ui| {
+                ui.add_space(4.0);
+                self.add_row(ui, ctx);
+            });
+        egui::ScrollArea::vertical()
+            .auto_shrink(false)
+            .show(ui, |ui| self.track_list(ui, edit, current));
+    }
+
     /// How long to wait between redraws while something moves.
     fn frame(&self) -> Duration {
         Duration::from_millis(if self.low_power { 66 } else { 30 })
@@ -1574,20 +1605,25 @@ impl App {
 
     /// The instrument drawer's top line: an arrow to open or shut it, and
     /// what's selected, so even shut it says what you'd be shaping.
+    /// The drawer's switch: ▾ Instrument hides it, ▸ Instrument shows it.
+    pub(crate) fn drawer_toggle(&mut self, ui: &mut egui::Ui) {
+        let open = self.view.panel;
+        let name = if open {
+            "Hide the instrument"
+        } else {
+            "Show the instrument"
+        };
+        if widgets::fold_toggle(ui, open, "Instrument", name)
+            .on_hover_text("Shortcut: I or F8")
+            .clicked()
+        {
+            self.view.panel = !open;
+        }
+    }
+
     fn drawer_bar(&mut self, ui: &mut egui::Ui, open: bool) {
         ui.horizontal(|ui| {
-            let (label, hint) = if open {
-                ("Hide the instrument", "Hide the instrument (I or F8)")
-            } else {
-                ("Show the instrument", "Show the instrument (I or F8)")
-            };
-            if widgets::drawer_arrow(ui, !open, label)
-                .on_hover_text(hint)
-                .clicked()
-            {
-                self.view.panel = !open;
-            }
-            ui.label(RichText::new("Instrument").small().strong());
+            self.drawer_toggle(ui);
             if open {
                 return;
             }

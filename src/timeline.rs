@@ -146,12 +146,24 @@ fn snap_near(step: f32, to: usize) -> usize {
     ((step.max(0.0) / to as f32).round() as usize) * to
 }
 
+/// The most room the top bar's pattern buttons take.
+const PICKER_WIDTH: f32 = 300.0;
+
 impl App {
     /// The pattern library: pick a pattern to edit; right-click to rename,
     /// duplicate or delete.
     /// The patterns as small buttons for the top bar: click one to edit
     /// it, right-click to rename, duplicate or delete; + makes a new one.
     pub fn pattern_picker(&mut self, ui: &mut egui::Ui) {
+        // Past about ten patterns they scroll sideways instead of pushing
+        // the rest of the top bar off the edge.
+        egui::ScrollArea::horizontal()
+            .id_salt("patterns")
+            .max_width(PICKER_WIDTH)
+            .show(ui, |ui| ui.horizontal(|ui| self.pattern_buttons(ui)));
+    }
+
+    fn pattern_buttons(&mut self, ui: &mut egui::Ui) {
         let edit = self.edit_pattern();
         for p in 0..self.project.patterns.len() {
             let name = self.project.patterns[p].name.clone();

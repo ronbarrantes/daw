@@ -48,3 +48,8 @@ Ron reads in short bursts: keep replies short and plain.
   warnings, `cargo test`, and `cargo clippy --target wasm32-unknown-unknown`
   for the web version.
 - Stick to glyphs egui's default font has; arrows like → and ▼ don't render.
+- Everything works with a mouse alone; keys (F5-F9, I...) are only
+  shortcuts for something on screen. Anything that can be hidden folds to
+  a line with a ▾/▸ switch (`widgets::fold_toggle`) to bring it back,
+  never vanishes. Headers stay put; only the content under them scrolls,
+  and scroll areas fill their width (`auto_shrink(false)`).

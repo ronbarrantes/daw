@@ -76,8 +76,13 @@ const SECTIONS: &[(&str, &str)] = &[
     (
         "Showing and hiding",
         "Hiding a part never deletes it or stops it playing.\n\n\
-         • View menu, or F5 the chain (in Chain mode), F6 tracks, F7 piano \
-         roll, F8 (or I) instrument drawer.\n\
+         • Every part has a small triangle at the start of its title line. \
+         Pointing down, the part is open: click the line to hide it. Pointing \
+         right, it's folded to that one line: click to show it again. Tracks, Piano roll, Chain and Instrument \
+         all work this way, and so do the drawer's sections.\n\
+         • Clicking a synth track's name always opens its piano roll.\n\
+         • Shortcuts do the same: F5 chain, F6 tracks, F7 piano roll, F8 (or \
+         I) instrument. The View menu has them too.\n\
          • View > Focus: Tracks only, or Piano roll and sound.\n\
          • F9 shows everything again.\n\
          • The instrument is a drawer along the bottom: its arrow (or I, or F8) \
