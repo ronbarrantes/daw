@@ -483,8 +483,9 @@ the bottom (I or F8 shows or hides it). Drag a knob up or down; double-click to 
 it. Hover for what each one does. To make room:
 
 - Each section is a box: its name, a drawing of what it does, then its
-  knobs. **Click a section's name** to fold it to just the name; click
-  again to unfold it. LFOs, the mod envelope and Voice have their drag
+  knobs. **Click anywhere on a section's title line** to fold it to just
+  that line; click again to unfold it. Its triangle points down when it's
+  open and right when it's folded. LFOs, the mod envelope and Voice have their drag
   chip next to the name.
 - **Right-click a section's name** to close it completely or pop it out.
   **More → + Section** (end of the drawer's top line) or **View →

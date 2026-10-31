@@ -211,8 +211,8 @@ const SECTIONS: &[(&str, &str)] = &[
     (
         "Synth",
         "Drag a knob up or down; double-click to reset it; hover to see what \
-         it does. Click a section's name to fold it (and again to open \
-         it). Right-click the name to close it (More > + Section, or View \
+         it does. Click anywhere on a section's title line to fold it (and \
+         again to open it); its triangle shows which. Right-click the name to close it (More > + Section, or View \
          > Instrument panel sections, brings it back) or pop it out \
          into its own window to put anywhere (the Scope and Theremin can be \
          made big); its × puts it back.\n\n\
