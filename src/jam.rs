@@ -2,6 +2,8 @@
 //! its step rows, and the piano roll, plus the tools and helpers they
 //! share (painting steps, dragging notes, the step menu).
 
+use std::sync::atomic::Ordering::Relaxed;
+
 use eframe::egui::{self, Color32, RichText, Sense, Vec2};
 
 use crate::audio::Event;
@@ -92,18 +94,19 @@ pub struct Playhead {
 }
 
 /// "1 bar", "2 bars"...
-/// A piano-roll key's width and a lane's height.
-const KEY_WIDTH: f32 = 60.0;
-const LANE_HEIGHT: f32 = 10.0;
-
-/// A step's size, the gap between steps, and a track row's height.
-const CELL: f32 = 18.0;
+/// The gap between steps, and a track row's height (at least).
 const GAP: f32 = 2.0;
 const ROW: f32 = 20.0;
 
 /// How wide the part of a row before its steps is, and the name in it.
 const HEAD_WIDTH: f32 = 200.0;
 const NAME_WIDTH: f32 = 56.0;
+
+/// The meter's and each Mix slider's width, and the room kept at the
+/// right edge (for the scroll bar).
+pub const METER_WIDTH: f32 = 40.0;
+pub const MIX_WIDTH: f32 = 48.0;
+const RIGHT_MARGIN: f32 = 14.0;
 
 /// The space between one bar's steps and the next.
 const BAR_GAP: f32 = 8.0;
@@ -323,6 +326,66 @@ fn step_marks(s: &Step) -> String {
 
 impl App {
     /// The pattern's length, and which of its bars the editor shows.
+    /// Sizes the steps to fill `width`: wider steps when there's room
+    /// (square up to a point, then just wider), never smaller than on the
+    /// Air. The piano roll's lanes grow with them.
+    pub fn fit_steps(&mut self, width: f32, pattern: usize) {
+        let bars = self.shown_bars(pattern).len() as f32;
+        let mix = if self.show_mix {
+            3.0 * (MIX_WIDTH + 6.0)
+        } else {
+            0.0
+        };
+        let fixed = HEAD_WIDTH + BAR_GAP * (bars - 1.0) + METER_WIDTH + mix + 40.0;
+        let step = ((width - fixed) / (bars * STEPS as f32) - GAP)
+            .clamp(16.0, 56.0)
+            .floor();
+        let height = step.clamp(16.0, 22.0).floor();
+        self.cell = Vec2::new(step, height);
+        self.lane_h = (height * 0.6).clamp(10.0, 13.0).floor();
+    }
+
+    /// The tracks' top line: the switch that hides them, the patterns as
+    /// tabs, the pattern's length, and what plays.
+    pub fn pattern_line(&mut self, ui: &mut egui::Ui, pattern: usize) {
+        ui.horizontal(|ui| {
+            let open = self.view.tracks;
+            let name = if open {
+                "Hide the tracks"
+            } else {
+                "Show the tracks"
+            };
+            if fold_toggle(ui, open, "Tracks", name)
+                .on_hover_text("Shortcut: F6")
+                .clicked()
+            {
+                self.view.tracks = !open;
+            }
+            ui.separator();
+            self.pattern_picker(ui);
+            ui.separator();
+            self.length_picker(ui, pattern);
+            ui.separator();
+            let s = self.shared.clone();
+            let chain = s.chain_mode.load(Relaxed);
+            ui.weak("Plays");
+            if ui
+                .selectable_label(!chain, "Pattern")
+                .on_hover_text("Loop the pattern you're editing")
+                .clicked()
+            {
+                s.chain_mode.store(false, Relaxed);
+            }
+            if ui
+                .selectable_label(chain, "Chain")
+                .on_hover_text("Play the block's chain, bar by bar")
+                .clicked()
+            {
+                s.chain_mode.store(true, Relaxed);
+            }
+        });
+    }
+
     /// The bars shown side by side: two at a time, the pair holding the
     /// bar being edited.
     pub fn shown_bars(&self, pattern: usize) -> Vec<usize> {
@@ -331,12 +394,11 @@ impl App {
         (first..(first + 2).min(bars)).collect()
     }
 
-    /// The pattern's length: 1, 2, 4 or 8 bars. It sits next to the
-    /// patterns when they're showing, and above the tracks when not.
+    /// The pattern's length: 1, 2, 4 or 8 bars, on the tracks' top line.
     pub fn length_picker(&mut self, ui: &mut egui::Ui, pattern: usize) {
-        ui.label("Bars").on_hover_text(
+        ui.label("Length").on_hover_text(
             "How many bars the pattern lasts. Each track can be shorter\n\
-             (its button next to S); short parts repeat to fill it.",
+             (right-click its name); short parts repeat to fill it.",
         );
         for b in BAR_CHOICES {
             let same =
@@ -351,6 +413,7 @@ impl App {
                 self.dirty = true;
             }
         }
+        ui.weak("bars");
     }
 
     /// The line over the tracks: bar numbers over their steps, Level over
@@ -361,25 +424,13 @@ impl App {
         let weak = ui.visuals().weak_text_color();
         ui.horizontal(|ui| {
             let small = |t: String| RichText::new(t).size(10.0).color(weak);
-            ui.allocate_ui_with_layout(
-                Vec2::new(HEAD_WIDTH, 18.0),
-                egui::Layout::left_to_right(egui::Align::Center),
-                |ui| {
-                    ui.set_width(HEAD_WIDTH);
-                    if fold_toggle(ui, true, "Tracks", "Hide the tracks")
-                        .on_hover_text("Shortcut: F6")
-                        .clicked()
-                    {
-                        self.view.tracks = false;
-                    }
-                },
-            );
+            ui.add_space(HEAD_WIDTH);
             ui.spacing_mut().item_spacing.x = 0.0;
             for (n, &bar) in shown.iter().enumerate() {
                 if n > 0 {
                     ui.add_space(BAR_GAP);
                 }
-                let width = STEPS as f32 * (CELL + GAP) - GAP;
+                let width = STEPS as f32 * (self.cell.x + GAP) - GAP;
                 let playing = current.is_some_and(|c| c.bar % bars == bar);
                 let text = small(format!("{}", bar + 1));
                 let text = if playing {
@@ -396,20 +447,21 @@ impl App {
                     },
                 );
             }
-            ui.add_space(6.0);
-            ui.add_sized([40.0, 14.0], egui::Label::new(small("Level".into())));
             ui.spacing_mut().item_spacing.x = 6.0;
-            if self.show_mix {
-                ui.add_space(14.0);
-                for name in ["Pan", "Reverb", "Delay"] {
-                    ui.add_sized([48.0, 14.0], egui::Label::new(small(name.into())));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_space(RIGHT_MARGIN);
+                if self.show_mix {
+                    for name in ["Delay", "Reverb", "Pan"] {
+                        ui.add_sized([MIX_WIDTH, 14.0], egui::Label::new(small(name.into())));
+                    }
                 }
-            }
-            ui.toggle_value(&mut self.show_mix, RichText::new("Mix").size(11.0))
-                .on_hover_text(
-                    "Show each track's pan and its reverb and delay sends\n\
-                     as more columns on its row",
-                );
+                ui.add_sized([METER_WIDTH, 14.0], egui::Label::new(small("Level".into())));
+                ui.toggle_value(&mut self.show_mix, RichText::new("Mix").size(11.0))
+                    .on_hover_text(
+                        "Show each track's pan and its reverb and delay sends\n\
+                         as more columns on its row",
+                    );
+            });
             // A longer pattern shows two bars at a time; pick which two.
             if bars > 2 {
                 ui.separator();
@@ -545,7 +597,8 @@ impl App {
                     ui.add_space(BAR_GAP);
                 }
                 for (step, on) in lit.iter().enumerate() {
-                    let (rect, resp) = ui.allocate_exact_size(Vec2::new(CELL, ROW), Sense::click());
+                    let (rect, resp) =
+                        ui.allocate_exact_size(Vec2::new(self.cell.x, ROW), Sense::click());
                     let fill = if *on {
                         Color32::from_gray(150)
                     } else {
@@ -774,7 +827,7 @@ impl App {
                 };
                 // Small squares: the note, chord and groove marks show on
                 // hover.
-                let mut resp = cell(ui, Vec2::splat(CELL), fill, playhead(current == Some(step)));
+                let mut resp = cell(ui, self.cell, fill, playhead(current == Some(step)));
                 if let Some(c) = &chord {
                     resp = resp.on_hover_text(format!("{}  {}", c.long, text));
                 } else if !text.is_empty() {
@@ -841,22 +894,24 @@ impl App {
             }
             }
             ui.spacing_mut().item_spacing.x = spacing;
-            ui.add_space(4.0);
-            level_bar(ui, self.track_levels[i], 40.0);
-            // Mix: pan and the effect sends, as more columns on the row.
-            if self.show_mix {
-                let track = &mut self.project.tracks[i];
-                ui.separator();
-                for (p, value) in [
-                    (&PAN, &mut track.pan),
-                    (&REVERB_SEND, &mut track.reverb),
-                    (&DELAY_SEND, &mut track.delay),
-                ] {
-                    if mini_slider(ui, p, value, 48.0) {
-                        self.dirty = true;
+            // The meter and, with Mix on, pan and the effect sends, along
+            // the right edge (laid out from the right).
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_space(RIGHT_MARGIN);
+                if self.show_mix {
+                    let track = &mut self.project.tracks[i];
+                    for (p, value) in [
+                        (&DELAY_SEND, &mut track.delay),
+                        (&REVERB_SEND, &mut track.reverb),
+                        (&PAN, &mut track.pan),
+                    ] {
+                        if mini_slider(ui, p, value, MIX_WIDTH) {
+                            self.dirty = true;
+                        }
                     }
                 }
-            }
+                level_bar(ui, self.track_levels[i], METER_WIDTH);
+            });
         }));
         match action {
             Some(TrackAction::Group) => {
@@ -1048,7 +1103,7 @@ impl App {
         ui.add_space(4.0);
         ui.spacing_mut().item_spacing.y = 2.0;
         // Rows as short as their cells.
-        ui.spacing_mut().interact_size.y = LANE_HEIGHT;
+        ui.spacing_mut().interact_size.y = self.lane_h;
         let base = track.base_note();
         let (shift, command, primary) = ui.input(|i| {
             (
@@ -1095,9 +1150,13 @@ impl App {
                 } else {
                     Color32::from_gray(62)
                 };
+                // The keys reach right up to the grid.
+                let at = self.bar_x[self.edit_bar % 2];
+                let spacing = ui.spacing().item_spacing.x;
+                let key_width = (at - ui.cursor().min.x - spacing).max(40.0);
                 let key = cell(
                     ui,
-                    Vec2::new(KEY_WIDTH, LANE_HEIGHT),
+                    Vec2::new(key_width, self.lane_h),
                     key_fill,
                     egui::Stroke::NONE,
                 );
@@ -1116,7 +1175,6 @@ impl App {
                     let _ = self.events.try_send(Event::Preview { track: i, note });
                 }
                 // Line the columns up with the steps above.
-                let at = self.bar_x[self.edit_bar % 2];
                 ui.add_space((at - ui.cursor().min.x).max(0.0));
                 ui.spacing_mut().item_spacing.x = GAP;
                 for step in 0..STEPS {
@@ -1127,7 +1185,7 @@ impl App {
                         None if others[lane][step] => OTHER_NOTE,
                         None => empty_fill(step, sharp),
                     };
-                    let size = Vec2::new(CELL, LANE_HEIGHT);
+                    let size = Vec2::new(self.cell.x, self.lane_h);
                     let mut resp = cell(ui, size, fill, playhead(current == Some(step)));
                     if let Some(s) = value.filter(|s| !s.tie) {
                         let marks = step_marks(&s);

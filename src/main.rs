@@ -325,6 +325,9 @@ struct App {
     /// Where each shown bar's first step sits on screen, for the piano
     /// roll to line up with.
     bar_x: [f32; 2],
+    /// A step's size and a piano-roll lane's height, fitted to the window.
+    cell: Vec2,
+    lane_h: f32,
     /// Redraw less often while playing, to save battery.
     low_power: bool,
     /// View > Theme, and whether it's been put on yet.
@@ -479,6 +482,8 @@ impl App {
             show_mix: false,
             track_levels: [0.0; MAX_TRACKS],
             bar_x: [0.0; 2],
+            cell: Vec2::splat(18.0),
+            lane_h: 10.0,
             low_power: file::low_power(),
             theme: file::theme(),
             theme_on: false,
@@ -804,13 +809,10 @@ impl App {
             }
             ui.add_space(4.0);
         }
+        self.fit_steps(ui.available_width(), edit);
+        // Patterns, length and what plays sit on the tracks' own top line.
+        self.pattern_line(ui, edit);
         if !self.view.tracks {
-            if widgets::fold_toggle(ui, false, "Tracks", "Show the tracks")
-                .on_hover_text("Shortcut: F6")
-                .clicked()
-            {
-                self.view.tracks = true;
-            }
             let melodic = self
                 .project
                 .tracks
@@ -1911,9 +1913,8 @@ impl App {
     }
 
     /// The transport, in the menu row: Jam and Arrange, play and record,
-    /// a display with the position, tempo and swing, the patterns and
-    /// their length, what plays, and on the right the click, effects,
-    /// master volume and meter.
+    /// a display with the position, tempo and swing, then the click,
+    /// master volume and meter. (Patterns live on the tracks' top line.)
     fn transport_row(&mut self, ui: &mut egui::Ui, playing: bool) {
         let s = self.shared.clone();
         for (tab, name, hint) in [
@@ -2011,28 +2012,7 @@ impl App {
                 }
             });
         ui.separator();
-        if self.tab == Tab::Jam {
-            self.pattern_picker(ui);
-            let edit = self.shared.edit_pattern.load(Relaxed) as usize;
-            ui.add_space(4.0);
-            self.length_picker(ui, edit);
-            ui.separator();
-            let chain = s.chain_mode.load(Relaxed);
-            if ui
-                .selectable_label(!chain, "Pattern")
-                .on_hover_text("Loop the pattern you're editing")
-                .clicked()
-            {
-                s.chain_mode.store(false, Relaxed);
-            }
-            if ui
-                .selectable_label(chain, "Chain")
-                .on_hover_text("Play the block's chain, bar by bar")
-                .clicked()
-            {
-                s.chain_mode.store(true, Relaxed);
-            }
-        } else {
+        if self.tab == Tab::Arrange {
             ui.weak("Plays the timeline");
         }
         ui.separator();

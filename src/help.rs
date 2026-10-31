@@ -6,11 +6,14 @@ const SECTIONS: &[(&str, &str)] = &[
     (
         "The screen",
         "From top to bottom:\n\n\
-         • The top bar: the menus, Jam and Arrange, ▶ and ⏺, a display with \
-         where it's playing, the tempo and the swing, then the patterns (A, \
-         B...) and Bars, Pattern or Chain, Click, Master and the meter.\n\
-         • The tracks: each row is a color dot and name, its volume, M and S, \
-         its steps (two bars side by side) and a meter. A synth's piano roll \
+         • The top bar is for playing: the menus, Jam and Arrange, ▶ and ⏺, \
+         a display with where it's playing, the tempo and the swing, Click, \
+         Master and the meter.\n\
+         • The tracks are for editing. Their top line has the patterns as \
+         tabs (A, B...), the pattern's Length and what Plays (pattern or \
+         chain). Each row is a color dot and name, its volume, M and S, its \
+         steps (two bars side by side, stretching to fill the window) and a \
+         meter at the right edge. A synth's piano roll \
          opens under its row when you click its name.\n\
          • The instrument drawer: the selected track's sound. Shut, it's one \
          line that sketches the sound; open (I or F8), its sections sit side by \
@@ -163,19 +166,19 @@ const SECTIONS: &[(&str, &str)] = &[
     ),
     (
         "Patterns and chains (Jam)",
-        "• The patterns are in the top bar (A, B...). Click one to edit it in \
+        "• The patterns are tabs on the tracks' top line (A, B...). Click one to edit it in \
          the grid below; + adds one; right-click to rename, duplicate or \
          delete.\n\
          • Edit > Copy, Paste and Clear pattern work on the pattern you're editing.\n\
          • Longer patterns: right-click a track's name for its Length in \
-         this pattern (1, 2, 4 or 8 bars). Shorter parts repeat. Bars (top \
-         bar) sets every track at once. Two bars show side by side; 1-2, \
+         this pattern (1, 2, 4 or 8 bars). Shorter parts repeat. Length (tracks' \
+         top line) sets every track at once. Two bars show side by side; 1-2, \
          3-4... over the tracks pick which two.\n\
          • The Chain row (it shows in Chain mode) is the block you're editing, one square per bar. \
          Click a square to put the selected pattern there (a longer one \
          fills a square per bar); click again or right-click to empty it.\n\
-         • Pattern mode (top bar) loops the pattern; Chain mode plays the \
-         chain.\n\
+         • Plays: Pattern loops the pattern; Plays: Chain plays the chain \
+         (both on the tracks' top line).\n\
          • Pick a block from the drop-down; + starts a new one; Save as new \
          block copies this chain into a new block.",
     ),

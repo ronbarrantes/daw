@@ -35,6 +35,11 @@ is a drawer that opens when you need it and folds to one line.
    piano roll; the drawer's header, the tracks' header and the tools stay
    in view while only what's under them scrolls; scroll areas fill the
    window; patterns scroll sideways when there are many.
+7. [x] **Tracks things on the tracks** (v0.62). The patterns, Length and
+   what Plays move from the top bar to the tracks' top line, so they sit
+   by what they change; the top bar is just for playing. Steps stretch to
+   fill the window, the piano roll's keys reach its grid, and the meters
+   and Mix sit at the right edge.
 3. [x] **Themes** (v0.58). View > Theme: follow the computer, dark, light,
    a black-and-white LED look, and a black-and-orange hardware look.
 
@@ -126,6 +131,8 @@ menus).
 
 Newest first, by release.
 
+- v0.62: patterns, Length and Plays on the tracks' top line; steps stretch
+  to fill the window; meters and Mix at the right edge
 - v0.61: things stay put: ▾/▸ switches on Tracks, Piano roll, Chain and
   Instrument (nothing needs a key to come back); clicking a synth opens its
   piano roll; pinned headers and tools; full-width scrolling
