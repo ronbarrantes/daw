@@ -4,9 +4,23 @@ use eframe::egui::{self, RichText};
 
 const SECTIONS: &[(&str, &str)] = &[
     (
+        "The screen",
+        "From top to bottom:\n\n\
+         • The top bar: the menus, Jam and Arrange, ▶ and ⏺, a display with \
+         where it's playing, the tempo and the swing, then the patterns (A, \
+         B...) and Bars, Pattern or Chain, Click, Master and the meter.\n\
+         • The tracks: each row is a color dot and name, its volume, M and S, \
+         its steps (two bars side by side) and a meter. A synth's piano roll \
+         opens under its row when you click its name.\n\
+         • The instrument drawer: the selected track's sound. Shut, it's one \
+         line that sketches the sound; open (I or F8), its sections sit side by \
+         side.\n\
+         • The status line: errors, and how hard the audio is working.",
+    ),
+    (
         "Getting started",
-        "Press Space (or ▶ Play) to start and stop. Master (top bar) sets the \
-         whole song's volume; the meter shows the level, and LIMIT lights when \
+        "Press Space (or ▶ in the top bar) to start and stop. Master (the % \
+         next to the meter) sets the whole song's volume; the meter shows the level, and LIMIT lights when \
          the limiter is stopping it from clipping (turn things down a bit). \
          Ctrl+Z (Cmd+Z on Mac) \
          undoes and Ctrl+Shift+Z redoes, also in the Edit menu.\n\n\
@@ -38,8 +52,8 @@ const SECTIONS: &[(&str, &str)] = &[
          • M mutes a track. S solos it: when any track is soloed, only soloed \
          tracks play. Use solo to hear one part on its own.\n\
          • Each row has the track's volume (the small slider by its name; \
-         double-click to reset) and a meter after its steps. Mix (next to \
-         the tools) adds Pan, Reverb and Delay sliders to every row.\n\
+         double-click to reset) and a meter after its steps. Mix (over the \
+         tracks, by Level) adds Pan, Reverb and Delay sliders to every row.\n\
          • Mix (instrument drawer): Volume, Pan (left or right; double-click for \
          centre), and Reverb and Delay: how much of the track goes to the \
          shared effects.\n\
@@ -55,15 +69,15 @@ const SECTIONS: &[(&str, &str)] = &[
          Ctrl+G to group them. Or right-click a track name.\n\
          • ▶/▼ collapses or expands a group. Collapsed, its row shows all its \
          hits combined.\n\
-         • The group's M and S mute or solo all its tracks; click its name for \
-         a group volume.\n\
+         • The group's M and S mute or solo all its tracks; the slider by its \
+         name is the group's volume.\n\
          • Right-click a group's name to ungroup (the tracks stay).",
     ),
     (
         "Showing and hiding",
         "Hiding a part never deletes it or stops it playing.\n\n\
-         • View menu, or F5 chain and patterns, F6 tracks, F7 piano roll, \
-         F8 (or I) instrument drawer.\n\
+         • View menu, or F5 the chain (in Chain mode), F6 tracks, F7 piano \
+         roll, F8 (or I) instrument drawer.\n\
          • View > Focus: Tracks only, or Piano roll and sound.\n\
          • F9 shows everything again.\n\
          • The instrument is a drawer along the bottom: its arrow (or I, or F8) \
@@ -82,7 +96,8 @@ const SECTIONS: &[(&str, &str)] = &[
          Draw adds notes and turns steps on, Erase removes them (MIDI blocks \
          also have Select). Handy on a touch screen.\n\
          • Click a step to turn it on or off. Drag along a row to paint \
-         steps on (start on an empty step) or erase them (start on a lit one).\n\
+         steps on (start on an empty step) or erase them (start on a lit one). \
+         Hover a step to see its note, chord or groove marks.\n\
          • Shift-click a step for a ghost note (a quiet hit). Quieter steps \
          look dimmer.\n\
          • Right-click a step for all its settings:\n\
@@ -98,13 +113,14 @@ const SECTIONS: &[(&str, &str)] = &[
     (
         "Piano roll",
         "• Click a cell to add a note; click it again to remove it. Several \
-         notes in one column make a chord; steps show its name (Cm, G7, C/E) \
-         and the title shows it in full.\n\
+         notes in one column make a chord; hover the step to see its name (Cm, \
+         G7, C/E), and the piano roll's title shows it in full.\n\
+         • It shows the bar you last touched, lined up under that bar's steps.\n\
          • Drag from an empty cell along a row to paint notes; Ctrl-drag \
          erases them.\n\
          • Drag a note to move it (up/down: pitch, left/right: time); drag \
          its right edge to make it longer or shorter (the held part is \
-         darker blue). Both work while it plays. Right-click the cell after \
+         a darker shade of the track's color). Both work while it plays. Right-click the cell after \
          a note to hold it a step longer; on a bar's first step that holds \
          a note over from the bar before.\n\
          • Right-click a note itself for its velocity, chance, ratchet and \
@@ -213,7 +229,7 @@ const SECTIONS: &[(&str, &str)] = &[
         "Drag a knob up or down; double-click to reset it; hover to see what \
          it does. Click anywhere on a section's title line to fold it (and \
          again to open it); its triangle shows which. Right-click the name to close it (More > + Section, or View \
-         > Instrument panel sections, brings it back) or pop it out \
+         > Instrument sections, brings it back) or pop it out \
          into its own window to put anywhere (the Scope and Theremin can be \
          made big); its × puts it back.\n\n\
          • Preset: a starting sound, in groups (keys, plucks, mallets and \
@@ -239,7 +255,7 @@ const SECTIONS: &[(&str, &str)] = &[
          1-4 octaves. Hold a chord on the keys, or draw long notes. Arp notes \
          turns one held note into a chord or scale (Major, Minor, 7th, \
          Pentatonic...); Latch keeps it going after you let go.\n\
-         • Drone and Tap are in the drawer's left column. Drone plays a note \
+         • Drone and Tap are on the drawer's top line. Drone plays a note \
          nonstop so you can turn knobs and listen; Tap plays one short \
          note to hear the attack and release. The slider sets the pitch: \
          Notes goes note by note (C0 to C8), Free anywhere from 0.1 to \
@@ -263,7 +279,7 @@ const SECTIONS: &[(&str, &str)] = &[
          that knob; a ring shows how far. Velocity is how hard you play. Right-click the knob to change how far or remove it.\n\n\
          Try: Cutoff down, Reso up, Env amt up, short F decay = acid bass. \
          Noise with a short decay and high cutoff = a shaker.\n\n\
-         The green scope, the drawer's first section, shows the selected track's \
+         The green scope (the Scope section) shows the selected track's \
          wave as you play; click it to show more or less time, or switch it \
          to Spectrum (loudness per pitch). Drawings above the knobs show \
          the envelope, the filter's shape and each LFO's wave. View menu \
@@ -332,6 +348,7 @@ const SECTIONS: &[(&str, &str)] = &[
          (Arrange)\n\
          Ctrl+A / Ctrl+D / Delete / arrows — select all, duplicate, delete, \
          move notes (MIDI block)\n\
+         I — open or shut the instrument drawer\n\
          F9 — show everything\n\
          A–P — play notes on the selected track\n\
          Z / X — octave down / up\n\

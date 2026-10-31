@@ -141,13 +141,28 @@ To build it yourself: `rustup target add wasm32-unknown-unknown`,
 
 Press **F1** (or **Help → How to use**) for the built-in guide.
 
+**The screen**, top to bottom:
+
+- **The top bar:** the menus, **Jam** and **Arrange**, **▶** and **⏺**, a
+  display with where it's playing, the tempo and the swing, then the
+  patterns (**A**, **B**...) and **Bars**, **Pattern** or **Chain**,
+  **Click**, **Master** and the meter.
+- **The tracks:** each row is a color dot and name, its volume, **M** and
+  **S**, its steps (two bars side by side) and a meter. A synth's piano roll
+  opens under its row when you click its name.
+- **The instrument drawer:** the selected track's sound. Shut, it's one
+  line that sketches the sound; open (**I** or **F8**), its sections sit
+  side by side.
+- **The status line:** errors, and how hard the audio is working.
+
 **Help → Diagnostics** shows how the sound engine is doing (audio load,
 dropouts, buffer size, device) and a log of recent errors. **Copy all**
 puts it on the clipboard for a bug report. The desktop app also keeps the
 log in a small file (the window shows where).
 
-- **Space** or **▶ Play** starts and stops. Drag **BPM** to change the tempo.
-- **Master** (top bar) is the volume of the whole song. The meter next to
+- **Space** or **▶** starts and stops. Drag the **BPM** in the display to
+  change the tempo.
+- **Master** (the **%** next to the meter) is the volume of the whole song. The meter next to
   it shows the output level, green to yellow to red. A **limiter** keeps
   the mix from ever clipping; **LIMIT** lights up when it's working hard,
   a sign to turn Master or some tracks down a little. Exports get the same
@@ -178,7 +193,8 @@ and editable by hand, plus `samples/*.wav` for any loaded samples.
 
 ### Tracks
 
-Each row is a track: its name, **M** (mute), **S** (solo) and 16 steps.
+Each row is a track: a color dot and its name, its volume, **M** (mute),
+**S** (solo), its steps (16 a bar, two bars side by side) and a meter.
 Tracks work like layers: mute turns one off, and solo plays only the
 soloed tracks so you can hear a part on its own.
 
@@ -235,23 +251,24 @@ the four drums in a **Drums** group.
   Or right-click a track name for *Group*, *Move to group* and *Remove from group*.
 - **▶/▼** collapses or expands a group; collapsed, it shows all its hits on
   one line.
-- The group's **M** / **S** mute or solo all its tracks. Click its name for a
-  group volume.
+- The group's **M** / **S** mute or solo all its tracks. The slider by its
+  name is the group's volume.
 
 ### Showing and hiding
 
 Hiding a part never deletes it or stops it playing.
 
-- **View** menu, or **F5** chain and patterns, **F6** tracks, **F7** piano roll,
+- **View** menu, or **F5** the chain (in Chain mode), **F6** tracks, **F7** piano roll,
   **F8** (or **I**) instrument drawer.
 - **View → Focus** shows just the tracks, or just the piano roll and sound.
 - **F9** shows everything again.
 - The **instrument** is a drawer along the bottom: its arrow (or **I**, or
   **F8**) shuts it to one line saying what's selected, with **Tap**, and
-  opens it again. Drag its top edge to make it taller or shorter. Open, it
-  has the track's own controls on the left and its sections side by side:
-  Voice, the sound engine, the LFOs, Filter, Envelope and Mod envelope, so
-  each sits by what it moves.
+  opens it again. Shut, it also sketches the sound: small drawings of the
+  envelope, filter and LFO, and the cutoff. Drag its top edge to make it
+  taller or shorter. Open, the track's own controls run along its top line
+  and its sections sit side by side: Voice, the sound engine, the LFOs,
+  Filter, Envelope and Mod envelope, so each sits by what it moves.
 - The line along the very bottom shows errors and how hard the audio is
   working; click the **%** for **Help → Diagnostics**.
 - **View → Theme** changes the colors: follow the computer's light or
@@ -275,15 +292,15 @@ All of this goes out over MIDI too, with velocity.
 ### Piano roll
 
 - Click a cell to add a note; click it again to remove it. Several notes in
-  one column make a **chord**. Steps show the chord's name (Cm, G7, Dm7,
-  C/E for an inversion); long ones end with a dot (BM7·). Hover a step for
-  the full name, and the piano roll's title shows the chord under the
-  pointer or playing.
+  one column make a **chord**. Hover the step to see its name (Cm, G7, Dm7,
+  C/E for an inversion), and the piano roll's title shows the chord under
+  the pointer or playing.
+- It shows the bar you last touched, lined up under that bar's steps.
 - **Drag from an empty cell** along a row to paint notes; **Ctrl-drag**
   (Cmd on Mac) erases them.
 - **Drag a note** to move it up or down (pitch) or left or right (time),
   and **drag its right edge** to make it longer or shorter (the held part
-  is a darker blue). Both work while it plays. Longer notes let the synth's **Sustain** and **Release** be
+  is a darker shade of the track's color). Both work while it plays. Longer notes let the synth's **Sustain** and **Release** be
   heard. Right-clicking the cell after a note holds it one step longer too.
   In a longer pattern, right-click the first step of the next bar to hold
   a note over the bar line.
@@ -323,7 +340,7 @@ A S D F G H J K L         ← white keys (A = C)
 
 ### Sample tracks
 
-**Browse drum sounds** in the instrument panel searches built-in drums and
+**Browse drum sounds** in the instrument drawer searches built-in drums and
 samples loaded in this song. Click a sound to replace the selected sample
 track, then **Tap** to hear it. Notes, name, mix and MIDI routing
 stay; sample trim and fades reset. Ctrl+Z undoes the swap. Add outside
@@ -389,13 +406,13 @@ without copying anything.
 
 ### Chains and blocks (Jam)
 
-The **Chain** row shows the block you're editing, one square per bar.
+The **Chain** row shows the block you're editing, one square per bar. It
+appears over the tracks in **Chain** mode.
 
 - Click a square to put the selected pattern there; click it again (or
   right-click) to empty it. A longer pattern fills a square per bar: its
   name, then **2**, **3**... Side by side, a pattern plays its bars in turn.
 - **Chain** mode (top bar) plays the chain bar by bar, round and round.
-  The Chain row only shows in Chain mode.
 - Pick another block from the drop-down, **+** starts an empty one, and
   **Save as new block** copies this chain into a new block to keep working
   on. Right-click the drop-down to rename, duplicate or delete the block.
@@ -489,7 +506,7 @@ it. Hover for what each one does. To make room:
   chip next to the name.
 - **Right-click a section's name** to close it completely or pop it out.
   **More → + Section** (end of the drawer's top line) or **View →
-  Instrument panel sections** brings a closed one back. Closed sections are
+  Instrument sections** brings a closed one back. Closed sections are
   remembered next time you open the app.
 - A popped-out section is its own window. Drag it
   anywhere, even over the timeline, to lay out the knobs you're playing
@@ -557,7 +574,7 @@ it. Hover for what each one does. To make room:
   scale (**Major scale**, **Minor scale**, **Pentatonic**) built on the
   lowest held note, so one finger plays a whole pattern. **Latch** keeps
   it going after you let go, until you play a new chord or turn Latch off.
-- **Drone** and **Tap** are in the drawer's left column. **Drone** plays a
+- **Drone** and **Tap** are on the drawer's top line. **Drone** plays a
   note nonstop, so you can turn knobs and hear the sound change; click
   again to stop. **Tap** plays one short note at the same pitch, to hear
   the attack and release. The slider below sets the pitch: **Notes** moves
@@ -620,7 +637,7 @@ Try:
   a sweep, plus a blip at the start of each note.
 - **Velocity** onto Cutoff: notes played harder are brighter.
 
-**Scope:** the green screen, the drawer's first section, is an oscilloscope of
+**Scope:** the green screen in the **Scope** section is an oscilloscope of
 the selected track, so you can watch a knob change the wave. A saw is a
 ramp, a square is a square, and the filter rounds off the sharp corners.
 Click it to show more or less time. Right-click its name to pop it out into

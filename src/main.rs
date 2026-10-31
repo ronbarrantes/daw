@@ -1436,16 +1436,13 @@ impl App {
             });
             ui.menu_button("View", |ui| {
                 let v = &mut self.view;
-                ui.checkbox(&mut v.song, "Chain and patterns  (F5)");
+                ui.checkbox(&mut v.song, "Chain  (F5)");
                 ui.checkbox(&mut v.tracks, "Tracks  (F6)");
                 ui.checkbox(&mut v.piano, "Piano roll  (F7)");
-                ui.checkbox(&mut v.panel, "Instrument panel  (F8)");
+                ui.checkbox(&mut v.panel, "Instrument drawer  (I or F8)");
                 ui.checkbox(&mut v.others, "Other tracks' notes in piano roll");
-                ui.checkbox(
-                    &mut self.show_scope,
-                    "Scope and drawings (instrument panel)",
-                );
-                ui.menu_button("Instrument panel sections", |ui| {
+                ui.checkbox(&mut self.show_scope, "Scope and drawings");
+                ui.menu_button("Instrument sections", |ui| {
                     for t in section_titles() {
                         let mut on = !self.closed_sections.iter().any(|c| c == t);
                         if ui.checkbox(&mut on, t).changed() {
