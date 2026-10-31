@@ -10,8 +10,8 @@ use crate::project::{
     LANES, MAX_OCTAVES, MAX_RATCHET, MAX_TRACKS, NORMAL, STEPS,
 };
 use crate::widgets::{
-    disclosure_arrow, empty_fill, level_bar, lit_fill, mini_slider, playhead, DRUM_ON, NOTE_HELD,
-    NOTE_NAMES, NOTE_ON,
+    disclosure_arrow, drum_on, empty_fill, level_bar, lit_fill, mini_slider, note_held, note_on,
+    playhead, NOTE_NAMES,
 };
 use crate::{chords, drums, notes, App, DELAY_SEND, GROUP_VOLUME, PAN, REVERB_SEND, TRACK_VOLUME};
 
@@ -396,7 +396,7 @@ impl App {
             for (step, on) in lit.iter().enumerate() {
                 let (rect, resp) = ui.allocate_exact_size(Vec2::new(28.0, 26.0), Sense::click());
                 let fill = if *on {
-                    DRUM_ON.gamma_multiply(0.55)
+                    drum_on().gamma_multiply(0.55)
                 } else {
                     empty_fill(step, true)
                 };
@@ -544,7 +544,7 @@ impl App {
             let repeat = self.edit_bar >= bars;
             let melodic = track.is_melodic();
             let lanes = track.lanes();
-            let on_color = if melodic { NOTE_ON } else { DRUM_ON };
+            let on_color = if melodic { note_on() } else { drum_on() };
             let base = track.base_note();
             let Some(grid) = track.grid_mut(pattern, self.edit_bar) else {
                 return;
@@ -586,7 +586,7 @@ impl App {
                 };
                 let fill = match first.and_then(|l| grid[l][step]) {
                     Some(s) => lit_fill(on_color, s.velocity),
-                    None if !notes.is_empty() => NOTE_HELD,
+                    None if !notes.is_empty() => note_held(),
                     None => empty_fill(step, false),
                 };
                 let fill = if repeat {
@@ -807,7 +807,7 @@ impl App {
         ui.horizontal(|ui| {
             ui.strong(format!("Piano roll · {}", track.name));
             if let Some(c) = &chord {
-                ui.label(RichText::new(format!("Chord: {}", c.long)).color(NOTE_ON));
+                ui.label(RichText::new(format!("Chord: {}", c.long)).color(note_on()));
             }
             ui.label("Octave");
             let top = track.top_octave();
@@ -890,8 +890,8 @@ impl App {
                 for step in 0..STEPS {
                     let value = grid[lane][step];
                     let fill = match value {
-                        Some(s) if s.tie => NOTE_HELD,
-                        Some(s) => lit_fill(NOTE_ON, s.velocity),
+                        Some(s) if s.tie => note_held(),
+                        Some(s) => lit_fill(note_on(), s.velocity),
                         None if others[lane][step] => OTHER_NOTE,
                         None => empty_fill(step, sharp),
                     };

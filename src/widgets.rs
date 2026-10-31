@@ -7,9 +7,7 @@ use eframe::egui::{self, Align, Color32, Layout, Pos2, RichText, Sense, Stroke, 
 use crate::project::SampleShape;
 use crate::synth::{choice, Param, Source, Unit, WAVES};
 
-pub const DRUM_ON: Color32 = Color32::from_rgb(255, 140, 40);
-pub const NOTE_ON: Color32 = Color32::from_rgb(80, 180, 255);
-pub const NOTE_HELD: Color32 = Color32::from_rgb(45, 110, 160);
+pub use crate::theme::{drum_on, note_held, note_on};
 
 pub const NOTE_NAMES: [&str; 12] = [
     "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
@@ -341,7 +339,7 @@ pub fn mod_knob(
         painter.circle_filled(center, radius, body);
         painter.add(egui::Shape::line(
             arc(0.0, t, radius + 1.5),
-            Stroke::new(3.0_f32, DRUM_ON),
+            Stroke::new(3.0_f32, drum_on()),
         ));
         // Each source's reach, one ring further out per source.
         for (n, (color, amount, both)) in rings.iter().enumerate() {
@@ -661,7 +659,7 @@ pub fn envelope(ui: &mut egui::Ui, attack: f32, decay: f32, sustain: f32, releas
         t += w;
         points.push(Pos2::new(x(t), y(level)));
     }
-    painter.add(egui::Shape::line(points, Stroke::new(1.5_f32, NOTE_ON)));
+    painter.add(egui::Shape::line(points, Stroke::new(1.5_f32, note_on())));
     for (label, at) in [
         ("A", widths[0] / 2.0),
         ("D", widths[0] + widths[1] / 2.0),
@@ -715,7 +713,7 @@ pub fn filter_curve(ui: &mut egui::Ui, cutoff: f32, reso: f32, live: Option<f32>
     let dim = if live.is_some() { 0.4 } else { 1.0 };
     painter.add(egui::Shape::line(
         curve(cutoff),
-        Stroke::new(1.5_f32, NOTE_ON.gamma_multiply(dim)),
+        Stroke::new(1.5_f32, note_on().gamma_multiply(dim)),
     ));
     if let Some(live) = live {
         painter.add(egui::Shape::line(
