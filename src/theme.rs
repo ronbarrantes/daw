@@ -2,7 +2,7 @@
 //! or one of two moods (a black-and-white LED screen, a black-and-orange
 //! piece of hardware). Only colors change; where things are stays put.
 
-use std::sync::atomic::{AtomicU8, Ordering::Relaxed};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering::Relaxed};
 
 use eframe::egui::{self, Color32, Stroke, Visuals};
 
@@ -65,6 +65,19 @@ impl Theme {
 
 /// The theme in use, for colors drawn outside egui's visuals (the steps).
 static CURRENT: AtomicU8 = AtomicU8::new(0);
+
+/// Whether the light look is showing (Light, or the computer's light).
+static LIGHT: AtomicBool = AtomicBool::new(false);
+
+/// Notes whether the light look is showing; set every frame from egui's
+/// visuals, since "follow the computer" can switch while the app runs.
+pub fn set_light(light: bool) {
+    LIGHT.store(light, Relaxed);
+}
+
+fn light() -> bool {
+    LIGHT.load(Relaxed) && matches!(current(), Theme::System | Theme::Light)
+}
 
 pub fn current() -> Theme {
     Theme::ALL[CURRENT.load(Relaxed) as usize % Theme::ALL.len()]
@@ -189,7 +202,67 @@ pub fn track_color(i: usize) -> Color32 {
     match current() {
         Theme::Led => Color32::from_gray(235),
         Theme::Hardware => Color32::from_rgb(255, 106, 61),
+        // Darker on the light look, so a lit step stands out at least 3:1
+        // from an empty one.
+        _ if light() => COLORS[i % COLORS.len()].gamma_multiply(0.62).to_opaque(),
         _ => COLORS[i % COLORS.len()],
+    }
+}
+
+/// An empty step: every other group of four a shade apart, so the beats
+/// read; `dark` for a piano roll's sharp lanes.
+pub fn step_empty(step: usize, dark: bool) -> Color32 {
+    let first = (step / 4).is_multiple_of(2);
+    let gray = match (current(), light()) {
+        (Theme::Led, _) => [40, 32, 28, 22],
+        (Theme::Hardware, _) => [58, 50, 46, 40],
+        (_, true) => [222, 208, 200, 190],
+        _ => [66, 58, 52, 46],
+    };
+    let at = match (dark, first) {
+        (false, true) => 0,
+        (false, false) => 1,
+        (true, true) => 2,
+        (true, false) => 3,
+    };
+    Color32::from_gray(gray[at])
+}
+
+/// Another track's note, shown faintly behind the piano roll's own.
+pub fn other_note() -> Color32 {
+    if light() {
+        Color32::from_gray(176)
+    } else {
+        Color32::from_rgb(55, 75, 105)
+    }
+}
+
+/// Where a lit step's color starts from at the softest velocity.
+pub fn step_base() -> Color32 {
+    if light() {
+        Color32::from_gray(225)
+    } else {
+        Color32::from_gray(40)
+    }
+}
+
+/// The background of the drawings (envelope, filter, LFO).
+pub fn screen_fill() -> Color32 {
+    match current() {
+        Theme::Led => Color32::BLACK,
+        Theme::Hardware => Color32::from_gray(10),
+        _ if light() => Color32::from_gray(236),
+        _ => Color32::from_gray(30),
+    }
+}
+
+/// A piano key's fill and its name's color: white keys, then black.
+pub fn piano_key(sharp: bool) -> (Color32, Color32) {
+    match (light(), sharp) {
+        (true, false) => (Color32::from_gray(236), Color32::from_gray(40)),
+        (true, true) => (Color32::from_gray(150), Color32::from_gray(250)),
+        (false, false) => (Color32::from_gray(62), Color32::from_gray(230)),
+        (false, true) => (Color32::from_gray(30), Color32::from_gray(160)),
     }
 }
 
