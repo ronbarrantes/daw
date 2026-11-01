@@ -1,6 +1,6 @@
 [package]
 name = "daw"
-version = "0.62.4"
+version = "0.63.1"
 edition = "2021"
 
 [dependencies]
@@ -39,6 +39,7 @@ web-sys = { version = "0.3", features = [
     "File",
     "FileList",
     "Node",
+    "Performance",
     "HtmlAnchorElement",
     "HtmlElement",
     "HtmlInputElement",

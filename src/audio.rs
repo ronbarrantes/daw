@@ -1873,19 +1873,52 @@ pub fn render(
     Rendered { audio, midi }
 }
 
+/// For the stress test: holds `notes` (track, note) on `project`'s tracks
+/// and times the engine making `samples` samples at `sr`. Returns the
+/// seconds that took on this computer.
+pub fn time_held(project: Project, notes: &[(usize, u8)], sr: f32, samples: usize) -> f64 {
+    let shared = Arc::new(Shared::new(Arc::new(project)));
+    let (events, events_rx) = sync_channel(notes.len().max(1));
+    let (midi_tx, _midi_rx) = sync_channel(1);
+    let mut engine = Engine::new(shared, events_rx, midi_tx, sr);
+    for &(track, note) in notes {
+        let _ = events.send(Event::Hold {
+            track,
+            note,
+            velocity: 100,
+        });
+    }
+    // Past the attacks, so every voice is sounding at full work.
+    for _ in 0..(0.05 * sr) as usize {
+        engine.next_sample();
+    }
+    let start = clock();
+    let mut sum = 0.0;
+    for _ in 0..samples {
+        let [l, r] = engine.next_sample();
+        sum += l + r;
+    }
+    std::hint::black_box(sum);
+    clock() - start
+}
+
 /// Seconds on a steady clock, for timing the audio callback.
 #[cfg(not(target_arch = "wasm32"))]
-fn clock() -> f64 {
+pub(crate) fn clock() -> f64 {
     use std::sync::OnceLock;
     use std::time::Instant;
     static START: OnceLock<Instant> = OnceLock::new();
     START.get_or_init(Instant::now).elapsed().as_secs_f64()
 }
 
-/// The browser's clock (to the millisecond), as `Instant` isn't there.
+/// The browser's clock, as `Instant` isn't there: `performance.now()`
+/// (finer than a millisecond in most browsers), else the date.
 #[cfg(target_arch = "wasm32")]
-fn clock() -> f64 {
-    js_sys::Date::now() / 1000.0
+pub(crate) fn clock() -> f64 {
+    match web_sys::window().and_then(|w| w.performance()) {
+        Some(p) => p.now() / 1000.0,
+        None => js_sys::Date::now() / 1000.0,
+    }
 }
 
 fn build<T: SizedSample + FromSample<f32>>(

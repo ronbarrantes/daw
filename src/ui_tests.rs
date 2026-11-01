@@ -192,6 +192,19 @@ fn menus_and_views_open() {
 }
 
 #[test]
+fn the_stress_test_starts_shows_results_and_stops() {
+    let mut ui = Harness::new();
+    ui.click("Help");
+    ui.click("Diagnostics");
+    ui.click("Run");
+    ui.frames(2);
+    assert!(ui.find("Stop").is_some(), "it's running");
+    assert!(!ui.app.stress.results.is_empty(), "a case has run");
+    ui.click("Stop");
+    assert!(ui.find("Run again").is_some(), "it stopped");
+}
+
+#[test]
 fn keys_1_and_2_bend_the_held_chord_like_a_wheel() {
     use egui::Key;
     let mut ui = Harness::new();
