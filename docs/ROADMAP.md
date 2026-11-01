@@ -96,6 +96,11 @@ menus).
   color, so a theme can be three lines. It shows up in View > Theme, and
   the app picks up changes to the file while it runs. On the web, load a
   theme file instead (no folders there).
+- **LFO 1 in one place:** LFO 1 moves things two ways: its own LFO to and
+  LFO amt knobs, and its chip. Only the chip shows on the knobs it moves,
+  so a wobble can stay after every chip is gone. First, ring the knob
+  LFO to points at, like a chip does. Then make LFO to/amt a plain chip
+  link (old songs converted on load) and drop the two knobs.
 
 ## Later
 
@@ -138,6 +143,8 @@ menus).
 
 Newest first, by release.
 
+- v0.63.9: light look: picked buttons match the chips (pale blue with a
+  deep blue border and text); LFO 2's chip is a softer cyan
 - v0.63.8: light look: the modulation chips are a pale fill with a deep
   border and name, and their lines are cleaner (no more mustard)
 - v0.63.7: a real light look: a soft off-white ground, richer track and
