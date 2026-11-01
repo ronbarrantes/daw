@@ -8,6 +8,8 @@ mod drums;
 mod export;
 mod file;
 mod fx;
+#[cfg(any(target_os = "linux", test))]
+mod glide;
 mod help;
 mod jam;
 mod log;
@@ -336,6 +338,9 @@ struct App {
     /// View > Theme, and whether it's been put on yet.
     theme: theme::Theme,
     theme_on: bool,
+    /// Momentum for touchpad scrolling (Linux has none of its own).
+    #[cfg(target_os = "linux")]
+    glide: glide::Glide,
     /// Instrument panel sections popped out into their own windows, by
     /// title, with where each window was (x, y, width, height).
     popped: Vec<(String, Option<[f32; 4]>)>,
@@ -491,6 +496,8 @@ impl App {
             low_power: file::low_power(),
             theme: file::theme(),
             theme_on: false,
+            #[cfg(target_os = "linux")]
+            glide: glide::Glide::default(),
             popped: file::popped_sections(),
             popped_changed: false,
             meter_levels: [0.0; 2],
@@ -551,6 +558,15 @@ fn key_semitone(key: egui::Key) -> Option<u8> {
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.draw(ctx);
+    }
+
+    /// On Linux, touchpad scrolling gets a boost and a glide after the
+    /// fingers lift, like in a browser.
+    #[cfg(target_os = "linux")]
+    fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        if self.glide.apply(raw_input) {
+            ctx.request_repaint();
+        }
     }
 }
 

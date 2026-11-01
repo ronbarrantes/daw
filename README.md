@@ -286,6 +286,9 @@ Hiding a part never deletes it or stops it playing.
   (black with orange lights). It's remembered.
 - **View → Low power** redraws less often while playing, to save battery on
   an old laptop. It's remembered.
+- On Linux, scrolling with a touchpad goes further and glides on after you
+  lift your fingers, like in a browser; a click stops it. A mouse wheel
+  scrolls as usual.
 
 ### Groove
 
