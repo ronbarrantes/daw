@@ -94,6 +94,8 @@ const SECTIONS: &[(&str, &str)] = &[
          is working; click the % for Help > Diagnostics.\n\
          • View > Theme changes the colors: the computer's light or dark, \
          LED (white on black) or Hardware (black and orange).\n\
+         • On Linux, touchpad scrolling glides on after you lift your \
+         fingers, like in a browser; a click stops it.\n\
          • View > Low power redraws less often while playing, to save \
          battery.",
     ),
