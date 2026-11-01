@@ -401,12 +401,12 @@ pub fn source_color(s: Source) -> Color32 {
 
 /// A modulation source's shades on the light look: its lines and rings,
 /// its chip's border and name, and its chip's fill (emerald, amber, cyan
-/// and fuchsia at 600, 800 and 200-300 on Tailwind's scale).
+/// and fuchsia at 600, 800 and 100-300 on Tailwind's scale).
 fn source_light(s: Source) -> [Color32; 3] {
     let rgb = Color32::from_rgb;
     match s {
         Source::Lfo1 => [rgb(217, 119, 6), rgb(180, 83, 9), rgb(253, 230, 138)],
-        Source::Lfo2 => [rgb(8, 145, 178), rgb(21, 94, 117), rgb(165, 243, 252)],
+        Source::Lfo2 => [rgb(8, 145, 178), rgb(21, 94, 117), rgb(207, 250, 254)],
         Source::ModEnv => [rgb(192, 38, 211), rgb(134, 25, 143), rgb(245, 208, 254)],
         Source::Velocity => [rgb(5, 150, 105), rgb(6, 95, 70), rgb(110, 231, 183)],
     }

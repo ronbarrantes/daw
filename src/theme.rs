@@ -261,7 +261,7 @@ fn flat_dark() -> Visuals {
 }
 
 /// The everyday light look: a soft off-white, not paper white, with flat
-/// gray buttons and a deep blue for what's picked (white text on it).
+/// gray buttons and a pale blue with a deep blue border for what's picked.
 fn flat_light() -> Visuals {
     let mut v = Visuals::light();
     let text = Color32::from_gray(34);
@@ -270,8 +270,10 @@ fn flat_light() -> Visuals {
     v.extreme_bg_color = Color32::from_rgb(248, 248, 246);
     v.faint_bg_color = Color32::from_rgb(230, 230, 227);
     v.code_bg_color = v.faint_bg_color;
-    v.selection.bg_fill = Color32::from_rgb(46, 94, 170);
-    v.selection.stroke = Stroke::new(1.0_f32, Color32::WHITE);
+    // Picked things look like the mod chips: a pale fill with a deep
+    // border and text (Tailwind's blue-200 and blue-800).
+    v.selection.bg_fill = Color32::from_rgb(191, 219, 254);
+    v.selection.stroke = Stroke::new(1.0_f32, Color32::from_rgb(30, 64, 175));
     v.hyperlink_color = Color32::from_rgb(30, 90, 180);
     let w = &mut v.widgets;
     for state in [&mut w.noninteractive, &mut w.inactive] {
