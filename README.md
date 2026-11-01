@@ -529,7 +529,7 @@ it. Hover for what each one does. To make room:
 
 - **Preset:** shows which preset the knobs match (Custom once you've
   changed one). Pick a starting sound, in groups: **Keys** (grand piano,
-  electric piano, organ...), **Plucks** (guitars, harp, koto), **Mallets &
+  harpsichord, electric piano, organ...), **Plucks** (guitars, harp, koto), **Mallets &
   bells**, **Bass**, **Strings & pads**, **Leads** (brass, violin,
   flute...) and **Effects** (laser, shaker, wind, random bleeps). Each uses
   whichever engine suits it, and most bring modulation with them: slow
@@ -558,7 +558,13 @@ it. Hover for what each one does. To make room:
 - **Pluck** (Engine on Pluck): a plucked string that rings and dies away
   by itself, like a guitar, harp or koto. **String tone** is dull to
   bright, **String decay** how long it rings, **Pick spot** where it's
-  plucked (near the end is brighter, nearer the middle hollower).
+  plucked (near the end is brighter, nearer the middle hollower). For
+  pianos: **Hammer** strikes with a soft felt hammer instead of a pick,
+  **Strings** sounds One, Two or Three strings with **String detune**
+  between them (their slow beating is much of a piano's sound),
+  **Stretch** tunes the overtones a little sharp like stiff steel, and
+  **Key decay** lets high notes die away sooner than low ones. The Grand
+  piano preset uses them all; Harpsichord is two bright plucked strings.
 - **Mallet** (Engine on Mallet): a struck **Material**, **Marimba**,
   **Vibes**, **Glass** or **Bell**. **Hardness** is a soft or hard mallet
   (harder brings out the higher ringing), **Ring** how long it rings. Try

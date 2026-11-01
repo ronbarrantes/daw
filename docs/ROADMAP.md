@@ -143,6 +143,10 @@ menus).
 
 Newest first, by release.
 
+- v0.64.0: a real-ish Grand piano (felt hammer, three detuned strings,
+  stretched overtones, high notes fade sooner) and a Harpsichord preset;
+  the Pluck engine gets Hammer, Strings, String detune, Stretch and Key
+  decay; velocity now shapes a note's very first sample
 - v0.63.9: light look: picked buttons match the chips (pale blue with a
   deep blue border and text); LFO 2's chip is a softer cyan
 - v0.63.8: light look: the modulation chips are a pale fill with a deep

@@ -77,15 +77,24 @@ macro_rules! knobs {
 use Source::{Lfo2, ModEnv, Velocity};
 
 #[rustfmt::skip]
-pub const PRESETS: [Preset; 33] = [
+pub const PRESETS: [Preset; 34] = [
     // Keys
-    // A hammered string: the Pluck engine struck near its end, with a
-    // filter that opens on the hit and closes as it rings, so it starts
-    // bright and mellows like a real piano. Harder notes are brighter.
-    p("Keys", "Grand piano", knobs!(OPEN, [(ENGINE, 1.0), (STRING_TONE, 0.7),
-        (STRING_DECAY, 5.0), (PICK_SPOT, 0.11), (CUTOFF, 2500.0), (ENV_AMOUNT, 0.45),
-        (FILTER_DECAY, 0.8), (ATTACK, 0.001), (SUSTAIN, 1.0), (RELEASE, 0.35)]),
-        &[(Velocity, STRING_TONE, 0.3), (Velocity, CUTOFF, 0.15)]),
+    // A real-ish grand: three strings a few cents apart struck by a felt
+    // hammer, overtones stretched a little sharp like stiff steel, high
+    // notes dying away sooner than low ones, and a quick drop then a long
+    // quiet ring (the envelope's Decay to Sustain). Harder notes hit with
+    // a harder, brighter hammer.
+    p("Keys", "Grand piano", knobs!(OPEN, [(ENGINE, 1.0), (STRING_TONE, 0.55),
+        (STRING_DECAY, 9.0), (PICK_SPOT, 0.12), (HAMMER, 0.85), (STRING_COUNT, 2.0),
+        (STRING_DETUNE, 0.3), (STRETCH, 0.35), (KEY_DECAY, 0.7), (CUTOFF, 3500.0),
+        (ENV_AMOUNT, 0.35), (FILTER_DECAY, 1.2), (ATTACK, 0.001), (DECAY, 1.0),
+        (SUSTAIN, 0.45), (RELEASE, 0.3)]),
+        &[(Velocity, HAMMER, -0.45), (Velocity, STRING_TONE, 0.3), (Velocity, CUTOFF, 0.2)]),
+    // Quills pluck the strings: bright and wiry, two strings together,
+    // the same however hard it's played, and cut short when let go.
+    p("Keys", "Harpsichord", knobs!(OPEN, [(ENGINE, 1.0), (STRING_TONE, 0.9),
+        (STRING_DECAY, 4.0), (PICK_SPOT, 0.08), (STRING_COUNT, 1.0), (STRING_DETUNE, 0.15),
+        (KEY_DECAY, 0.5), (ATTACK, 0.001), (SUSTAIN, 1.0), (RELEASE, 0.12)]), &[]),
     p("Keys", "Piano (FM)", knobs!(OPEN, [(ENGINE, 3.0), (FM_RATIO, 1.0), (FM_DEPTH, 0.28),
         (FM_DECAY, 0.5), (FM_FEEDBACK, 0.08), (CUTOFF, 5000.0), (ATTACK, 0.001), (DECAY, 2.0),
         (SUSTAIN, 0.0), (RELEASE, 0.35)]),

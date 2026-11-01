@@ -830,6 +830,15 @@ impl Engine {
         voice.live = false;
         match &track.kind {
             Kind::Synth(values) => {
+                // Knobs that how hard the note is played moves (a
+                // hammer's hardness, a string's brightness) count from
+                // the very first sample, so the strike itself follows them.
+                if modulation::uses(&track.mods, Source::Velocity) {
+                    let [lfo1, lfo2] = self.lfo_now[i];
+                    let sources = [lfo1, lfo2, 0.0, velocity as f32 / 127.0];
+                    let values = modulation::apply(&self.knobs[i], &track.mods, sources);
+                    voice.synth.set_params(&values);
+                }
                 voice.synth.note_on(note, mode != Mode::Poly, !legato);
                 if !legato {
                     voice.mod_env.trigger();
