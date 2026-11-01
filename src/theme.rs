@@ -41,7 +41,7 @@ impl Theme {
         match self {
             Theme::System => "Light or dark, like the rest of your computer",
             Theme::Dark => "Dark grays",
-            Theme::Light => "Light grays",
+            Theme::Light => "A soft off-white with rich colors",
             Theme::Led => "White on black, like a small LED screen",
             Theme::Hardware => "Black with orange lights, like a drum machine",
         }
@@ -83,10 +83,20 @@ fn light() -> bool {
 /// the light look, so it stands out at least 3:1 there too.
 pub fn mark(color: Color32) -> Color32 {
     if light() {
-        color.gamma_multiply(0.62).to_opaque()
+        deep(color)
     } else {
         color
     }
+}
+
+/// `color` deeper and richer, for the light look: darker but more
+/// saturated, so it stays a clear color instead of going muddy the way
+/// mixing it with black does.
+pub fn deep(color: Color32) -> Color32 {
+    let mut c = egui::ecolor::Hsva::from(color);
+    c.s = (c.s * 1.3).min(1.0);
+    c.v *= 0.86;
+    Color32::from(c)
 }
 
 /// A knob's body (`hovered` a little lighter or darker), its outline, and
@@ -124,7 +134,7 @@ pub fn scope() -> [Color32; 4] {
         ],
         _ if light() => [
             screen_fill(),
-            Color32::from_gray(214),
+            Color32::from_gray(224),
             Color32::from_rgb(20, 135, 70),
             Color32::from_gray(100),
         ],
@@ -177,7 +187,7 @@ pub fn apply(ctx: &egui::Context, theme: Theme) {
     let (dark, light) = match theme {
         Theme::Led => (led(), Visuals::light()),
         Theme::Hardware => (hardware(), Visuals::light()),
-        _ => (flat_dark(), Visuals::light()),
+        _ => (flat_dark(), flat_light()),
     };
     let (mut dark, mut light) = (dark, light);
     // Sliders fill up to their handle, like the track sliders.
@@ -245,6 +255,38 @@ fn flat_dark() -> Visuals {
     v
 }
 
+/// The everyday light look: a soft off-white, not paper white, with flat
+/// gray buttons and a deep blue for what's picked (white text on it).
+fn flat_light() -> Visuals {
+    let mut v = Visuals::light();
+    let text = Color32::from_gray(34);
+    v.panel_fill = Color32::from_rgb(236, 236, 233);
+    v.window_fill = Color32::from_rgb(242, 242, 239);
+    v.extreme_bg_color = Color32::from_rgb(248, 248, 246);
+    v.faint_bg_color = Color32::from_rgb(230, 230, 227);
+    v.code_bg_color = v.faint_bg_color;
+    v.selection.bg_fill = Color32::from_rgb(46, 94, 170);
+    v.selection.stroke = Stroke::new(1.0_f32, Color32::WHITE);
+    v.hyperlink_color = Color32::from_rgb(30, 90, 180);
+    let w = &mut v.widgets;
+    for state in [&mut w.noninteractive, &mut w.inactive] {
+        state.fg_stroke.color = text;
+        state.bg_stroke = Stroke::NONE;
+    }
+    w.noninteractive.bg_stroke = Stroke::new(1.0_f32, Color32::from_gray(212));
+    w.noninteractive.bg_fill = v.panel_fill;
+    w.noninteractive.weak_bg_fill = v.panel_fill;
+    w.inactive.bg_fill = Color32::from_gray(222);
+    w.inactive.weak_bg_fill = Color32::from_gray(222);
+    w.hovered.bg_fill = Color32::from_gray(208);
+    w.hovered.weak_bg_fill = Color32::from_gray(208);
+    w.hovered.fg_stroke.color = Color32::BLACK;
+    w.active.bg_fill = Color32::from_gray(196);
+    w.active.weak_bg_fill = Color32::from_gray(196);
+    w.active.fg_stroke.color = Color32::BLACK;
+    v
+}
+
 fn led() -> Visuals {
     let white = Color32::from_gray(235);
     let mut v = shades(
@@ -296,7 +338,7 @@ pub fn track_color(i: usize) -> Color32 {
         Theme::Hardware => Color32::from_rgb(255, 106, 61),
         // Darker on the light look, so a lit step stands out at least 3:1
         // from an empty one.
-        _ if light() => COLORS[i % COLORS.len()].gamma_multiply(0.62).to_opaque(),
+        _ if light() => deep(COLORS[i % COLORS.len()]),
         _ => COLORS[i % COLORS.len()],
     }
 }
@@ -343,7 +385,7 @@ pub fn screen_fill() -> Color32 {
     match current() {
         Theme::Led => Color32::BLACK,
         Theme::Hardware => Color32::from_gray(10),
-        _ if light() => Color32::from_gray(236),
+        _ if light() => Color32::from_rgb(248, 248, 246),
         _ => Color32::from_gray(30),
     }
 }
@@ -381,7 +423,7 @@ pub fn note_on() -> Color32 {
     match current() {
         Theme::Led => Color32::from_gray(235),
         Theme::Hardware => Color32::from_gray(235),
-        _ => Color32::from_rgb(80, 180, 255),
+        _ => mark(Color32::from_rgb(80, 180, 255)),
     }
 }
 

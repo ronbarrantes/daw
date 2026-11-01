@@ -409,12 +409,12 @@ fn source_hue(s: Source) -> Color32 {
 pub fn source_chip(ui: &mut egui::Ui, s: Source) {
     let id = egui::Id::new(("mod source", s.name()));
     let color = source_color(s);
-    // On a dark ground: the colour on a dim fill. On a light one: dark
-    // text on the full colour, which reads far better than pale on pale.
+    // On a dark ground: the colour on a dim fill. On a light one the
+    // other way round: a pale tint of it on its deep shade.
     let (fill, text) = if ui.visuals().dark_mode {
         (color.gamma_multiply(0.25), color)
     } else {
-        (source_hue(s), Color32::from_gray(20))
+        (color, source_hue(s).lerp_to_gamma(Color32::WHITE, 0.75))
     };
     ui.dnd_drag_source(id, s, |ui| {
         egui::Frame::none()

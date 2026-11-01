@@ -138,6 +138,9 @@ menus).
 
 Newest first, by release.
 
+- v0.63.7: a real light look: a soft off-white ground, richer track and
+  modulation colors, a deep blue for what's picked, chips with a pale
+  name on their deep color, and the synth sections as light cards
 - v0.63.6: the piano roll's keys look like a small keyboard by the grid; the
   selected track is marked behind its name only, so its steps and meter
   read like every other row's
