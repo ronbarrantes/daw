@@ -542,7 +542,10 @@ it. Hover for what each one does. To make room:
   between blends two shapes. **Level 2**
   is how loud the second one is (0 = just the first), **Pitch 2** moves it
   in semitones (+12 an octave up, +7 a fifth), **Detune** pulls it slightly
-  out of tune to thicken the sound.
+  out of tune to thicken the sound. **Unison** stacks 3, 5 or 7 copies of
+  each oscillator, each a little out of tune, for a huge "supersaw" sound
+  (try the Supersaw preset); Detune sets how far apart they are. More
+  copies cost more CPU, so on a slow computer use fewer or leave it Off.
 - **Voice:** what makes the sound and how notes play. **Engine** picks
   the sound: **Analog** (the two oscillators below), **Pluck** (a plucked
   string), **Mallet** (a struck bar, glass or bell), **FM** (electric

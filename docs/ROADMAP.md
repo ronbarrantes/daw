@@ -143,6 +143,8 @@ menus).
 
 Newest first, by release.
 
+- v0.65.0: Unison: the Analog engine stacks 3, 5 or 7 detuned copies of
+  each oscillator (Detune spreads them) for a supersaw; a Supersaw preset
 - v0.64.1: Grand piano: less wobble (strings closer in tune), and Stretch
   eases off in the bass, where it made low notes zap like lasers
 - v0.64.0: a real-ish Grand piano (felt hammer, three detuned strings,

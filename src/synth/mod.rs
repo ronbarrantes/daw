@@ -282,6 +282,7 @@ pub const WAVE_2: usize = first_knob(&osc::INFO) + osc::WAVE_2;
 pub const LEVEL_2: usize = first_knob(&osc::INFO) + osc::LEVEL_2;
 pub const PITCH_2: usize = first_knob(&osc::INFO) + osc::PITCH_2;
 pub const DETUNE: usize = first_knob(&osc::INFO) + osc::DETUNE;
+pub const UNISON: usize = first_knob(&osc::INFO) + osc::UNISON;
 pub const VOICES: usize = first_knob(&play::INFO) + play::VOICES;
 pub const GLIDE: usize = first_knob(&play::INFO) + play::GLIDE;
 pub const BEND: usize = first_knob(&play::INFO) + play::BEND;
@@ -760,10 +761,11 @@ mod tests {
     fn modules_sound_exactly_like_the_old_synth() {
         use legacy::{Lfo as OldLfo, Voice as OldVoice, PARAMS as OLD_PARAMS};
         let sr = 48_000.0;
-        // The old synth only had the analog oscillators, and no Bend.
+        // The old synth only had the analog oscillators, and no Bend or
+        // Unison.
         let mut patches: Vec<Values> = (0..PRESETS.len())
             .map(preset)
-            .filter(|v| engine(v) == ANALOG && v[BEND] == 0.0)
+            .filter(|v| engine(v) == ANALOG && v[BEND] == 0.0 && v[UNISON] == 0.0)
             .collect();
         for (i, p) in patches.clone().iter().enumerate() {
             let mut p = *p;

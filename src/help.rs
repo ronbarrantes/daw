@@ -249,7 +249,9 @@ const SECTIONS: &[(&str, &str)] = &[
          triangle, saw (buzzy), square (hollow) and noise (hiss) to click \
          (a tick per cycle). Level 2 \
          is the second one's volume, Pitch 2 its pitch in semitones, Detune \
-         thickens.\n\
+         thickens. Unison stacks 3, 5 or 7 slightly detuned copies of each \
+         oscillator for a huge supersaw (Detune spreads them); more copies \
+         use more CPU.\n\
          • Voice: Engine picks the sound: Analog (two oscillators), Pluck \
          (a plucked or hammered string: Hammer, Strings, Stretch and Key \
          decay make it a piano), Mallet (marimba, vibes, glass, bell), FM \

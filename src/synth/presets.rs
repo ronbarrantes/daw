@@ -77,7 +77,7 @@ macro_rules! knobs {
 use Source::{Lfo2, ModEnv, Velocity};
 
 #[rustfmt::skip]
-pub const PRESETS: [Preset; 34] = [
+pub const PRESETS: [Preset; 35] = [
     // Keys
     // A real-ish grand: three strings a few cents apart struck by a felt
     // hammer, overtones stretched a little sharp like stiff steel, high
@@ -206,6 +206,11 @@ pub const PRESETS: [Preset; 34] = [
         (CUTOFF, 5000.0), (RESONANCE, 0.0), (ENV_AMOUNT, 0.0), (ATTACK, 0.01), (SUSTAIN, 0.9),
         (RELEASE, 0.2), (VOICES, 2.0), (GLIDE, 0.06)],
         &[(ModEnv, WT_POSITION, 0.6)]),
+    // Unison: seven detuned saws per oscillator, the trance "supersaw".
+    p("Leads", "Supersaw", &[(WAVE, 2.0), (WAVE_2, 2.0), (DETUNE, 0.5), (UNISON, 3.0),
+        (CUTOFF, 5000.0), (RESONANCE, 0.05), (ENV_AMOUNT, 0.1), (ATTACK, 0.01),
+        (SUSTAIN, 0.9), (RELEASE, 0.4)],
+        &[(Velocity, CUTOFF, 0.1)]),
     p("Leads", "Sync-style lead", &[(WAVE, 2.0), (WAVE_2, 2.0), (PITCH_2, 7.0), (DETUNE, 0.1),
         (CUTOFF, 2500.0), (RESONANCE, 0.4), (ENV_AMOUNT, 0.3), (FILTER_DECAY, 0.3),
         (ATTACK, 0.005), (SUSTAIN, 0.8), (RELEASE, 0.2), (VOICES, 1.0), (GLIDE, 0.04)],
