@@ -348,13 +348,22 @@ pub fn screen_fill() -> Color32 {
     }
 }
 
-/// A piano key's fill and its name's color: white keys, then black.
-pub fn piano_key(sharp: bool) -> (Color32, Color32) {
-    match (light(), sharp) {
-        (true, false) => (Color32::from_gray(236), Color32::from_gray(40)),
-        (true, true) => (Color32::from_gray(150), Color32::from_gray(250)),
-        (false, false) => (Color32::from_gray(62), Color32::from_gray(230)),
-        (false, true) => (Color32::from_gray(30), Color32::from_gray(160)),
+/// The piano roll's keys: the white keys' fill, the black keys', and the
+/// note names' color (on the white part). `hovered` lights them a little.
+pub fn piano_keys(hovered: bool) -> (Color32, Color32, Color32) {
+    let lift = if hovered { 14 } else { 0 };
+    if light() {
+        (
+            Color32::from_gray(226 - lift),
+            Color32::from_gray(50 + lift),
+            Color32::from_gray(60),
+        )
+    } else {
+        (
+            Color32::from_gray(196 + lift),
+            Color32::from_gray(26 + lift),
+            Color32::from_gray(50),
+        )
     }
 }
 

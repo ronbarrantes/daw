@@ -94,6 +94,8 @@ pub struct Playhead {
 /// "1 bar", "2 bars"...
 /// The gap between steps, and a track row's height (at least).
 const GAP: f32 = 2.0;
+/// How wide the piano roll's keyboard is.
+const KEYBOARD: f32 = 64.0;
 const ROW: f32 = 20.0;
 
 /// How wide the part of a row before its steps is, and the name in it.
@@ -659,7 +661,7 @@ impl App {
         } else {
             Color32::TRANSPARENT
         };
-        egui::Frame::none().fill(fill).show(ui, |ui| ui.horizontal(|ui| {
+        egui::Frame::none().show(ui, |ui| ui.horizontal(|ui| {
             let groups: Vec<(u32, String)> = self
                 .project
                 .groups
@@ -669,7 +671,8 @@ impl App {
             let color = track_color(i);
             let track = &mut self.project.tracks[i];
             let head = Vec2::new(HEAD_WIDTH, ROW);
-            ui.allocate_ui_with_layout(head, egui::Layout::left_to_right(egui::Align::Center), |ui| {
+            let behind = ui.painter().add(egui::Shape::Noop);
+            let head_rect = ui.allocate_ui_with_layout(head, egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 ui.set_width(HEAD_WIDTH);
                 // Tracks in a group are indented under its header.
                 let indent = if track.group.is_some() { 12.0 } else { 0.0 };
@@ -777,7 +780,10 @@ impl App {
                         self.dirty = true;
                     }
                 });
-            });
+            }).response.rect;
+            // The selected track is marked behind its name, not across its
+            // steps, so every step and the meter read the same on every row.
+            ui.painter().set(behind, egui::Shape::rect_filled(head_rect, 3.0, fill));
             let spacing = ui.spacing().item_spacing.x;
             ui.spacing_mut().item_spacing.x = GAP;
             for (n, &bar) in shown.iter().enumerate() {
@@ -1163,23 +1169,34 @@ impl App {
             };
             let note = base + lane as u8;
             ui.horizontal(|ui| {
-                let (key_fill, key_ink) = crate::theme::piano_key(sharp);
-                // The keys reach right up to the grid.
+                // A small keyboard right by the grid: white keys full
+                // width, black keys shorter, from the left, like a piano
+                // on its side.
                 let at = self.bar_x[self.edit_bar % 2];
                 let spacing = ui.spacing().item_spacing.x;
-                let key_width = (at - ui.cursor().min.x - spacing).max(40.0);
-                let key = cell(
-                    ui,
-                    Vec2::new(key_width, self.lane_h),
-                    key_fill,
-                    egui::Stroke::NONE,
+                let room = (at - ui.cursor().min.x - spacing).max(KEYBOARD);
+                let (rect, key) =
+                    ui.allocate_exact_size(Vec2::new(room, self.lane_h), Sense::click());
+                let keys = egui::Rect::from_min_max(
+                    egui::pos2(rect.right() - KEYBOARD, rect.top()),
+                    rect.max,
                 );
-                ui.painter().text(
-                    key.rect.right_center() - Vec2::new(4.0, 0.0),
+                let (white, black, ink) = crate::theme::piano_keys(key.hovered());
+                let painter = ui.painter();
+                painter.rect_filled(keys, 1.0, white);
+                if sharp {
+                    let short = egui::Rect::from_min_size(
+                        keys.min,
+                        Vec2::new(keys.width() * 0.6, keys.height()),
+                    );
+                    painter.rect_filled(short, 1.0, black);
+                }
+                painter.text(
+                    keys.right_center() - Vec2::new(4.0, 0.0),
                     egui::Align2::RIGHT_CENTER,
                     &name,
                     egui::FontId::proportional(10.0),
-                    key_ink,
+                    ink,
                 );
                 if key.on_hover_text("Click to hear this note").clicked() {
                     let _ = self.events.try_send(Event::Preview { track: i, note });

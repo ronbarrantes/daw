@@ -138,6 +138,9 @@ menus).
 
 Newest first, by release.
 
+- v0.63.6: the piano roll's keys look like a small keyboard by the grid; the
+  selected track is marked behind its name only, so its steps and meter
+  read like every other row's
 - v0.63.5: light mode: knobs, mod chips, sliders, the scope and the master
   meter are light with dark marks, and sliders fill in their track's color
 - v0.63.4: fix: the touchpad glide sometimes didn't start after a quick
