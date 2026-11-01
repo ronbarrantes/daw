@@ -85,11 +85,11 @@ pub const PRESETS: [Preset; 34] = [
     // quiet ring (the envelope's Decay to Sustain). Harder notes hit with
     // a harder, brighter hammer.
     p("Keys", "Grand piano", knobs!(OPEN, [(ENGINE, 1.0), (STRING_TONE, 0.55),
-        (STRING_DECAY, 9.0), (PICK_SPOT, 0.12), (HAMMER, 0.85), (STRING_COUNT, 2.0),
-        (STRING_DETUNE, 0.3), (STRETCH, 0.35), (KEY_DECAY, 0.7), (CUTOFF, 3500.0),
+        (STRING_DECAY, 9.0), (PICK_SPOT, 0.12), (HAMMER, 0.9), (STRING_COUNT, 2.0),
+        (STRING_DETUNE, 0.12), (STRETCH, 0.3), (KEY_DECAY, 0.7), (CUTOFF, 3500.0),
         (ENV_AMOUNT, 0.35), (FILTER_DECAY, 1.2), (ATTACK, 0.001), (DECAY, 1.0),
         (SUSTAIN, 0.45), (RELEASE, 0.3)]),
-        &[(Velocity, HAMMER, -0.45), (Velocity, STRING_TONE, 0.3), (Velocity, CUTOFF, 0.2)]),
+        &[(Velocity, HAMMER, -0.25), (Velocity, STRING_TONE, 0.25), (Velocity, CUTOFF, 0.2)]),
     // Quills pluck the strings: bright and wiry, two strings together,
     // the same however hard it's played, and cut short when let go.
     p("Keys", "Harpsichord", knobs!(OPEN, [(ENGINE, 1.0), (STRING_TONE, 0.9),

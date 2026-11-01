@@ -138,6 +138,8 @@ pub struct Pluck {
     /// loss per trip. Worked out again when the pitch moves.
     delays: [f32; 3],
     gains: [f32; 3],
+    /// The stretch allpass coefficient for this note.
+    bend: f32,
     tuned_freq: f32,
 }
 
@@ -158,6 +160,7 @@ impl Default for Pluck {
             key_decay: 0.0,
             delays: [0.0; 3],
             gains: [0.0; 3],
+            bend: 0.0,
             tuned_freq: 0.0,
         }
     }
@@ -230,6 +233,11 @@ impl Pluck {
         // Higher notes die away sooner with Key decay: half as long per
         // octave above middle C at full, longer below.
         let octaves = (freq.max(1.0) / 261.6).log2();
+        // Real strings are stiffest, for their length, at the top: the
+        // bass barely stretches (and a strong stretch there smears each
+        // strike into a zap, like a laser).
+        let reach = ((octaves + 2.0) / 4.0).clamp(0.05, 1.0);
+        self.bend = self.stretch * reach * reach;
         let decay = (self.decay * 2f32.powf(-octaves * self.key_decay)).clamp(0.05, 30.0);
         for (s, ratio) in spread.iter().enumerate().take(n) {
             let f = freq * ratio;
@@ -238,8 +246,8 @@ impl Pluck {
             // the sound a little; take that off so the string stays in
             // tune.
             let mut taken = self.damp;
-            if self.stretch != 0.0 {
-                taken += STAGES as f32 * allpass_delay(self.stretch, w.min(3.0));
+            if self.bend != 0.0 {
+                taken += STAGES as f32 * allpass_delay(self.bend, w.min(3.0));
             }
             self.delays[s] = (Self::period(f, sr) - taken).max(1.0);
             // Down 60 dB after `decay` seconds, `f` trips a second.
@@ -294,7 +302,7 @@ impl Pluck {
             self.tune(freq, sr);
         }
         let n = self.sounding(freq, sr);
-        let (damp, a) = (self.damp, self.stretch);
+        let (damp, a) = (self.damp, self.bend);
         let mut out = self.main.next(self.delays[0], damp, self.gains[0], a);
         for (s, line) in self.extra.iter_mut().take(n - 1).enumerate() {
             out += line.next(self.delays[s + 1], damp, self.gains[s + 1], a);
