@@ -247,7 +247,14 @@ impl Sections {
             return;
         }
         let line = ui.visuals().widgets.noninteractive.bg_stroke.color;
+        // On the light look each section is a slightly lighter card.
+        let card = if ui.visuals().dark_mode {
+            Color32::TRANSPARENT
+        } else {
+            ui.visuals().window_fill
+        };
         egui::Frame::none()
+            .fill(card)
             .stroke(egui::Stroke::new(1.0_f32, line))
             .inner_margin(egui::Margin::same(6.0))
             .rounding(2.0)
