@@ -58,6 +58,9 @@ pub fn builtin_drums() -> Vec<Arc<Sample>> {
         .collect()
 }
 
+// The knobs stay inline (not boxed) so the engine reads them without
+// chasing a pointer; most tracks are synths anyway.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone)]
 pub enum Kind {
     Synth(synth::Values),
@@ -312,6 +315,9 @@ pub struct Track {
     /// How many octaves the piano roll shows, 1 to `MAX_OCTAVES`. Notes
     /// in rows above stay, hidden and silent, if it's made smaller.
     pub octaves: u8,
+    /// The note a tap on the track's step row places, 0-11 (C to B) in
+    /// the piano roll's lowest octave, like a drum's root note.
+    pub tap_note: u8,
     /// MIDI channel (0-based) to send this track's notes on, if any.
     pub midi_channel: Option<u8>,
     /// Note sent over MIDI by one-shot tracks, e.g. 36 for a kick.
@@ -377,6 +383,7 @@ impl Track {
             humanize: 0.0,
             octave,
             octaves: 1,
+            tap_note: 0,
             midi_channel: None,
             midi_note: SAMPLE_ROOT,
             group: None,
@@ -404,6 +411,16 @@ impl Track {
     /// The highest `octave` that keeps every row a real MIDI note.
     pub fn top_octave(&self) -> u8 {
         (9 - self.octaves.clamp(1, MAX_OCTAVES)).min(7)
+    }
+
+    /// The lane a tap on the step row places: the Tap note on melodic
+    /// tracks, the one lane on others.
+    pub fn tap_lane(&self) -> usize {
+        if self.is_melodic() {
+            (self.tap_note as usize).min(self.lanes() - 1)
+        } else {
+            0
+        }
     }
 
     /// MIDI note number of C in the track's octave (octave 3 = C3 = 48).

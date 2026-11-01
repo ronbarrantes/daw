@@ -239,6 +239,9 @@ struct TrackFile {
     octave: u8,
     #[serde(default = "default_octaves")]
     octaves: u8,
+    /// The step row's note, 0-11 above the piano roll's lowest C.
+    #[serde(default)]
+    tap_note: u8,
     /// 1-16 as shown in the app; `null` when off.
     #[serde(default)]
     midi_channel: Option<u8>,
@@ -461,6 +464,7 @@ pub fn to_bytes(project: &Project, bpm: f32) -> Result<Vec<u8>, String> {
             humanize: t.humanize,
             octave: t.octave,
             octaves: t.octaves,
+            tap_note: t.tap_note,
             midi_channel: t.midi_channel.map(|c| c + 1),
             midi_note: t.midi_note,
             group: t.group,
@@ -765,6 +769,7 @@ fn read_zip(bytes: Vec<u8>) -> Result<Song, String> {
         track.humanize = t.humanize.clamp(0.0, 1.0);
         track.octaves = t.octaves.clamp(1, MAX_OCTAVES);
         track.octave = t.octave.min(track.top_octave());
+        track.tap_note = t.tap_note.min(11);
         track.midi_channel = t
             .midi_channel
             .filter(|c| (1..=16).contains(c))
@@ -1335,6 +1340,18 @@ mod tests {
         assert_eq!(t.octaves, 3);
         assert_eq!(t.patterns[0][0][30][7], Some(Step::HIT), "two octaves up");
         assert_eq!(loaded.tracks[0].octaves, 1, "others stay one octave");
+    }
+
+    #[test]
+    fn tap_notes_are_saved() {
+        let mut project = Project::demo();
+        let lead = project.tracks.iter().position(Track::is_melodic).unwrap();
+        project.tracks[lead].tap_note = 7;
+        let bytes = to_bytes(&project, 120.0).unwrap();
+        let loaded = from_bytes("test.daw", bytes).unwrap().project;
+        assert_eq!(loaded.tracks[lead].tap_note, 7);
+        assert_eq!(loaded.tracks[lead].tap_lane(), 7, "G");
+        assert_eq!(loaded.tracks[0].tap_lane(), 0, "drums have one lane");
     }
 
     #[test]

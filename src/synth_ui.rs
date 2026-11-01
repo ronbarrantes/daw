@@ -883,7 +883,7 @@ impl App {
             .on_hover_text("Play the sound once")
             .clicked()
         {
-            self.preview(self.selected, 0);
+            self.preview(self.selected, self.tap_lane(self.selected));
         }
         ui.add_space(4.0);
         if !synth {

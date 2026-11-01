@@ -804,6 +804,7 @@ impl App {
             let lanes = track.lanes();
             let on_color = color;
             let base = track.base_note();
+            let tap = track.tap_lane();
             let Some(grid) = track.grid_mut(pattern, bar) else {
                 continue;
             };
@@ -882,7 +883,7 @@ impl App {
                 if let Some(p) = painting {
                     if start || p.crosses(pointer, resp.rect) {
                         if p.on && notes.is_empty() {
-                            grid[0][step] = Some(Step::HIT);
+                            grid[tap][step] = Some(Step::HIT);
                             self.dirty = true;
                         } else if !p.on && !notes.is_empty() {
                             for &l in &notes {
@@ -894,8 +895,8 @@ impl App {
                 }
                 if resp.clicked() && shift {
                     if first.is_none() {
-                        grid[0][step] = None;
-                        toggle_ghost(&mut grid[0][step]);
+                        grid[tap][step] = None;
+                        toggle_ghost(&mut grid[tap][step]);
                     }
                     for &l in &notes {
                         if Step::is_hit(&grid[l][step]) {
@@ -1121,6 +1122,24 @@ impl App {
                 .changed()
             {
                 track.octave = track.octave.min(track.top_octave());
+                self.dirty = true;
+            }
+            ui.label("Tap note");
+            let before = track.tap_note;
+            egui::ComboBox::from_id_salt(("tap note", i))
+                .selected_text(NOTE_NAMES[track.tap_note as usize % 12])
+                .width(44.0)
+                .show_ui(ui, |ui| {
+                    for (n, name) in NOTE_NAMES.iter().enumerate() {
+                        ui.selectable_value(&mut track.tap_note, n as u8, *name);
+                    }
+                })
+                .response
+                .on_hover_text(
+                    "The note a click on the track's step row places, like a\n\
+                     drum's root note. Tap in the drawer plays it too.",
+                );
+            if track.tap_note != before {
                 self.dirty = true;
             }
         });
