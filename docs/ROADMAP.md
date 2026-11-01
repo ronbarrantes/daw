@@ -138,6 +138,8 @@ menus).
 
 Newest first, by release.
 
+- v0.63.8: light look: the modulation chips are a pale fill with a deep
+  border and name, and their lines are cleaner (no more mustard)
 - v0.63.7: a real light look: a soft off-white ground, richer track and
   modulation colors, a deep blue for what's picked, chips with a pale
   name on their deep color, and the synth sections as light cards

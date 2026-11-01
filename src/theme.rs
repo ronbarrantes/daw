@@ -79,6 +79,11 @@ fn light() -> bool {
     LIGHT.load(Relaxed) && matches!(current(), Theme::System | Theme::Light)
 }
 
+/// Whether the light look is showing.
+pub fn is_light() -> bool {
+    light()
+}
+
 /// `color` as a mark (a line, a ring, a lit bar) on the ground: darker on
 /// the light look, so it stands out at least 3:1 there too.
 pub fn mark(color: Color32) -> Color32 {

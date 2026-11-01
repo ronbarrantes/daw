@@ -390,9 +390,26 @@ pub fn mod_knob(
 }
 
 /// Each modulation source's colour, the same everywhere it's shown
-/// (darker on the light look, so its rings and lines stand out).
+/// (a deeper shade on the light look, so its rings and lines stand out).
 pub fn source_color(s: Source) -> Color32 {
-    crate::theme::mark(source_hue(s))
+    if crate::theme::is_light() {
+        source_light(s)[0]
+    } else {
+        source_hue(s)
+    }
+}
+
+/// A modulation source's shades on the light look: its lines and rings,
+/// its chip's border and name, and its chip's fill (emerald, amber, cyan
+/// and fuchsia at 600, 800 and 200-300 on Tailwind's scale).
+fn source_light(s: Source) -> [Color32; 3] {
+    let rgb = Color32::from_rgb;
+    match s {
+        Source::Lfo1 => [rgb(217, 119, 6), rgb(180, 83, 9), rgb(253, 230, 138)],
+        Source::Lfo2 => [rgb(8, 145, 178), rgb(21, 94, 117), rgb(165, 243, 252)],
+        Source::ModEnv => [rgb(192, 38, 211), rgb(134, 25, 143), rgb(245, 208, 254)],
+        Source::Velocity => [rgb(5, 150, 105), rgb(6, 95, 70), rgb(110, 231, 183)],
+    }
 }
 
 /// A modulation source's colour at full brightness.
@@ -408,22 +425,23 @@ fn source_hue(s: Source) -> Color32 {
 /// A modulation source's chip: drag it onto a knob to connect it.
 pub fn source_chip(ui: &mut egui::Ui, s: Source) {
     let id = egui::Id::new(("mod source", s.name()));
-    let color = source_color(s);
-    // On a dark ground: the colour on a dim fill. On a light one the
-    // other way round: a pale tint of it on its deep shade.
-    let (fill, text) = if ui.visuals().dark_mode {
-        (color.gamma_multiply(0.25), color)
+    // On a dark ground: the colour on a dim fill. On a light one: a pale
+    // fill with the name and border in a deep shade.
+    let (fill, line) = if crate::theme::is_light() {
+        let [_, deep, pale] = source_light(s);
+        (pale, deep)
     } else {
-        (color, source_hue(s).lerp_to_gamma(Color32::WHITE, 0.75))
+        let color = source_color(s);
+        (color.gamma_multiply(0.25), color)
     };
     ui.dnd_drag_source(id, s, |ui| {
         egui::Frame::none()
             .fill(fill)
-            .stroke(Stroke::new(1.0_f32, color))
+            .stroke(Stroke::new(1.0_f32, line))
             .rounding(8.0)
             .inner_margin(egui::Margin::symmetric(7.0, 1.0))
             .show(ui, |ui| {
-                ui.label(RichText::new(s.name()).small().color(text))
+                ui.label(RichText::new(s.name()).small().color(line))
             });
     })
     .response
