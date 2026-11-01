@@ -650,8 +650,8 @@ Try:
   a sweep, plus a blip at the start of each note.
 - **Velocity** onto Cutoff: notes played harder are brighter.
 
-**Scope:** the green screen in the **Scope** section is an oscilloscope of
-the selected track, so you can watch a knob change the wave. A saw is a
+**Scope:** the green screen in the **Scope** section (the first one in the
+instrument drawer) is an oscilloscope of the selected track, so you can watch a knob change the wave. A saw is a
 ramp, a square is a square, and the filter rounds off the sharp corners.
 Click it to show more or less time. Right-click its name to pop it out into
 its own window you can drag anywhere and make as big as you like; close that window to put
