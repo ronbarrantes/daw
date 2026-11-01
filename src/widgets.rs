@@ -259,6 +259,10 @@ fn hint(p: &Param) -> &'static str {
         }
         "LFO sync" => "Tie the LFO's speed to the tempo, e.g. once per beat (1/4)",
         "Glide" => "Slide from one note's pitch to the next (in Mono and Legato)",
+        "Tune" => {
+            "Moves the whole sound up or down, in semitones, whatever note\n\
+             plays: a drum's pitch, or a part played in a new key"
+        }
         "Arp" => {
             "Arpeggiator: play held notes one at a time in a pattern.\n\
                   Off plays them together, as chords"

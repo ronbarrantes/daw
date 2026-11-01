@@ -328,6 +328,10 @@ All of this goes out over MIDI too, with velocity.
   the keyboard. Notes you record or play into it keep their octave; notes
   above or below it wrap round into it. Make it smaller and the notes in
   the rows above are kept, hidden and silent.
+- **Tap note** (next to Octaves) is the note a click on the track's own
+  step row places, like a drum's root note: set it to G and you can tap
+  in a synth snare like a drum beat, no piano roll needed. **Tap** in the
+  drawer plays it too.
 
 ### Play from your computer keyboard
 
@@ -553,7 +557,9 @@ it. Hover for what each one does. To make room:
   its own section. **Voices** on **Poly** plays chords, **Mono**
   one note at a time, and **Legato** one at a time where a note played
   while another is held just changes pitch without restarting. **Glide**
-  slides between notes in Mono and Legato (portamento). **Bend** slides
+  slides between notes in Mono and Legato (portamento). **Tune** moves
+  the whole sound up or down in semitones, whatever note plays: handy
+  for tuning a drum made on a synth. **Bend** slides
   every note's pitch by that many semitones (fractions too, like -0.25)
   over **Bend time**: a droop, a dive or a rise on each note, no extra
   keys. Drag a chip onto Bend to vary it, e.g. Velocity so harder notes

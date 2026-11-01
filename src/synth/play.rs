@@ -14,6 +14,7 @@ pub const VOLUME: usize = 2;
 pub const ENGINE: usize = 3;
 pub const BEND: usize = 4;
 pub const BEND_TIME: usize = 5;
+pub const TUNE: usize = 6;
 
 pub const MODES: [&str; 3] = ["Poly", "Mono", "Legato"];
 /// What makes the sound; each has its own panel section.
@@ -33,8 +34,9 @@ pub const INFO: ModuleInfo = ModuleInfo {
         param("Engine", 0.0, 4.0, 0.0, false, Unit::Choice(&ENGINES)),
         param("Bend", -12.0, 12.0, 0.0, false, Unit::Semitones),
         param("Bend time", 0.01, 4.0, 0.3, true, Unit::Seconds),
+        param("Tune", -24.0, 24.0, 0.0, false, Unit::Semitones),
     ],
-    rows: &[&[ENGINE, VOICES, GLIDE], &[BEND, BEND_TIME]],
+    rows: &[&[ENGINE, VOICES, GLIDE], &[TUNE, BEND, BEND_TIME]],
     open: true,
     engine: None,
 };

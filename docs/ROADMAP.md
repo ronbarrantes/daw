@@ -143,6 +143,9 @@ menus).
 
 Newest first, by release.
 
+- v0.66.0: Tap note: pick the note a click on a synth's step row places
+  (a root note, for tapping in synth drums); a Tune knob in Voice moves
+  the whole sound by semitones
 - v0.65.0: Unison: the Analog engine stacks 3, 5 or 7 detuned copies of
   each oscillator (Detune spreads them) for a supersaw; a Supersaw preset
 - v0.64.1: Grand piano: less wobble (strings closer in tune), and Stretch

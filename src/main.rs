@@ -1179,6 +1179,11 @@ impl App {
     }
 
     /// Briefly plays one lane of a track.
+    /// The lane a track's Tap plays: its Tap note.
+    fn tap_lane(&self, track: usize) -> usize {
+        self.project.tracks.get(track).map_or(0, |t| t.tap_lane())
+    }
+
     fn preview(&self, track: usize, lane: usize) {
         if let Some(t) = self.project.tracks.get(track) {
             let note = t.note(lane);
@@ -1700,7 +1705,7 @@ impl App {
                     .on_hover_text("Play one short note")
                     .clicked()
                 {
-                    self.preview(self.selected, 0);
+                    self.preview(self.selected, self.tap_lane(self.selected));
                 }
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

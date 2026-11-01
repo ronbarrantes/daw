@@ -136,6 +136,9 @@ const SECTIONS: &[(&str, &str)] = &[
          nudge; shift-click for a ghost note.\n\
          • Octave moves the whole roll up or down; Octaves (1-4) is how \
          many it shows. Recorded notes keep their octave if it's shown.\n\
+         • Tap note is the note a click on the track's step row places, like \
+         a drum's root note, so a synth drum can be tapped in like a beat. \
+         Tap in the drawer plays it too.\n\
          • Other tracks' notes show faintly behind, so you can line parts up \
          (turn off in the View menu).\n\
          • Each track plays up to 16 notes at once; past that, the oldest \
@@ -259,7 +262,8 @@ const SECTIONS: &[(&str, &str)] = &[
          brightness) or Wavetable (sweep Position, or drag LFO 2 onto it). \
          Try the (pluck), (mallet), FM and wavetable presets. Voices is Poly (chords), Mono (one note at a time) or Legato (one \
          at a time, overlapping notes don't restart). Glide slides between \
-         notes in Mono and Legato. Bend slides every note's pitch by that \
+         notes in Mono and Legato. Tune moves the whole sound up or down in \
+         semitones (tune a synth drum). Bend slides every note's pitch by that \
          many semitones (fractions too) over Bend time; drag a chip onto \
          Bend to vary it.\n\
          • Arpeggiator: plays held notes one at a time in a pattern (Up, \

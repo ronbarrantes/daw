@@ -287,6 +287,8 @@ pub const VOICES: usize = first_knob(&play::INFO) + play::VOICES;
 pub const GLIDE: usize = first_knob(&play::INFO) + play::GLIDE;
 pub const BEND: usize = first_knob(&play::INFO) + play::BEND;
 pub const BEND_TIME: usize = first_knob(&play::INFO) + play::BEND_TIME;
+#[cfg(test)]
+pub const TUNE: usize = first_knob(&play::INFO) + play::TUNE;
 pub const VOLUME: usize = first_knob(&play::INFO) + play::VOLUME;
 pub const ENGINE: usize = first_knob(&play::INFO) + play::ENGINE;
 pub const STRING_TONE: usize = first_knob(&pluck::INFO) + pluck::TONE;
@@ -416,6 +418,8 @@ pub struct Voice {
     slide: f32,
     slide_step: f32,
     slide_at: f32,
+    /// The Tune knob as a pitch ratio: every note moves by it.
+    tune: f32,
 }
 
 impl Voice {
@@ -444,6 +448,7 @@ impl Voice {
             slide: 0.0,
             slide_step: 1.0,
             slide_at: 0.0,
+            tune: 1.0,
         };
         v.set_params(&PARAMS.map(|p| p.default));
         v
@@ -474,6 +479,7 @@ impl Voice {
         self.volume = play[play::VOLUME];
         self.slide = play[play::BEND];
         self.slide_step = 1.0 / (play[play::BEND_TIME].max(0.001) * sr);
+        self.tune = 2f32.powf(play[play::TUNE].round() / 12.0);
     }
 
     /// Moves the note's pitch by `semis` (fractions allowed, so between the
@@ -498,7 +504,7 @@ impl Voice {
             self.env.trigger();
             self.filter.trigger();
             match self.engine {
-                PLUCK => self.pluck.trigger(self.target, self.sr),
+                PLUCK => self.pluck.trigger(self.target * self.tune, self.sr),
                 MALLET => self.mallet.trigger(),
                 FM => self.fm.trigger(),
                 _ => {}
@@ -549,7 +555,7 @@ impl Voice {
         }
         let amp = self.env.next();
         self.filter.decay();
-        let freq = self.freq * pitch;
+        let freq = self.freq * pitch * self.tune;
         let osc = match self.engine {
             PLUCK => self.pluck.next(freq, self.sr),
             MALLET => self.mallet.next(freq, self.sr),
@@ -643,6 +649,18 @@ mod tests {
             let peak = out.iter().fold(0.0_f32, |m, s| m.max(s.abs()));
             assert!(peak > 0.01 && peak < 1.0, "{name}: peak {peak}");
         }
+    }
+
+    #[test]
+    fn tune_moves_every_note() {
+        let mut values = open_filter();
+        values[WAVE] = 0.0; // a sine, for a clean pitch
+        values[SUSTAIN] = 1.0;
+        let plain = pitch_of(&play(&values, 60, 9_600)[4_800..]);
+        values[TUNE] = 7.0;
+        let tuned = pitch_of(&play(&values, 60, 9_600)[4_800..]);
+        let semis = 12.0 * (tuned / plain).log2();
+        assert!((semis - 7.0).abs() < 0.3, "{plain} Hz to {tuned} Hz");
     }
 
     #[test]
