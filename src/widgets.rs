@@ -200,7 +200,14 @@ fn hint(p: &Param) -> &'static str {
         }
         "Level 2" => "How loud the second oscillator is; 0 = just oscillator 1",
         "Pitch 2" => "Second oscillator's pitch in semitones: +12 = an octave up, +7 = a fifth",
-        "Detune" => "Fine pitch difference between the two oscillators; higher = thicker",
+        "Detune" => {
+            "Fine pitch difference between the two oscillators, and how far\n\
+             apart the Unison copies are; higher = thicker"
+        }
+        "Unison" => {
+            "Stacks 3, 5 or 7 slightly detuned copies of each oscillator for a\n\
+             big supersaw sound. More copies use more CPU"
+        }
         "Engine" => {
             "What makes the sound: Analog (two oscillators), Pluck (a plucked\n\
              string), Mallet (marimba, vibes, glass, bell), FM (electric piano,\n\
