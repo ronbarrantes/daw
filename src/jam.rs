@@ -584,7 +584,13 @@ impl App {
                             ui.close_menu();
                         }
                     });
-                    if mini_slider(ui, &GROUP_VOLUME, &mut group.volume, 56.0) {
+                    if mini_slider(
+                        ui,
+                        &GROUP_VOLUME,
+                        &mut group.volume,
+                        56.0,
+                        ui.visuals().text_color(),
+                    ) {
                         self.dirty = true;
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -752,7 +758,7 @@ impl App {
                     }
                 });
                 // Volume sits by the name, so balancing is right there.
-                if mini_slider(ui, &TRACK_VOLUME, &mut track.volume, 56.0) {
+                if mini_slider(ui, &TRACK_VOLUME, &mut track.volume, 56.0, color) {
                     self.dirty = true;
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -921,7 +927,7 @@ impl App {
                     (&REVERB_SEND, &mut track.reverb),
                     (&DELAY_SEND, &mut track.delay),
                 ] {
-                    if mini_slider(ui, p, value, MIX_WIDTH) {
+                    if mini_slider(ui, p, value, MIX_WIDTH, track_color(i)) {
                         self.dirty = true;
                     }
                 }
