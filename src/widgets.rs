@@ -350,11 +350,11 @@ pub fn mod_knob(
                 .map(|i| point(start + 1.5 * PI * (from + (to - from) * i as f32 / 24.0), r))
                 .collect()
         };
-        let body = Color32::from_gray(if resp.hovered() { 70 } else { 55 });
-        painter.circle_filled(center, radius, body);
+        let (body, outline, pointer) = crate::theme::knob(resp.hovered());
+        painter.circle(center, radius, body, outline);
         painter.add(egui::Shape::line(
             arc(0.0, t, radius + 1.5),
-            Stroke::new(2.5_f32, drum_on()),
+            Stroke::new(2.5_f32, crate::theme::mark(drum_on())),
         ));
         // Each source's reach, one ring further out per source.
         for (n, (color, amount, both)) in rings.iter().enumerate() {
@@ -375,12 +375,12 @@ pub fn mod_knob(
             painter.circle_filled(
                 point(start + 1.5 * PI * live.clamp(0.0, 1.0), r),
                 3.0,
-                Color32::WHITE,
+                pointer,
             );
         }
         let angle = start + 1.5 * PI * t;
         let tip = point(angle, radius - 2.0);
-        painter.line_segment([center, tip], Stroke::new(2.0_f32, Color32::WHITE));
+        painter.line_segment([center, tip], Stroke::new(2.0_f32, pointer));
 
         ui.label(RichText::new(p.name).size(10.0));
         ui.label(RichText::new(format_value(p, *value)).size(9.0).weak());
@@ -389,8 +389,14 @@ pub fn mod_knob(
     (changed, inner.inner)
 }
 
-/// Each modulation source's colour, the same everywhere it's shown.
+/// Each modulation source's colour, the same everywhere it's shown
+/// (darker on the light look, so its rings and lines stand out).
 pub fn source_color(s: Source) -> Color32 {
+    crate::theme::mark(source_hue(s))
+}
+
+/// A modulation source's colour at full brightness.
+fn source_hue(s: Source) -> Color32 {
     match s {
         Source::Lfo1 => Color32::from_rgb(235, 200, 60),
         Source::Lfo2 => Color32::from_rgb(80, 205, 225),
@@ -403,14 +409,21 @@ pub fn source_color(s: Source) -> Color32 {
 pub fn source_chip(ui: &mut egui::Ui, s: Source) {
     let id = egui::Id::new(("mod source", s.name()));
     let color = source_color(s);
+    // On a dark ground: the colour on a dim fill. On a light one: dark
+    // text on the full colour, which reads far better than pale on pale.
+    let (fill, text) = if ui.visuals().dark_mode {
+        (color.gamma_multiply(0.25), color)
+    } else {
+        (source_hue(s), Color32::from_gray(20))
+    };
     ui.dnd_drag_source(id, s, |ui| {
         egui::Frame::none()
-            .fill(color.gamma_multiply(0.25))
+            .fill(fill)
             .stroke(Stroke::new(1.0_f32, color))
             .rounding(8.0)
             .inner_margin(egui::Margin::symmetric(7.0, 1.0))
             .show(ui, |ui| {
-                ui.label(RichText::new(s.name()).small().color(color))
+                ui.label(RichText::new(s.name()).small().color(text))
             });
     })
     .response
@@ -427,8 +440,9 @@ pub fn meter(ui: &mut egui::Ui, levels: [f32; 2], limiting: f32) -> egui::Respon
     let size = Vec2::new(70.0, 14.0);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::hover());
     let painter = ui.painter_at(rect);
-    painter.rect_filled(rect, 2.0, Color32::from_gray(40));
-    painter.rect_stroke(rect, 2.0, Stroke::new(1.0_f32, Color32::from_gray(70)));
+    let (ground, outline) = crate::theme::meter();
+    painter.rect_filled(rect, 2.0, ground);
+    painter.rect_stroke(rect, 2.0, Stroke::new(1.0_f32, outline));
     let bar_h = (rect.height() - 3.0) / 2.0;
     for (i, level) in levels.iter().enumerate() {
         let top = rect.top() + 1.0 + i as f32 * (bar_h + 1.0);
@@ -441,7 +455,7 @@ pub fn meter(ui: &mut egui::Ui, levels: [f32; 2], limiting: f32) -> egui::Respon
     ui.label(
         RichText::new("LIMIT")
             .small()
-            .color(if limit { Color32::from_rgb(230, 70, 60) } else { Color32::from_gray(70) }),
+            .color(if limit { level_color(1.0) } else { ui.visuals().weak_text_color() }),
     )
     .on_hover_text("Lights up when the mix is too loud and the limiter is turning it down.\nTurn Master or some tracks down a little.");
     resp.on_hover_text("Output level, left and right")
@@ -449,13 +463,13 @@ pub fn meter(ui: &mut egui::Ui, levels: [f32; 2], limiting: f32) -> egui::Respon
 
 /// The color of a level, 0-1: green, then yellow near the top, red at it.
 fn level_color(level: f32) -> Color32 {
-    if level >= 0.94 {
+    crate::theme::mark(if level >= 0.94 {
         Color32::from_rgb(230, 70, 60)
     } else if level >= 0.7 {
         Color32::from_rgb(230, 200, 60)
     } else {
         Color32::from_rgb(80, 200, 110)
-    }
+    })
 }
 
 /// One track's level, as a thin bar `width` wide (peak, 0-1).
@@ -472,8 +486,15 @@ pub fn level_bar(ui: &mut egui::Ui, level: f32, width: f32) -> egui::Response {
 }
 
 /// A small slider for a track's row: a thin line with a handle, `width`
-/// wide. Drag it, or double-click to reset; hover shows the value.
-pub fn mini_slider(ui: &mut egui::Ui, p: &Param, value: &mut f32, width: f32) -> bool {
+/// wide, filled in `color` (the track's). Drag it, or double-click to
+/// reset; hover shows the value.
+pub fn mini_slider(
+    ui: &mut egui::Ui,
+    p: &Param,
+    value: &mut f32,
+    width: f32,
+    color: Color32,
+) -> bool {
     let (rect, resp) = ui.allocate_exact_size(Vec2::new(width, 20.0), Sense::click_and_drag());
     let before = *value;
     let inner = rect.shrink2(Vec2::new(3.0, 0.0));
@@ -488,9 +509,9 @@ pub fn mini_slider(ui: &mut egui::Ui, p: &Param, value: &mut f32, width: f32) ->
     let y = rect.center().y;
     let v = ui.visuals();
     let line = if resp.hovered() || resp.dragged() {
-        v.text_color()
+        v.strong_text_color()
     } else {
-        v.weak_text_color()
+        color
     };
     painter.line_segment(
         [Pos2::new(inner.left(), y), Pos2::new(inner.right(), y)],
@@ -508,7 +529,7 @@ pub fn mini_slider(ui: &mut egui::Ui, p: &Param, value: &mut f32, width: f32) ->
     );
     let x = inner.left() + t * inner.width();
     let handle = egui::Rect::from_center_size(Pos2::new(x, y), Vec2::new(5.0, 11.0));
-    painter.rect_filled(handle, 1.0, v.strong_text_color());
+    painter.rect_filled(handle, 1.0, line);
     let label = format!("{}: {}", p.name, format_value(p, *value));
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Slider, true, p.name));
     resp.on_hover_text(format!("{label}\nDrag to change, double-click to reset"));
@@ -598,8 +619,9 @@ pub fn scope(
 ) -> bool {
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     let painter = ui.painter_at(rect);
-    painter.rect_filled(rect, 4.0, Color32::from_rgb(12, 20, 16));
-    let grid = Stroke::new(1.0_f32, Color32::from_rgb(28, 48, 36));
+    let [ground, grid, trace, label] = crate::theme::scope();
+    painter.rect_filled(rect, 4.0, ground);
+    let grid = Stroke::new(1.0_f32, grid);
     for i in 1..10 {
         let x = rect.left() + rect.width() * i as f32 / 10.0;
         painter.line_segment(
@@ -640,16 +662,13 @@ pub fn scope(
             Pos2::new(x, y.clamp(rect.top(), rect.bottom()))
         })
         .collect();
-    painter.add(egui::Shape::line(
-        points,
-        Stroke::new(1.5_f32, Color32::from_rgb(90, 255, 140)),
-    ));
+    painter.add(egui::Shape::line(points, Stroke::new(1.5_f32, trace)));
     painter.text(
         rect.right_bottom() - Vec2::new(4.0, 2.0),
         egui::Align2::RIGHT_BOTTOM,
         format!("{span_ms:.0} ms"),
         egui::FontId::proportional(10.0),
-        Color32::from_rgb(90, 160, 110),
+        label,
     );
     resp.on_hover_text("The selected track's sound, like an oscilloscope.\nClick to change how much time it shows.")
         .clicked()
@@ -833,7 +852,8 @@ pub fn spectrum(
 ) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     let painter = ui.painter_at(rect);
-    painter.rect_filled(rect, 4.0, Color32::from_rgb(12, 16, 24));
+    let [ground, fill, line_color] = crate::theme::spectrum();
+    painter.rect_filled(rect, 4.0, ground);
     const N: usize = 2048;
     if samples.len() >= N {
         let tail = &samples[samples.len() - N..];
@@ -868,16 +888,9 @@ pub fn spectrum(
                 Pos2::new(w[1].x, inner.bottom()),
                 Pos2::new(w[0].x, inner.bottom()),
             ];
-            painter.add(egui::Shape::convex_polygon(
-                quad,
-                Color32::from_rgb(40, 90, 140),
-                Stroke::NONE,
-            ));
+            painter.add(egui::Shape::convex_polygon(quad, fill, Stroke::NONE));
         }
-        painter.add(egui::Shape::line(
-            line,
-            Stroke::new(1.5_f32, Color32::from_rgb(120, 190, 255)),
-        ));
+        painter.add(egui::Shape::line(line, Stroke::new(1.5_f32, line_color)));
     }
     resp
 }

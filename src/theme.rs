@@ -79,6 +79,94 @@ fn light() -> bool {
     LIGHT.load(Relaxed) && matches!(current(), Theme::System | Theme::Light)
 }
 
+/// `color` as a mark (a line, a ring, a lit bar) on the ground: darker on
+/// the light look, so it stands out at least 3:1 there too.
+pub fn mark(color: Color32) -> Color32 {
+    if light() {
+        color.gamma_multiply(0.62).to_opaque()
+    } else {
+        color
+    }
+}
+
+/// A knob's body (`hovered` a little lighter or darker), its outline, and
+/// its pointer.
+pub fn knob(hovered: bool) -> (Color32, Stroke, Color32) {
+    if light() {
+        (
+            Color32::from_gray(if hovered { 214 } else { 226 }),
+            Stroke::new(1.0_f32, Color32::from_gray(150)),
+            Color32::from_gray(40),
+        )
+    } else {
+        (
+            Color32::from_gray(if hovered { 70 } else { 55 }),
+            Stroke::NONE,
+            Color32::WHITE,
+        )
+    }
+}
+
+/// The scope's screen: its ground, grid, trace and label colors.
+pub fn scope() -> [Color32; 4] {
+    match current() {
+        Theme::Led => [
+            Color32::BLACK,
+            Color32::from_gray(38),
+            Color32::from_gray(235),
+            Color32::from_gray(140),
+        ],
+        Theme::Hardware => [
+            Color32::from_gray(10),
+            Color32::from_gray(36),
+            Color32::from_rgb(255, 106, 61),
+            Color32::from_rgb(170, 80, 50),
+        ],
+        _ if light() => [
+            screen_fill(),
+            Color32::from_gray(214),
+            Color32::from_rgb(20, 135, 70),
+            Color32::from_gray(100),
+        ],
+        _ => [
+            Color32::from_rgb(12, 20, 16),
+            Color32::from_rgb(28, 48, 36),
+            Color32::from_rgb(90, 255, 140),
+            Color32::from_rgb(90, 160, 110),
+        ],
+    }
+}
+
+/// The spectrum's screen: its ground, the fill under the line, and the
+/// line.
+pub fn spectrum() -> [Color32; 3] {
+    match current() {
+        Theme::Led | Theme::Hardware => {
+            let [ground, _, line, _] = scope();
+            [ground, line.gamma_multiply(0.35).to_opaque(), line]
+        }
+        _ if light() => [
+            screen_fill(),
+            Color32::from_rgb(170, 200, 232),
+            Color32::from_rgb(30, 100, 170),
+        ],
+        _ => [
+            Color32::from_rgb(12, 16, 24),
+            Color32::from_rgb(40, 90, 140),
+            Color32::from_rgb(120, 190, 255),
+        ],
+    }
+}
+
+/// The master meter's ground and outline.
+pub fn meter() -> (Color32, Color32) {
+    if light() {
+        (Color32::from_gray(222), Color32::from_gray(190))
+    } else {
+        (Color32::from_gray(40), Color32::from_gray(70))
+    }
+}
+
 pub fn current() -> Theme {
     Theme::ALL[CURRENT.load(Relaxed) as usize % Theme::ALL.len()]
 }
@@ -91,6 +179,10 @@ pub fn apply(ctx: &egui::Context, theme: Theme) {
         Theme::Hardware => (hardware(), Visuals::light()),
         _ => (flat_dark(), Visuals::light()),
     };
+    let (mut dark, mut light) = (dark, light);
+    // Sliders fill up to their handle, like the track sliders.
+    dark.slider_trailing_fill = true;
+    light.slider_trailing_fill = true;
     ctx.set_visuals_of(egui::Theme::Dark, dark);
     ctx.set_visuals_of(egui::Theme::Light, light);
     ctx.set_theme(match theme {
