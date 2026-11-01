@@ -143,6 +143,8 @@ menus).
 
 Newest first, by release.
 
+- v0.64.1: Grand piano: less wobble (strings closer in tune), and Stretch
+  eases off in the bass, where it made low notes zap like lasers
 - v0.64.0: a real-ish Grand piano (felt hammer, three detuned strings,
   stretched overtones, high notes fade sooner) and a Harpsichord preset;
   the Pluck engine gets Hammer, Strings, String detune, Stretch and Key
