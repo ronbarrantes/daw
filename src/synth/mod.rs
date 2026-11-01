@@ -291,6 +291,11 @@ pub const ENGINE: usize = first_knob(&play::INFO) + play::ENGINE;
 pub const STRING_TONE: usize = first_knob(&pluck::INFO) + pluck::TONE;
 pub const STRING_DECAY: usize = first_knob(&pluck::INFO) + pluck::DECAY;
 pub const PICK_SPOT: usize = first_knob(&pluck::INFO) + pluck::POSITION;
+pub const HAMMER: usize = first_knob(&pluck::INFO) + pluck::HAMMER;
+pub const STRING_COUNT: usize = first_knob(&pluck::INFO) + pluck::STRINGS;
+pub const STRING_DETUNE: usize = first_knob(&pluck::INFO) + pluck::DETUNE;
+pub const STRETCH: usize = first_knob(&pluck::INFO) + pluck::STRETCH;
+pub const KEY_DECAY: usize = first_knob(&pluck::INFO) + pluck::KEY_DECAY;
 pub const MATERIAL: usize = first_knob(&mallet::INFO) + mallet::MATERIAL;
 pub const HARDNESS: usize = first_knob(&mallet::INFO) + mallet::HARDNESS;
 pub const RING: usize = first_knob(&mallet::INFO) + mallet::DECAY;
@@ -849,6 +854,40 @@ mod tests {
             let (start, end) = (loud(&out[..4_800]), loud(&out[43_200..]));
             assert!(end < start * 0.05, "dies away: {start} then {end}");
         }
+    }
+
+    #[test]
+    fn the_grand_piano_rings_in_tune_and_high_notes_die_sooner() {
+        let v = preset(
+            PRESETS
+                .iter()
+                .position(|p| p.name == "Grand piano")
+                .unwrap(),
+        );
+        assert_eq!(v[STRING_COUNT], 2.0, "three strings");
+        for note in [40, 60, 79] {
+            let out = play(&v, note, 48_000);
+            let hz = pitch_of(&out[2_400..14_400]);
+            let want = midi_to_hz(note);
+            assert!(
+                (hz / want - 1.0).abs() < 0.03,
+                "note {note}: {hz} Hz, want {want}"
+            );
+        }
+        // Key decay: a high note has faded more than a low one after 1 s.
+        let ring = |note| {
+            let out = play(&v, note, 48_000);
+            let loud = |o: &[f32]| o.iter().map(|s| s.abs()).sum::<f32>();
+            loud(&out[43_200..]) / loud(&out[..4_800])
+        };
+        assert!(ring(84) < ring(48), "{} vs {}", ring(84), ring(48));
+        // The extras are off by default, so a plain pluck is unchanged,
+        // and pick spot 0 still sounds.
+        let mut plain = PARAMS.map(|p| p.default);
+        plain[ENGINE] = 1.0;
+        plain[PICK_SPOT] = 0.0;
+        let out = play(&plain, 60, 4_800);
+        assert!(out.iter().any(|s| s.abs() > 0.01), "pick spot 0 sounds");
     }
 
     #[test]
