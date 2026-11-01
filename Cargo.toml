@@ -1,6 +1,6 @@
 [package]
 name = "daw"
-version = "0.63.7"
+version = "0.63.8"
 edition = "2021"
 
 [dependencies]
