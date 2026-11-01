@@ -101,12 +101,14 @@ pub(super) struct Snapshot {
     t: f32,
 }
 
-/// Every section the instrument panel can show, in order: a section per
-/// synth module (the sound first), then the rest.
+/// Every section the instrument panel can show, in order: the scope
+/// first (it's what you watch), then a section per synth module (the
+/// sound first), then the rest.
 pub(super) fn section_titles() -> impl Iterator<Item = &'static str> {
-    SYNTH_ORDER
+    ["Scope"]
         .into_iter()
-        .chain(["Sample", "Scope", "Mix", "Theremin"])
+        .chain(SYNTH_ORDER)
+        .chain(["Sample", "Mix", "Theremin"])
 }
 
 /// The synth's sections in the panel, which isn't their order in

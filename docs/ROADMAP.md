@@ -138,6 +138,8 @@ menus).
 
 Newest first, by release.
 
+- v0.63.2: the scope comes first in the instrument drawer, where it's easy
+  to watch
 - v0.63.1: on Linux, touchpad scrolling goes twice as far and glides on
   after the fingers lift, like in a browser
 - v0.63: Help > Diagnostics: a stress test that times the engine with
