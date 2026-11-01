@@ -789,6 +789,8 @@ impl App {
     /// column on the left, then its sections side by side, wrapping onto
     /// more rows when the window is narrow.
     pub(super) fn instrument_panel(&mut self, ui: &mut egui::Ui) {
+        // A little room above the header, like the separator gives below.
+        ui.add_space(4.0);
         if self.project.tracks.get(self.selected).is_none() {
             self.drawer_toggle(ui);
             ui.weak("Add a track to get started.");
