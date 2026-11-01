@@ -17,6 +17,8 @@ const FRICTION: f32 = 4.6;
 const STOP: f32 = 40.0;
 /// egui's points per scroll line on the desktop.
 const LINE: f32 = 40.0;
+/// A swipe older than this (in seconds) is too old to glide on from.
+const STALE: f64 = 0.25;
 
 #[derive(Default)]
 pub struct Glide {
@@ -31,7 +33,9 @@ pub struct Glide {
 impl Glide {
     /// Rewrites one frame's input: boosts touchpad scrolling and adds the
     /// glide's own scroll when the fingers have lifted. Returns whether
-    /// it's still gliding (so the app keeps redrawing).
+    /// it needs another frame soon: while the fingers move (so the glide
+    /// starts the moment they lift, even with nothing else to redraw) and
+    /// while it glides.
     pub fn apply(&mut self, input: &mut egui::RawInput) -> bool {
         let Some(now) = input.time else {
             return false;
@@ -57,7 +61,10 @@ impl Glide {
                         MouseWheelUnit::Line => delta.x.fract() != 0.0 || delta.y.fract() != 0.0,
                         MouseWheelUnit::Page => false,
                     };
-                    if smooth {
+                    if *delta == Vec2::ZERO {
+                        // Some systems send an empty scroll as the
+                        // fingers lift; it says nothing about the speed.
+                    } else if smooth {
                         *delta *= BOOST;
                         touchpad = true;
                         moved += match unit {
@@ -79,18 +86,33 @@ impl Glide {
             return false;
         }
         if touchpad {
-            // Follow the fingers' speed, smoothed over a few frames.
+            // Follow the fingers' speed, smoothed over a few frames. A
+            // touchpad's last few movements tail off as the fingers lift,
+            // so slowing down counts for less than speeding up.
             if dt > 0.0 {
-                self.velocity = self.velocity * 0.5 + (moved / dt) * 0.5;
+                let now_speed = moved / dt;
+                let keep = if now_speed.length() < self.velocity.length() {
+                    0.8
+                } else {
+                    0.5
+                };
+                self.velocity = self.velocity * keep + now_speed * (1.0 - keep);
             }
             self.last_input = now;
+            return true;
+        }
+        if now - self.last_input > STALE {
+            // No frame came in time to glide; don't start one late.
+            self.velocity = Vec2::ZERO;
             return false;
         }
-        if now - self.last_input < LIFT || self.velocity.length() < STOP {
-            if now - self.last_input >= LIFT {
-                self.velocity = Vec2::ZERO;
-            }
+        if self.velocity.length() < STOP {
+            self.velocity = Vec2::ZERO;
             return false;
+        }
+        if now - self.last_input < LIFT {
+            // The fingers may only be pausing: wait a moment.
+            return true;
         }
         // Gliding: scroll on by the speed, and slow it down.
         input.events.push(Event::MouseWheel {
@@ -147,6 +169,32 @@ mod tests {
             frame(&mut g, t, None);
         }
         assert!(!frame(&mut g, t + 0.016, None).0);
+    }
+
+    #[test]
+    fn the_glide_starts_on_its_own_and_never_late() {
+        let mut g = Glide::default();
+        // While the fingers move it asks for frames, so the glide can
+        // start when they lift even if nothing else redraws.
+        assert!(frame(&mut g, 0.016, swipe(-20.0)).0);
+        assert!(frame(&mut g, 0.032, swipe(-20.0)).0);
+        assert!(frame(&mut g, 0.048, Some(empty())).0);
+        // An empty scroll as the fingers lift doesn't slow it.
+        assert!(frame(&mut g, 0.12, None).0);
+        // A frame that only comes a second later doesn't glide.
+        let mut g = Glide::default();
+        frame(&mut g, 0.016, swipe(-20.0));
+        frame(&mut g, 0.032, swipe(-20.0));
+        let (gliding, events) = frame(&mut g, 1.0, None);
+        assert!(!gliding && events.is_empty());
+    }
+
+    fn empty() -> Event {
+        Event::MouseWheel {
+            unit: MouseWheelUnit::Point,
+            delta: Vec2::ZERO,
+            modifiers: Default::default(),
+        }
     }
 
     #[test]

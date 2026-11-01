@@ -138,6 +138,8 @@ menus).
 
 Newest first, by release.
 
+- v0.63.4: fix: the touchpad glide sometimes didn't start after a quick
+  swipe
 - v0.63.3: a little room above the instrument drawer's header
 - v0.63.2: the scope comes first in the instrument drawer, where it's easy
   to watch
