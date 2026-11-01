@@ -6,9 +6,11 @@ an Apple Silicon Mac.
 
 ## How to work here
 
-Follow [docs/WORKFLOW.md](docs/WORKFLOW.md). In short: turn each request
-into one or more PRs, bump the version in each, and merge to `main` yourself
-once CI is green; the Build workflow then tags and publishes the release.
+Follow [docs/WORKFLOW.md](docs/WORKFLOW.md). In short: questions aren't
+requests. Answer, offer to build, and wait for a clear "yes, build it"
+("good idea" or "that'd be great" isn't one). Then turn each request
+into as few PRs as makes sense, bump the version in each, and merge to
+`main` yourself once CI is green; the Build workflow then tags and publishes the release.
 Only ask Ron first for big breaking changes, and for anything about naming
 or branding (the app's name, file extension, icon): talk it through and wait
 for a clear "do it".

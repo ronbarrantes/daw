@@ -5,9 +5,16 @@
 Ron works on this away from his main computer, in short bursts, and gives
 ideas rather than code. So:
 
-1. **Ron asks for something.**
-2. **Claude builds it as one or more pull requests**, splitting the work
-   however makes sense.
+1. **Ron asks for something.** A question is not a request. Answer it,
+   and if it points to something worth building, offer it and wait for a
+   clear yes before starting. "Oh, that's a good idea" or "that would be
+   great to have" is not a yes. Ron often keeps talking and the idea
+   grows, so waiting lets the whole thing land in one pass (e.g. one PR
+   recolouring the knobs, chips and sliders together, not three PRs).
+2. **Claude builds it in as few pull requests as makes sense.** Before
+   starting, check whether nearby parts want the same change, and ask
+   Ron if the scope is unclear. Split only when the pieces really are
+   separate.
 3. **Claude merges each PR into `main` once CI is green**, without waiting
    for approval. The exception is a big breaking change (e.g. old saved
    songs stop loading, or a feature is removed or reworked): ask first.
