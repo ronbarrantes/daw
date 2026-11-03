@@ -528,7 +528,8 @@ it. Hover for what each one does. To make room:
 - A popped-out section is its own window. Drag it
   anywhere, even over the timeline, to lay out the knobs you're playing
   with; the Scope and Theremin windows can be made as big as you like. They
-  show the selected track, like the drawer. The window's **×** puts it back.
+  show the selected track, like the drawer, and keep their modulation chip
+  (LFO, Velocity...) to drag onto knobs. The window's **×** puts it back.
   Popped-out windows and where they sit are remembered too.
 
 - **Preset:** shows which preset the knobs match (Custom once you've
