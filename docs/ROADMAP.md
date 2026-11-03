@@ -143,6 +143,8 @@ menus).
 
 Newest first, by release.
 
+- v0.66.1: fix: a popped-out section (LFO, LFO 2, Mod envelope, Voice)
+  lost its modulation chip, so it couldn't be dragged onto knobs
 - v0.66.0: Tap note: pick the note a click on a synth's step row places
   (a root note, for tapping in synth drums); a Tune knob in Voice moves
   the whole sound by semitones

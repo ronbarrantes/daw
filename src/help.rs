@@ -243,7 +243,7 @@ const SECTIONS: &[(&str, &str)] = &[
          again to open it); its triangle shows which. Right-click the name to close it (More > + Section, or View \
          > Instrument sections, brings it back) or pop it out \
          into its own window to put anywhere (the Scope and Theremin can be \
-         made big); its × puts it back.\n\n\
+         made big, and a section's chip comes along); its × puts it back.\n\n\
          • Preset: a starting sound, in groups (keys, plucks, mallets and \
          bells, bass, strings and pads, leads, effects). Most bring \
          modulation too, like Velocity for brighter notes when you play \

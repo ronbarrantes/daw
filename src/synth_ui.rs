@@ -432,6 +432,11 @@ impl App {
                         ui.allocate_space(ui.available_size());
                     }
                 } else {
+                    // The section's chip (LFO, Velocity...) comes along,
+                    // so it can still be dragged onto knobs.
+                    if let Some(source) = offered_source(&title) {
+                        ui.horizontal(|ui| source_chip(ui, source));
+                    }
                     self.section(ui, &title, true);
                 }
             });
