@@ -1,7 +1,8 @@
 #![allow(dead_code)]
 //! The synth as it was before it was split into modules (v0.32), kept
 //! only so tests can check the modules sound exactly the same. Delete it
-//! once that's no longer useful.
+//! once that's no longer useful. Its attack has been changed to match
+//! the Envelope module's slow-starting curve (v0.67).
 //!
 //! A small synth voice: two oscillators (each morphing from sine through
 //! triangle, saw and square to noise) into a resonant low-pass filter. An
@@ -250,7 +251,7 @@ pub const PARAMS: [Param; 27] = [
     param("Reso", 0.0, 1.0, 0.35, false, Unit::Percent),
     param("Env amt", 0.0, 1.0, 0.65, false, Unit::Percent),
     param("F decay", 0.02, 2.0, 0.25, true, Unit::Seconds),
-    param("Attack", 0.001, 1.0, 0.003, true, Unit::Seconds),
+    param("Attack", 0.001, 10.0, 0.003, true, Unit::Seconds),
     param("Release", 0.01, 2.0, 0.15, true, Unit::Seconds),
     param("Volume", 0.0, 1.0, 0.7, false, Unit::Percent),
     param("Decay", 0.01, 2.0, 0.3, true, Unit::Seconds),
@@ -286,10 +287,6 @@ pub const PARAMS: [Param; 27] = [
         Unit::Choice(&ARP_NOTE_SETS),
     ),
 ];
-
-/// The attack aims past full volume so it actually gets there, then hands
-/// over to the decay stage.
-const ATTACK_TARGET: f32 = 1.2;
 
 #[derive(Clone, Copy, PartialEq)]
 enum Stage {
@@ -435,7 +432,8 @@ pub struct Voice {
     env_octaves: f32,
     volume: f32,
     sustain: f32,
-    attack_coef: f32,
+    rise: f32,
+    attack_step: f32,
     decay_coef: f32,
     release_coef: f32,
     filter_decay_coef: f32,
@@ -470,7 +468,8 @@ impl Voice {
             env_octaves: 0.0,
             volume: 0.0,
             sustain: 0.0,
-            attack_coef: 0.0,
+            rise: 0.0,
+            attack_step: 1.0,
             decay_coef: 0.0,
             release_coef: 0.0,
             filter_decay_coef: 0.0,
@@ -500,9 +499,7 @@ impl Voice {
         self.env_octaves = v[ENV_AMOUNT] * 6.0;
         self.volume = v[VOLUME];
         self.sustain = v[SUSTAIN];
-        // Reaching full volume takes ~1.8 time constants with ATTACK_TARGET,
-        // so this makes the knob read as the actual attack time.
-        self.attack_coef = coef(v[ATTACK] / 1.8, self.sr);
+        self.attack_step = 1.0 / (v[ATTACK] * self.sr).max(1.0);
         self.decay_coef = coef(v[DECAY], self.sr);
         self.release_coef = coef(v[RELEASE], self.sr);
         self.filter_decay_coef = coef(v[FILTER_DECAY], self.sr);
@@ -527,6 +524,7 @@ impl Voice {
         }
         if retrigger || self.stage == Stage::Release {
             self.stage = Stage::Attack;
+            self.rise = self.amp.sqrt();
             self.filter_env = 1.0;
         }
     }
@@ -570,10 +568,12 @@ impl Voice {
         }
         match self.stage {
             Stage::Attack => {
-                self.amp += (ATTACK_TARGET - self.amp) * self.attack_coef;
-                if self.amp >= 1.0 {
+                self.rise += self.attack_step;
+                if self.rise >= 1.0 {
                     self.amp = 1.0;
                     self.stage = Stage::Decay;
+                } else {
+                    self.amp = self.rise * self.rise;
                 }
             }
             Stage::Decay => self.amp += (self.sustain - self.amp) * self.decay_coef,

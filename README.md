@@ -619,7 +619,8 @@ it. Hover for what each one does. To make room:
   filter. Let go to stop.
 - **Filter:** **Cutoff** and **Reso** set the tone; **Env amt** and
   **F decay** make each note "pluck" by opening the filter and closing it.
-- **Envelope (ADSR):** **Attack** fades in, **Decay** falls to the
+- **Envelope (ADSR):** **Attack** fades in (up to 10 seconds, starting
+  from silence, so a slow one swells in), **Decay** falls to the
   **Sustain** level while the note is held, **Release** fades out after.
 - **LFO:** a slow wobble. **LFO to** picks what it moves: **Pitch**
   (vibrato), **Filter** (wah), **Volume** (tremolo) or **Pan** (the sound

@@ -572,6 +572,28 @@ impl Voice {
 mod tests {
     use super::*;
 
+    /// A long attack fades in from silence: nothing heard at first,
+    /// then a steady rise, not a jump to near full volume.
+    #[test]
+    fn a_long_attack_starts_quietly() {
+        let sr = 48_000.0;
+        let mut values = PARAMS.map(|p| p.default);
+        values[ATTACK] = 4.0;
+        let mut v = Voice::new(sr);
+        v.set_params(&values);
+        v.note_on(60, false, true);
+        let mut at = |seconds: f32| {
+            for _ in 0..(seconds * sr) as usize {
+                v.next_sample(0.0);
+            }
+            v.env.amp
+        };
+        let db = |a: f32| 20.0 * a.max(1e-9).log10();
+        assert!(db(at(0.2)) < -25.0, "a twentieth of the way in");
+        assert!(db(at(1.8)) < -6.0, "halfway in");
+        assert!(at(2.05) > 0.95, "full at 4 s");
+    }
+
     #[test]
     fn adsr_shapes_the_volume() {
         let sr = 48_000.0;
@@ -645,7 +667,8 @@ mod tests {
             }
             let named = PRESETS.iter().filter(|q| q.name == name).count();
             assert_eq!(named, 1, "{name}: one preset per name");
-            let out = play(&values, 60, 4_800);
+            // A second, so slow-attack pads have faded in.
+            let out = play(&values, 60, 48_000);
             let peak = out.iter().fold(0.0_f32, |m, s| m.max(s.abs()));
             assert!(peak > 0.01 && peak < 1.0, "{name}: peak {peak}");
         }
