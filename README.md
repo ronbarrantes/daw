@@ -344,7 +344,9 @@ A S D F G H J K L         ← white keys (A = C)
 
 - Hold several keys for a chord, or to feed the **Arpeggiator** (most
   laptop keyboards manage three or four keys at once).
-- **Z** / **X** move down or up an octave.
+- **Z** / **X** move down or up an octave, as do the **-** and **+**
+  buttons at the top of the instrument panel; between them, **A = C4**
+  says which note the A key plays.
 - **1** / **2** can be a pitch wheel: turn on **MIDI → Bend with keys 1
   and 2**, then hold 1 to bend the notes you're holding down, 2 to bend them up
   (chords too); let go and they slide back. The box under it sets how

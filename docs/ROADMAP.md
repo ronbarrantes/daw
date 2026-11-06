@@ -143,9 +143,11 @@ menus).
 
 Newest first, by release.
 
-- v0.67.0: a synth's Attack goes up to 10 seconds and starts from
+- v0.68.1: a synth's Attack goes up to 10 seconds and starts from
   silence, so a slow attack really fades in (it used to jump most of
   the way up in the first moment)
+- v0.68.0: - and + at the top of the instrument panel move the keys A to
+  K down or up an octave (like Z and X), with what A plays shown
 - v0.66.1: fix: a popped-out section (LFO, LFO 2, Mod envelope, Voice)
   lost its modulation chip, so it couldn't be dragged onto knobs
 - v0.66.0: Tap note: pick the note a click on a synth's step row places
