@@ -283,8 +283,9 @@ const SECTIONS: &[(&str, &str)] = &[
          opens the filter.\n\
          • Filter: Cutoff and Reso set the tone; Env amt and F decay make \
          each note pluck.\n\
-         • Envelope (ADSR): Attack fades in, Decay falls to the Sustain level \
-         while a note is held, Release fades out after.\n\
+         • Envelope (ADSR): Attack fades in (up to 10 s, from silence, so a \
+         slow one swells in), Decay falls to the Sustain level while a note \
+         is held, Release fades out after.\n\
          • LFO: a wobble on Pitch (vibrato), Filter (wah), Volume \
          (tremolo) or Pan (left and right). Random jumps each cycle (random tones on pitch). LFO sync \
          ties its speed to the tempo. LFO retrig restarts it at every note.\n\
