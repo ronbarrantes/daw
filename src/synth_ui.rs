@@ -904,8 +904,8 @@ impl App {
     }
 
     /// The drawer's top line: the track's name, Drone and Tap, the keys'
-    /// octave, MIDI
-    /// channel, preset, Mutate and A/B, and bringing back closed sections.
+    /// octave, MIDI channel, preset, Mutate and A/B, and bringing back
+    /// closed sections.
     fn instrument_head(&mut self, ui: &mut egui::Ui, sections: &mut Sections, synth: bool) {
         let track = &mut self.project.tracks[self.selected];
         let mut changed = false;
