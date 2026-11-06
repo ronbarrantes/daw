@@ -104,6 +104,30 @@ impl Harness {
         self.press(label, egui::PointerButton::Primary);
     }
 
+    /// Clicks the widget labelled `label` nearest to the one labelled
+    /// `near`, for labels like "+" that show up in more than one place.
+    fn click_near(&mut self, label: &str, near: &str) {
+        let anchor = self.find(near).unwrap_or_else(|| panic!("no \"{near}\""));
+        let pos = self
+            .widgets
+            .iter()
+            .filter(|(name, role, _)| name == label && *role != accesskit::Role::Label)
+            .map(|(_, _, rect)| rect.center())
+            .min_by(|a, b| a.distance(anchor).total_cmp(&b.distance(anchor)))
+            .unwrap_or_else(|| panic!("no \"{label}\""));
+        let click = |pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        self.events.push(egui::Event::PointerMoved(pos));
+        self.events.push(click(true));
+        self.frame();
+        self.events.push(click(false));
+        self.frames(2);
+    }
+
     fn right_click(&mut self, label: &str) {
         self.press(label, egui::PointerButton::Secondary);
     }
@@ -309,4 +333,23 @@ fn clicking_a_synth_opens_its_piano_roll() {
     assert!(!ui.app.view.piano);
     ui.click("Pad");
     assert!(ui.app.view.piano, "a synth's piano roll always opens");
+}
+
+#[test]
+fn the_keys_octave_buttons_move_what_a_plays() {
+    let mut ui = Harness::new();
+    ui.click("Lead");
+    let i = ui.app.selected;
+    let start = ui.app.project.tracks[i].octave;
+    let a = |ui: &Harness| crate::notes::note_name(ui.app.project.tracks[i].base_note());
+    let label = format!("A = {}", a(&ui));
+    assert!(ui.find(&label).is_some(), "shows {label}");
+    ui.click_near("+", &label);
+    assert_eq!(ui.app.project.tracks[i].octave, start + 1);
+    let label = format!("A = {}", a(&ui));
+    assert!(ui.find(&label).is_some(), "label follows");
+    ui.click_near("-", &label);
+    let label = format!("A = {}", a(&ui));
+    ui.click_near("-", &label);
+    assert_eq!(ui.app.project.tracks[i].octave, start - 1);
 }

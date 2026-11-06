@@ -143,6 +143,8 @@ menus).
 
 Newest first, by release.
 
+- v0.68.0: - and + at the top of the instrument panel move the keys A to
+  K down or up an octave (like Z and X), with what A plays shown
 - v0.66.1: fix: a popped-out section (LFO, LFO 2, Mod envelope, Voice)
   lost its modulation chip, so it couldn't be dragged onto knobs
 - v0.66.0: Tap note: pick the note a click on a synth's step row places

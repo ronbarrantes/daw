@@ -150,7 +150,8 @@ const SECTIONS: &[(&str, &str)] = &[
           W E   T Y U   O P    <- black keys\n\
          A S D F G H J K L     <- white keys (A = C)\n\n\
          Hold several keys for a chord or the arpeggiator. Z and X change \
-         octave. With MIDI > Bend with keys 1 and 2 on, 1 and 2 are a pitch wheel: \
+         octave, as do - and + at the top of the instrument panel (A = C4 \
+         says what A plays). With MIDI > Bend with keys 1 and 2 on, 1 and 2 are a pitch wheel: \
          hold 1 to bend the held notes down, 2 up, and let go to slide \
          back; the box under it sets how far. Turn on ⏺ Rec and press Play to write what \
          you play into the pattern. With Rec on, Play clicks one bar first \
