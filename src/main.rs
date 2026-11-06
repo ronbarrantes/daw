@@ -2122,7 +2122,7 @@ impl App {
                     octave_changed = true;
                 }
                 egui::Key::X if pressed => {
-                    track.octave = (track.octave + 1).min(7);
+                    track.octave = (track.octave + 1).min(track.top_octave());
                     octave_changed = true;
                 }
                 _ => {

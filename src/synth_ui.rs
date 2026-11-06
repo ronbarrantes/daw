@@ -870,7 +870,41 @@ impl App {
         });
     }
 
-    /// The drawer's top line: the track's name, Drone and Tap, MIDI
+    /// The computer keys' octave (Z and X do the same): - and + move the
+    /// notes A to K play down or up, and the label says what A plays.
+    fn keys_octave(&mut self, ui: &mut egui::Ui) {
+        let track = &mut self.project.tracks[self.selected];
+        if !track.is_melodic() {
+            return;
+        }
+        let top = track.top_octave();
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 2.0;
+            let down = ui
+                .add_enabled(track.octave > 0, egui::Button::new("-").small())
+                .on_hover_text("Keys an octave lower (Z)");
+            let a = crate::notes::note_name(track.base_note());
+            ui.label(format!("A = {a}")).on_hover_text(
+                "The note the A key plays; A to K play the notes from there.\n\
+                 Also the piano roll's lowest octave.",
+            );
+            let up = ui
+                .add_enabled(track.octave < top, egui::Button::new("+").small())
+                .on_hover_text("Keys an octave higher (X)");
+            if down.clicked() {
+                track.octave -= 1;
+                self.dirty = true;
+            }
+            if up.clicked() {
+                track.octave += 1;
+                self.dirty = true;
+            }
+        });
+        ui.add_space(4.0);
+    }
+
+    /// The drawer's top line: the track's name, Drone and Tap, the keys'
+    /// octave, MIDI
     /// channel, preset, Mutate and A/B, and bringing back closed sections.
     fn instrument_head(&mut self, ui: &mut egui::Ui, sections: &mut Sections, synth: bool) {
         let track = &mut self.project.tracks[self.selected];
@@ -891,6 +925,7 @@ impl App {
             self.preview(self.selected, self.tap_lane(self.selected));
         }
         ui.add_space(4.0);
+        self.keys_octave(ui);
         if !synth {
             if let Some(sound) = self.drum_browser.show(ui, &self.project.tracks) {
                 self.dirty |=
